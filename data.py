@@ -4,7 +4,6 @@ import re
 import sys
 import seaborn as sns
 # import shutil
-from SimpleITK.SimpleITK import Threshold
 from networkx.algorithms.efficiency_measures import efficiency
 import numpy as np
 import pandas as pd
@@ -51,7 +50,20 @@ def get_spiking_sequence(session_id, stimulus_name, structure_acronym):
       bin_edges=time_bins,
       unit_ids=units.index.values)
   return histograms
-  # print(histograms.coords)
+
+def get_whole_spiking_sequence(session_id, stimulus_name):
+  session = cache.get_session_data(session_id)
+  # print(session.metadata)
+  # print(session.structurewise_unit_counts)
+  presentations = session.get_stimulus_table(stimulus_name)
+  units = session.units
+  time_step = 0.01
+  time_bins = np.arange(-0.1, 0.5 + time_step, time_step)
+  histograms = session.presentationwise_spike_counts(
+      stimulus_presentation_ids=presentations.index.values,  
+      bin_edges=time_bins,
+      unit_ids=units.index.values)
+  return histograms
 
 def MI(matrix):
   n=matrix.shape[0]
@@ -103,34 +115,97 @@ def granger_causality(matrix):
 
 #     return TE_from_j_to_i
 
-def generate_graph(mean_histograms, measure, lcc=True, threshold=0.3):
+def compute_adj(path, measure):
+  for file in os.listdir(path):
+    print(file)
+    if file.endswith(".nc"):
+        data = xr.open_dataset(os.path.join(path, file)).to_array()
+        # mouseID = file.replace('.nc', '').split('_')[0]
+        # stimulus = file.replace('.nc', '').replace(mouseID + '_', '')
+        if len(data.data.shape) > 2:
+          sequences = data.data.squeeze().T
+        else:
+          sequences = data.data.T
+        sequences = np.nan_to_num(sequences)
+        if measure == 'pearson':
+          adj_mat = np.corrcoef(sequences)
+        elif measure == 'cosine':
+          adj_mat = cosine_similarity(sequences)
+        elif measure == 'correlation':
+          adj_mat = squareform(pdist(sequences, 'correlation'))
+        elif measure == 'MI':
+          adj_mat = MI(sequences)
+        elif measure == 'causality':
+          adj_mat = granger_causality(sequences)
+        else:
+          sys.exit('Unrecognized measure value!!! Choices: pearson, cosin, correlation.')
+        adj_mat = np.nan_to_num(adj_mat)
+        np.fill_diagonal(adj_mat, 0)
+        np.save(os.path.join(path.replace('spiking_sequence', '{}_matrix'.format(measure)), file.replace('.nc', '.npy')), adj_mat)
+
+def generate_graph(mean_histograms, measure, lcc=True, threshold=0.3, percentile=90):
   if len(mean_histograms.data.shape) > 2:
     sequences = mean_histograms.data.squeeze().T
   else:
     sequences = mean_histograms.data.T
   if measure == 'pearson':
     adj_mat = np.corrcoef(sequences)
-    adj_mat[adj_mat < threshold] = 0
   elif measure == 'cosine':
     adj_mat = cosine_similarity(sequences)
-    adj_mat[adj_mat < adj_mat.mean()] = 0
   elif measure == 'correlation':
     adj_mat = squareform(pdist(sequences, 'correlation'))
-    adj_mat[adj_mat < adj_mat.mean()] = 0
   elif measure == 'MI':
     adj_mat = MI(sequences)
-    adj_mat[adj_mat < adj_mat.mean()] = 0
   elif measure == 'causality':
     adj_mat = granger_causality(sequences)
-    adj_mat[adj_mat < adj_mat.mean()] = 0
   else:
     sys.exit('Unrecognized measure value!!! Choices: pearson, cosin, correlation.')
   adj_mat = np.nan_to_num(adj_mat)
   np.fill_diagonal(adj_mat, 0)
+  if measure == 'pearson':
+    adj_mat[adj_mat < threshold] = 0
+  else:
+    adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
   G = nx.from_numpy_array(adj_mat) # same as from_numpy_matrix
-  if lcc: # extract the largest connected components
-    largest_cc = max(nx.connected_components(G), key=len)
-    G = nx.subgraph(G, largest_cc)
+  if lcc: # extract the largest (strongly) connected components
+    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
+      largest_cc = max(nx.connected_components(G), key=len)
+    else:
+      largest_cc = max(nx.strongly_connected_components(G), key=len)
+      G = nx.subgraph(G, largest_cc)
+  return G
+
+def generate_region_graph(mean_histograms, indices, measure, lcc=True, threshold=0.3, percentile=90):
+  if len(mean_histograms.data.shape) > 2:
+    sequences = mean_histograms.data.squeeze().T
+  else:
+    sequences = mean_histograms.data.T
+  sequences = sequences[indices, :]
+  if measure == 'pearson':
+    adj_mat = np.corrcoef(sequences)
+  elif measure == 'cosine':
+    adj_mat = cosine_similarity(sequences)
+  elif measure == 'correlation':
+    adj_mat = squareform(pdist(sequences, 'correlation'))
+  elif measure == 'MI':
+    adj_mat = MI(sequences)
+  elif measure == 'causality':
+    adj_mat = granger_causality(sequences)
+  else:
+    sys.exit('Unrecognized measure value!!! Choices: pearson, cosin, correlation.')
+  adj_mat = np.nan_to_num(adj_mat)
+  np.fill_diagonal(adj_mat, 0)
+  if measure == 'pearson':
+    adj_mat[adj_mat < threshold] = 0
+  else:
+    adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
+  G = nx.from_numpy_array(adj_mat) # same as from_numpy_matrix
+  if lcc: # extract the largest (strongly) connected components
+    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
+      largest_cc = max(nx.connected_components(G), key=len)
+    else:
+      largest_cc = max(nx.strongly_connected_components(G), key=len)
+      G = nx.subgraph(G, largest_cc)
   return G
 
 def load_npy_as_graph(path):
@@ -156,7 +231,7 @@ def load_npy_as_graph(path):
             G_dict[mouseID][stimulus][area] = nx.from_numpy_array(adj_mat[ind])
   return G_dict
 
-def load_npy_as_graph_whole(path, percentile=99, unweighted=False):
+def load_npy_as_graph_whole(path, threshold=0.4, percentile=99, unweighted=False):
   G_dict = {}
   area_dict = {}
   for file in os.listdir(path):
@@ -181,7 +256,95 @@ def load_npy_as_graph_whole(path, percentile=99, unweighted=False):
         G_dict[mouseID][stimulus] = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph)
   return G_dict, area_dict, adj_mat
 
-def load_data_as_graph(path, measure, threshold):
+def load_allen_npy_as_graph_whole(path, filter_region=30, threshold=0.4, percentile=90, unweighted=True):
+  G_dict = {}
+  area_dict = {}
+  for file in os.listdir(path):
+    print(file)
+    if file.endswith(".npy"):
+      data = np.load(os.path.join(path, file))
+      mouseID = int(file.split('_')[0])
+      stimulus = file.replace('{}_'.format(mouseID), '').replace('.npy', '')
+      instruction = units[units['ecephys_session_id']==mouseID]['ecephys_structure_acronym']
+      unique, counts = np.unique(instruction, return_counts=True)
+      cnt = dict(zip(unique, counts))
+      big_region = {key: value for key, value in cnt.items() if value >= filter_region}
+      instruction = instruction.reset_index()
+      instruction = instruction[np.isin(instruction['ecephys_structure_acronym'], list(big_region))]
+      mat_ind = np.array(instruction.index)
+      data = data[mat_ind[:, None], mat_ind]
+      if not mouseID in area_dict:
+        area_dict[mouseID] = {}
+      for i in range(instruction.shape[0]):
+        area_dict[mouseID][i] = instruction['ecephys_structure_acronym'].iloc[i]
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      adj_mat = data
+      if 'pearson' in path:
+        adj_mat[adj_mat < threshold] = 0
+      else:
+        adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
+      if unweighted:
+        adj_mat[np.nonzero(adj_mat)] = 1
+      G_dict[mouseID][stimulus] = nx.from_numpy_array(adj_mat, create_using=nx.Graph)
+  return G_dict, area_dict
+
+def load_nc_as_graph(path, measure, threshold):
+  G_dict = {}
+  for file in os.listdir(path):
+    print(file)
+    if file.endswith(".nc"):
+        data = xr.open_dataset(os.path.join(path, file)).to_array()
+        structure_acronym = file.replace('.nc', '').split('_')[-1]
+        stimulus_name = file.replace('.nc', '').replace('_' + structure_acronym, '')
+        if not stimulus_name in G_dict:
+          G_dict[stimulus_name] = {}
+        G_dict[stimulus_name][structure_acronym] = generate_graph(data, measure=measure, lcc=True, threshold=threshold)
+  return G_dict
+
+def load_nc_as_graph_whole(path, measure, threshold, percentile):
+  G_dict = {}
+  for file in os.listdir(path):
+    print(file)
+    if file.endswith(".nc"):
+        data = xr.open_dataset(os.path.join(path, file)).to_array()
+        mouseID = file.split('_')[0]
+        stimulus_name = file.replace('.nc', '').replace(mouseID + '_', '')
+        if not mouseID in G_dict:
+          G_dict[mouseID] = {}
+        G_dict[mouseID][stimulus_name] = generate_graph(data, measure=measure, lcc=True, threshold=threshold, percentile=percentile)
+  return G_dict
+
+def load_nc_regions_as_graph_whole(directory, origin_units, regions, measure, threshold, percentile):
+  units = origin_units.copy()
+  G_dict = {}
+  area_dict = {}
+  unit_regions = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    print(file)
+    if file.endswith(".nc"):
+        data = xr.open_dataset(os.path.join(directory, file)).to_array()
+        mouseID = file.split('_')[0]
+        if not mouseID in G_dict:
+          unit = units[units['ecephys_session_id']==int(mouseID)]['ecephys_structure_acronym'].reset_index()
+          unit_regions[mouseID] = unit[np.isin(unit['ecephys_structure_acronym'], regions)]
+          if set(unit_regions[mouseID]['ecephys_structure_acronym'].unique()) == set(regions): # if the mouse has all regions recorded
+            G_dict[mouseID] = {}
+          else:
+            continue
+        stimulus_name = file.replace('.nc', '').replace(mouseID + '_', '')
+        indices = np.array(unit_regions[mouseID].index)
+        G_dict[mouseID][stimulus_name] = generate_region_graph(data, indices, measure=measure, lcc=True, threshold=threshold, percentile=percentile)
+        if not mouseID in area_dict:
+          area_dict[mouseID] = {}
+        instruction = unit_regions[mouseID].reset_index()
+        for i in range(instruction.shape[0]):
+          area_dict[mouseID][i] = instruction['ecephys_structure_acronym'].iloc[i]
+  return G_dict, area_dict
+
+def compute_nc_as_graph_whole(path, measure, threshold):
   G_dict = {}
   for file in os.listdir(path):
     print(file)
@@ -227,25 +390,28 @@ def plot_graph_color(G, area_dict, measure):
 def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
   G = G_dict[mouseID][stimulus]
   print(nx.info(G))
-  node_area = area_dict[mouseID]
-  customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-  areas_uniq = list(set(node_area.values()))
-  node_to_community = {node:areas_uniq.index(area) for node, area in node_area.items()}
-  node_color = {node:customPalette[areas_uniq.index(area)] for node, area in node_area.items()}
-  fig = plt.figure(figsize=(10, 8))
-  Graph(G,
-      node_color=node_color, node_edge_width=0, edge_alpha=0.1,
-      node_layout='community', node_layout_kwargs=dict(node_to_community=node_to_community),
-      edge_layout='bundled', edge_layout_kwargs=dict(k=2000))
-  # plt.show()
-  for ind, a in enumerate(areas_uniq):
-    plt.scatter([],[], c=customPalette[ind], label=a)
+  if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+    node_area = area_dict[mouseID]
+    # customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
+    customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+    areas_uniq = list(set(node_area.values()))
+    print(areas_uniq)
+    node_to_community = {node:areas_uniq.index(area) for node, area in node_area.items()}
+    node_color = {node:customPalette[areas_uniq.index(area)] for node, area in node_area.items()}
+    fig = plt.figure(figsize=(10, 8))
+    Graph(G,
+        node_color=node_color, node_edge_width=0, edge_alpha=0.1,
+        node_layout='community', node_layout_kwargs=dict(node_to_community=node_to_community),
+        edge_layout='bundled', edge_layout_kwargs=dict(k=2000))
+    # plt.show()
+    for ind, a in enumerate(areas_uniq):
+      plt.scatter([],[], c=customPalette[ind], label=a)
 
-  plt.legend(loc='upper left')
-  plt.tight_layout()
-  plt.savefig('./plots/graph_region_{}_{}.jpg'.format(mouseID, stimulus))
+    plt.legend(loc='upper left')
+    plt.tight_layout()
+    plt.savefig('./plots/{}_graph_region_{}_{}.jpg'.format(measure, mouseID, stimulus))
 
-def plot_multi_graphs(G_dict, measure):
+def plot_multi_graphs(G_dict, measure, threshold, percentile, cc=False):
   # fig = plt.figure(figsize=(30, 40))
   ind = 1
   rows = list(G_dict.keys())
@@ -253,6 +419,14 @@ def plot_multi_graphs(G_dict, measure):
   for row in rows:
     cols += list(G_dict[row].keys())
   cols = list(set(cols))
+  # sort stimulus
+  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
   fig = plt.figure(figsize=(4*len(cols), 4*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -263,7 +437,7 @@ def plot_multi_graphs(G_dict, measure):
     for col_ind, col in enumerate(cols):
       plt.subplot(len(rows), len(cols), ind)
       if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30)
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=45)
       if col_ind == 0:
         plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
         horizontalalignment='right',
@@ -273,7 +447,14 @@ def plot_multi_graphs(G_dict, measure):
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if len(G.nodes()) > 1:
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
         edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
         degrees = dict(G.degree)
         pos = nx.spring_layout(G)
@@ -282,10 +463,12 @@ def plot_multi_graphs(G_dict, measure):
         edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
       
   plt.tight_layout()
-  plt.savefig('./plots/graphs_{}.jpg'.format(measure))
+  th = threshold if measure == 'pearson' else percentile
+  image_name = './plots/graphs_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/graphs_{}_{}.jpg'.format(measure, th)
+  plt.savefig(image_name)
   # plt.show()
 
-def plot_multi_graphs_color(G_dict, node_area, measure):
+def plot_multi_graphs_color(G_dict, node_area, measure, cc=False):
   # fig = plt.figure(figsize=(30, 40))
   customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
   ind = 1
@@ -315,7 +498,14 @@ def plot_multi_graphs_color(G_dict, node_area, measure):
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
       nx.set_node_attributes(G, node_area[row], "area")
-      if len(G.nodes()) > 1:
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
         edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
         degrees = dict(G.degree)
         pos = nx.spring_layout(G)
@@ -338,23 +528,32 @@ def plot_degree_distribution(G):
   plt.xlabel('Degree')
   plt.ylabel('Frequency')
 
-def plot_multi_degree_distributions(G_dict, measure):
+def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=False):
   ind = 1
   rows = list(G_dict.keys())
   cols = []
   for row in rows:
     cols += list(G_dict[row].keys())
   cols = list(set(cols))
+  # sort stimulus
+  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
   right = left + width
   top = bottom + height
   for row_ind, row in enumerate(rows):
+    print(row)
     for col_ind, col in enumerate(cols):
       plt.subplot(len(rows), len(cols), ind)
       if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30)
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=45)
       if col_ind == 0:
         plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
         horizontalalignment='right',
@@ -364,7 +563,14 @@ def plot_multi_degree_distributions(G_dict, measure):
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if len(G.nodes()) > 1:
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
         degree_freq = nx.degree_histogram(G)
         degrees = range(len(degree_freq))
         plt.loglog(degrees, degree_freq,'go-') 
@@ -372,7 +578,9 @@ def plot_multi_degree_distributions(G_dict, measure):
         plt.ylabel('Frequency')
       
   plt.tight_layout()
-  plt.savefig('./plots/degree_distribution_{}.jpg'.format(measure))
+  th = threshold if measure == 'pearson' else percentile
+  image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
+  plt.savefig(image_name)
 
 def intra_inter_connection(G_dict, area_dict, percentile, measure):
   rows = list(G_dict.keys())
@@ -381,17 +589,21 @@ def intra_inter_connection(G_dict, area_dict, percentile, measure):
     cols += list(G_dict[row].keys())
   cols = list(set(cols))
   # sort stimulus
-  stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
   stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
   stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
   cols = list(stimulus_rank_dict.keys())
-  metric = np.zeros((len(rows), len(cols), 3))
+  metric = np.empty((len(rows), len(cols), 3))
+  metric[:] = np.nan
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
       print(col)
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if len(G.nodes()) > 2:
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         node_area = area_dict[row]
         modularity = community.modularity(node_area,G.to_undirected())
         res = {}
@@ -416,9 +628,11 @@ def intra_inter_connection(G_dict, area_dict, percentile, measure):
     plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
     plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
   plt.legend()
+  plt.xticks(rotation=30)
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/{}_{}_intra_inter.jpg'.format(measure, percentile))
+  num = threshold if measure=='pearson' else percentile
+  plt.savefig('./plots/{}_{}_intra_inter.jpg'.format(measure, num))
 
 def metric_stimulus_error_region(G_dict, percentile, measure):
   rows = list(G_dict.keys())
@@ -427,7 +641,10 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
     cols += list(G_dict[row].keys())
   cols = list(set(cols))
   # sort stimulus
-  stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
   stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
   stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
   cols = list(stimulus_rank_dict.keys())
@@ -436,7 +653,8 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
     metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
   else:
     metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  metric = np.zeros((len(rows), len(cols), len(metric_names)))
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
   for metric_ind, metric_name in enumerate(metric_names):
     print(metric_name)
     for row_ind, row in enumerate(rows):
@@ -445,7 +663,7 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
         print(col)
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         # print(nx.info(G))
-        if len(G.nodes()) > 2:
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
           if metric_name == 'efficiency':
             met = nx.global_efficiency(G)
           elif metric_name == 'clustering':
@@ -481,9 +699,11 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
     plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
     plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
   plt.legend()
+  plt.xticks(rotation=30)
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/{}_{}_metric_stimulus.jpg'.format(measure, percentile))
+  num = threshold if measure=='pearson' else percentile
+  plt.savefig('./plots/{}_{}_metric_stimulus.jpg'.format(measure, num))
 
 def metric_heatmap(G_dict, measure):
   rows = list(G_dict.keys())
@@ -501,7 +721,7 @@ def metric_heatmap(G_dict, measure):
       for col in cols:
         print(col)
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-        if len(G.nodes()) > 2:
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
           if metric_name == 'efficiency':
             metric.loc[row][col] = nx.global_efficiency(G)
           elif metric_name == 'clustering':
@@ -531,61 +751,62 @@ def metric_heatmap(G_dict, measure):
     plt.savefig('./plots/'+measure+'_'+metric_name+'.jpg')
   return stimulus_mecs
 # %%
-# # mean histogram is a matrix
-# mean_histograms = histograms.mean(dim="stimulus_presentation_id")
-# fig, ax = plt.subplots(figsize=(8, 8))
-# ax.pcolormesh(
-#     mean_histograms["time_relative_to_stimulus_onset"], 
-#     np.arange(mean_histograms["unit_id"].size),
-#     mean_histograms.T, 
-#     vmin=0,
-#     vmax=1)
-# ax.set_ylabel("unit", fontsize=24)
-# ax.set_xlabel("time relative to stimulus onset (s)", fontsize=24)
-# ax.set_title("peristimulus time histograms for VISp units on flash presentations", fontsize=24)
-# plt.show()
-# %%
-stimulus_names = ['drifting_gratings', 'drifting_gratings_contrast', 'flashes',
-       'gabors', 'natural_movie_one', 'natural_movie_three',
-       'natural_scenes', 'spontaneous', 'static_gratings']
-# structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl']
-structure_acronyms = ['VISal', 'VISpm', 'VISam']
-session_id = 791319847
-directory = './data/ecephys_cache_dir/session_{}/stimulus_structure/'.format(session_id)
-ind = 1
-for stimulus_name in stimulus_names:
-  for structure_acronym in structure_acronyms:
-    histograms = get_spiking_sequence(session_id, stimulus_name, structure_acronym)
-    mean_histograms = histograms.mean(dim="stimulus_presentation_id")
-    mean_histograms.to_netcdf(directory + stimulus_name + '_' + structure_acronym + '.nc')
-    print('finished {} data'.format(ind))
-    ind += 1
-# %%
 # G_dict = []
 # G_dict.append([])
 # G = generate_graph(mean_histograms, lcc=True, threshold=0.5)
 # print(nx.info(G))
 # G_dict[-1].append(G)
 # plot_multi_graphs(G_dict)
+all_areas = units['ecephys_structure_acronym'].unique()
 # %%
-# measure = 'pearson'
+measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
-measure = 'MI'
+# measure = 'MI'
 # measure = 'causality'
-session_id = 791319847
 threshold = 0.4
-directory = './data/ecephys_cache_dir/session_{}/stimulus_structure/'.format(session_id)
-G_dict = load_data_as_graph(directory, measure, threshold)
-stimulus_names = ['drifting_gratings', 'drifting_gratings_contrast', 'flashes',
-       'gabors', 'natural_movie_one', 'natural_movie_three',
-       'natural_scenes', 'spontaneous', 'static_gratings']
+percentile = 90
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+G_dict = load_nc_as_graph_whole(directory, measure, threshold, percentile)
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
 structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl', 'VISal', 'VISpm', 'VISam']
 # %%
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+threshold = 0.4
+percentile = 90
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+G_dict, area_dict = load_nc_regions_as_graph_whole(directory, units, visual_regions, measure, threshold, percentile)
+# %%
+measures = ['pearson', 'cosine']
+thresholds = [0.4, 0.5, 0.6]
+percentiles = [90, 95, 99]
+ccs = [True, False]
+measure = measures[0]
+for threshold in thresholds:
+  print(threshold)
+  for cc in ccs:
+    print(cc)
+    plot_multi_graphs(G_dict, measure, threshold, percentile, cc)
+    plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
+measure = measures[1]
+for percentile in percentiles:
+  print(percentile)
+  for cc in ccs:
+    print(cc)
+    plot_multi_graphs(G_dict, measure, threshold, percentile, cc)
+    plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
+# %%
 # session_id = 791319847
-# stimulus_names = ['drifting_gratings', 'drifting_gratings_contrast', 'flashes',
-#        'gabors', 'natural_movie_one', 'natural_movie_three',
-#        'natural_scenes', 'spontaneous', 'static_gratings']
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
 # # structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl', 'VISal', 'VISpm', 'VISam']
 # structure_acronyms = ['VISal', 'VISpm', 'VISam']
 # path = './data/ecephys_cache_dir/session_{}/stimulus_structure/'.format(session_id)
@@ -594,8 +815,9 @@ structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl', 'VISal', 'VISpm', 'VISam']
 # %%
 # distribution: degree, closeness, clustering coefficient, betweenness
 # %%
-plot_multi_graphs(G_dict, measure)
-plot_multi_degree_distributions(G_dict, measure)
+cc = False
+plot_multi_graphs(G_dict, measure, threshold, percentile, cc)
+plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
 # %%
 directory = './data/connectivity_matrix/'
 # G_dict = load_npy_as_graph(directory)
@@ -665,58 +887,5 @@ areas_uniq = list(set(node_area.values()))
 node_to_community = {node:areas_uniq.index(area) for node, area in node_area.items()}
 node_color = {node:customPalette[areas_uniq.index(area)] for node, area in node_area.items()}
 # %%
-rows = list(G_dict.keys())
-cols = []
-for row in rows:
-  cols += list(G_dict[row].keys())
-cols = list(set(cols))
-metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-metric = np.zeros((len(rows), len(cols), len(metric_names)))
-for metric_ind, metric_name in enumerate(metric_names):
-  print(metric_name)
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      print(col)
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      # print(nx.info(G))
-      if len(G.nodes()) > 2:
-        if metric_name == 'efficiency':
-          met = nx.global_efficiency(G)
-        elif metric_name == 'clustering':
-          met = nx.average_clustering(G)
-        elif metric_name == 'transitivity':
-          met = nx.transitivity(G)
-        elif metric_name == 'betweenness':
-          met = np.mean(list(nx.betweenness_centrality(G).values()))
-        elif metric_name == 'closeness':
-          met = np.mean(list(nx.closeness_centrality(G).values()))
-        elif metric_name == 'modularity':
-          try:
-            part = community.best_partition(G)
-            met = community.modularity(part,G)
-          except:
-            met = 0
-        elif metric_name == 'assortativity':
-          met = nx.degree_assortativity_coefficient(G)
-        elif metric_name == 'density':
-          met = nx.density(G)
-        metric[row_ind, col_ind, metric_ind] = met
-# %%
-metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-for metric_ind, metric_name in enumerate(metric_names):
-  df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-  df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
-  df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
-  df['metric'] = metric_name
-  df['stimulus'] = cols
-  metric_stimulus = metric_stimulus.append(df, ignore_index=True)
-print(metric_stimulus)
-fig = plt.figure(figsize=[10, 6])
-for i, m in metric_stimulus.groupby("metric"):
-  plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
-  plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
-plt.legend()
-plt.tight_layout()
-plt.show()
+
 # %%
