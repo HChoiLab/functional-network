@@ -409,7 +409,7 @@ def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
 
     plt.legend(loc='upper left')
     plt.tight_layout()
-    plt.savefig('./plots/{}_graph_region_{}_{}.jpg'.format(measure, mouseID, stimulus))
+    plt.savefig('./plots/graph_region_{}_{}_{}.jpg'.format(measure, mouseID, stimulus))
 
 def plot_multi_graphs(G_dict, measure, threshold, percentile, cc=False):
   # fig = plt.figure(figsize=(30, 40))
@@ -764,7 +764,7 @@ measure = 'pearson'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.4
+threshold = 0.5
 percentile = 90
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict = load_nc_as_graph_whole(directory, measure, threshold, percentile)
@@ -778,7 +778,7 @@ measure = 'pearson'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.4
+threshold = 0.5
 percentile = 90
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
