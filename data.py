@@ -632,7 +632,7 @@ def intra_inter_connection(G_dict, area_dict, percentile, measure):
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/{}_{}_intra_inter.jpg'.format(measure, num))
+  plt.savefig('./plots/intra_inter_{}_{}.jpg'.format(measure, num))
 
 def metric_stimulus_error_region(G_dict, percentile, measure):
   rows = list(G_dict.keys())
@@ -703,7 +703,70 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/{}_{}_metric_stimulus.jpg'.format(measure, num))
+  plt.savefig('./plots/metric_stimulus_{}_{}.jpg'.format(measure, num))
+
+def metric_stimulus_individual(G_dict, threshold, percentile, measure):
+  rows = list(G_dict.keys())
+  cols = []
+  for row in rows:
+    cols += list(G_dict[row].keys())
+  cols = list(set(cols))
+  # sort stimulus
+  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
+  G = list(list(G_dict.items())[0][1].items())[0][1]
+  if nx.is_directed(G):
+    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  else:
+    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
+  fig = plt.figure(figsize=(20, 10))
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        print(col)
+        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+        # print(nx.info(G))
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+          if metric_name == 'efficiency':
+            met = nx.global_efficiency(G)
+          elif metric_name == 'clustering':
+            met = nx.average_clustering(G)
+          elif metric_name == 'transitivity':
+            met = nx.transitivity(G)
+          elif metric_name == 'betweenness':
+            met = np.mean(list(nx.betweenness_centrality(G).values()))
+          elif metric_name == 'closeness':
+            met = np.mean(list(nx.closeness_centrality(G).values()))
+          elif metric_name == 'modularity':
+            try:
+              part = community.best_partition(G)
+              met = community.modularity(part,G)
+            except:
+              met = 0
+          elif metric_name == 'assortativity':
+            met = nx.degree_assortativity_coefficient(G)
+          elif metric_name == 'density':
+            met = nx.density(G)
+          metric[row_ind, col_ind, metric_ind] = met
+    plt.subplot(2, 4, metric_ind + 1)
+    for row_ind, row in enumerate(rows):
+      plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
+    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+    plt.xticks(rotation=90)
+  # plt.show()
+  plt.legend()
+  plt.tight_layout()
+  num = threshold if measure=='pearson' else percentile
+  plt.savefig('./plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num))
 
 def metric_heatmap(G_dict, measure):
   rows = list(G_dict.keys())
@@ -750,6 +813,56 @@ def metric_heatmap(G_dict, measure):
     plt.tight_layout()
     plt.savefig('./plots/'+measure+'_'+metric_name+'.jpg')
   return stimulus_mecs
+
+def get_rowcol(G_dict, measure):
+  rows = list(G_dict.keys())
+  cols = []
+  for row in rows:
+    cols += list(G_dict[row].keys())
+  cols = list(set(cols))
+  # sort stimulus
+  if measure == 'ccg':
+    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  else:
+    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+        'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
+          'natural_movie_one', 'natural_movie_three', 'natural_scenes']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
+  return rows, cols
+
+def random_graph_baseline(G_dict, algorithm, measure, Q=100):
+  rewired_G_dict = {}
+  rows, cols = get_rowcol(G_dict, measure)
+  G = list(list(G_dict.items())[0][1].items())[0][1]
+  if nx.is_directed(G):
+    algorithm = 'directed_configuration_model'
+  for row in rows:
+      print(row)
+      if not row in rewired_G_dict:
+        rewired_G_dict[row] = {}
+      for col in cols:
+        print(col)
+        G = G_dict[row][col].copy() if col in G_dict[row] else nx.Graph()
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+          if algorithm == 'configuration_model':
+            degree_sequence = [d for n, d in G.degree()]
+            G = nx.configuration_model(degree_sequence)
+            # remove parallel edges and self-loops
+            G = nx.Graph(G)
+            G.remove_edges_from(nx.selfloop_edges(G))
+          elif algorithm == 'directed_configuration_model':
+            din = list(d for n, d in G.in_degree())
+            dout = list(d for n, d in G.out_degree())
+            G = nx.directed_configuration_model(din, dout)
+            G = nx.DiGraph(G)
+            G.remove_edges_from(nx.selfloop_edges(G))
+          elif algorithm == 'double_edge_swap':
+            nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
+        rewired_G_dict[row][col] = G
+  return rewired_G_dict
+
 # %%
 # G_dict = []
 # G_dict.append([])
@@ -824,6 +937,8 @@ directory = './data/connectivity_matrix/'
 percentile = 90
 G_dict, area_dict, adj_mat = load_npy_as_graph_whole(directory, percentile=percentile, unweighted=True)
 measure = 'ccg'
+# %%
+metric_stimulus_individual(G_dict, threshold, percentile, measure)
 # %%
 intra_inter_connection(G_dict, area_dict, percentile, measure)
 # %%
