@@ -672,11 +672,7 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
        'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
         'natural_movie_one', 'natural_movie_three', 'natural_scenes']
 session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
-session_ids = [750332458, 750749662,
-       751348571, 754312389, 754829445, 755434585, 756029989, 757216464,
-       757970808, 758798717, 759883607, 760345702, 760693773, 761418226,
-       762120172, 762602078, 763673393, 773418906, 791319847, 797828357,
-       798911424, 799864342]
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 ind = 1
 all_num = len(session_ids)*len(stimulus_names)
