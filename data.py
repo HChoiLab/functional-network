@@ -773,7 +773,6 @@ def metric_stimulus_stat(G_dict, rows, cols, metric_names):
   for metric_ind, metric_name in enumerate(metric_names):
     print(metric_name)
     for row_ind, row in enumerate(rows):
-      print(row)
       for col_ind, col in enumerate(cols):
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         # print(nx.info(G))
@@ -795,9 +794,7 @@ def delta_metric_stimulus_stat(G_dict, rewired_G_dict, rows, cols, metric_names)
   metric_base = np.empty((len(rows), len(cols), len(metric_names)))
   metric_base[:] = np.nan
   for metric_ind, metric_name in enumerate(metric_names):
-    print(metric_name)
     for row_ind, row in enumerate(rows):
-      print(row)
       for col_ind, col in enumerate(cols):
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
@@ -864,11 +861,17 @@ def delta_metric_stimulus_half_graph(G_dict, algorithm, threshold, percentile, m
     metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
   else:
     metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  print('Rewiring the whole graph...')
   rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure)
+  print('Rewiring the 1st half graph...')
   rewired_G_dict1 = random_graph_baseline(G_dict1, algorithm, measure)
+  print('Rewiring the 2nd half graph...')
   rewired_G_dict2 = random_graph_baseline(G_dict2, algorithm, measure)
+  print('Calculating delta metric stimulus for whole graph...')
   delta_metric_stimulus = delta_metric_stimulus_stat(G_dict, rewired_G_dict, rows, cols, metric_names)
+  print('Calculating delta metric stimulus for the 1st half graph...')
   delta_metric_stimulus1 = delta_metric_stimulus_stat(G_dict1, rewired_G_dict1, rows, cols, metric_names)
+  print('Calculating delta metric stimulus for the 2nd half graph...')
   delta_metric_stimulus2 = delta_metric_stimulus_stat(G_dict2, rewired_G_dict2, rows, cols, metric_names)
   fig = plt.figure(figsize=[20, 10])
   ind = 1
@@ -938,8 +941,8 @@ def get_rowcol(G_dict, measure):
     stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
   else:
     stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-        'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
-          'natural_movie_one', 'natural_movie_three', 'natural_scenes']
+        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
   stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
   stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
   cols = list(stimulus_rank_dict.keys())
@@ -1009,7 +1012,7 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
             region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
             region_connection[region_ind_i][region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
             assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-  
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
       sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, vmax=1500, cmap="YlGnBu")
       sns_plot.set_xticks(np.arange(len(regions))+0.5)
       sns_plot.set_xticklabels(regions, rotation=90)
@@ -1019,7 +1022,9 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
+  # plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
   plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
+  
 
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
@@ -1051,22 +1056,7 @@ weight = False # unweighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_nc_regions_as_graph_whole(directory, units, visual_regions, weight, measure, threshold, percentile)
-# %%
-############# load each half of sequence as one graph with only visual regions #################
-measure = 'pearson'
-# measure = 'cosine'
-# measure = 'correlation'
-# measure = 'MI'
-# measure = 'causality'
-threshold = 0.7
-percentile = 99
-weight = False # unweighted network
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-G_dict1, G_dict2, area_dict = load_nc_as_two_graphs(directory, units, visual_regions, weight, measure, threshold, percentile)
-# %%
-############# plot metric_stimulus with error bar for whole, first and second half graphs
-metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, measure)
+
 # %%
 for row in G_dict:
     for col in G_dict[row]:
@@ -1125,7 +1115,24 @@ metric_stimulus_individual(rewired_G_dict, threshold, percentile, measure)
 ############# plot delta metric_stimulus individually for each mouse #############
 metric_stimulus_individual_delta(G_dict, rewired_G_dict, threshold, percentile, measure)
 # %%
+############# load each half of sequence as one graph with only visual regions #################
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+threshold = 0.7
+percentile = 99
+weight = False # unweighted network
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+G_dict1, G_dict2, area_dict = load_nc_as_two_graphs(directory, units, visual_regions, weight, measure, threshold, percentile)
+# %%
+############# plot metric_stimulus with error bar for whole, first and second half graphs
+metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, measure)
+# %%
 ############# plot delta metric_stimulus for whole and half graphs #############
+############# it takes a long time to rewire graphs #############
 algorithm = 'double_edge_swap'
 delta_metric_stimulus_half_graph(G_dict, algorithm, threshold, percentile, measure)
 
