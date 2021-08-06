@@ -277,11 +277,15 @@ def load_nc_as_graph(path, measure, threshold):
     print(file)
     if file.endswith(".nc"):
         data = xr.open_dataset(os.path.join(path, file)).to_array()
+        if len(data.data.shape) > 2:
+          sequences = data.data.squeeze().T
+        else:
+          sequences = data.data.T
         structure_acronym = file.replace('.nc', '').split('_')[-1]
         stimulus_name = file.replace('.nc', '').replace('_' + structure_acronym, '')
         if not stimulus_name in G_dict:
           G_dict[stimulus_name] = {}
-        G_dict[stimulus_name][structure_acronym] = generate_graph(data, measure=measure, lcc=True, threshold=threshold)
+        G_dict[stimulus_name][structure_acronym] = generate_graph(sequences, measure=measure, lcc=True, threshold=threshold)
   return G_dict
 
 def load_nc_as_graph_whole(path, measure, threshold, percentile):
@@ -290,11 +294,15 @@ def load_nc_as_graph_whole(path, measure, threshold, percentile):
     print(file)
     if file.endswith(".nc"):
         data = xr.open_dataset(os.path.join(path, file)).to_array()
+        if len(data.data.shape) > 2:
+          sequences = data.data.squeeze().T
+        else:
+          sequences = data.data.T
         mouseID = file.split('_')[0]
         stimulus_name = file.replace('.nc', '').replace(mouseID + '_', '')
         if not mouseID in G_dict:
           G_dict[mouseID] = {}
-        G_dict[mouseID][stimulus_name] = generate_graph(data, measure=measure, lcc=True, threshold=threshold, percentile=percentile)
+        G_dict[mouseID][stimulus_name] = generate_graph(sequences, measure=measure, lcc=True, threshold=threshold, percentile=percentile)
   return G_dict
 
 def load_nc_regions_as_graph_whole(directory, origin_units, regions, weight, measure, threshold, percentile):
@@ -734,7 +742,7 @@ def calculate_metric(G, metric_name):
     metric = nx.density(G)
   return metric
 
-def metric_stimulus_individual_delta(G_dict, rewired_G_dict, threshold, percentile, measure):
+def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
   G = list(list(G_dict.items())[0][1].items())[0][1]
   if nx.is_directed(G):
@@ -765,7 +773,7 @@ def metric_stimulus_individual_delta(G_dict, rewired_G_dict, threshold, percenti
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/metric_stimulus_individual_delta_{}_{}.jpg'.format(measure, num))
+  plt.savefig('./plots/delta_metric_stimulus_individual_{}_{}_{}.jpg'.format(algorithm, measure, num))
 
 def metric_stimulus_stat(G_dict, rows, cols, metric_names):
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -853,7 +861,7 @@ def metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, 
   num = threshold if measure=='pearson' else percentile
   plt.savefig('./plots/metric_stimulus_half_graphs_{}_{}.jpg'.format(measure, num))
 
-def delta_metric_stimulus_half_graph(G_dict, algorithm, threshold, percentile, measure):
+def delta_metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, algorithm, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
   customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
   G = list(list(G_dict.items())[0][1].items())[0][1]
@@ -900,7 +908,7 @@ def delta_metric_stimulus_half_graph(G_dict, algorithm, threshold, percentile, m
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/delta_metric_stimulus_half_graphs_{}_{}.jpg'.format(measure, num))
+  plt.savefig('./plots/delta_metric_stimulus_half_graphs_{}_{}_{}.jpg'.format(algorithm, measure, num))
 
 def metric_heatmap(G_dict, measure):
   rows = list(G_dict.keys())
@@ -1035,14 +1043,10 @@ measure = 'pearson'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.5
-percentile = 90
+threshold = 0.7
+percentile = 99
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict = load_nc_as_graph_whole(directory, measure, threshold, percentile)
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
-        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
-structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl', 'VISal', 'VISpm', 'VISam']
 # %%
 ############# load graph with only visual regions #################
 measure = 'pearson'
@@ -1056,7 +1060,6 @@ weight = False # unweighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_nc_regions_as_graph_whole(directory, units, visual_regions, weight, measure, threshold, percentile)
-
 # %%
 for row in G_dict:
     for col in G_dict[row]:
@@ -1081,16 +1084,6 @@ for percentile in percentiles:
     plot_multi_graphs(G_dict, measure, threshold, percentile, cc)
     plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
 # %%
-# session_id = 791319847
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
-        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
-# # structure_acronyms = ['VISp', 'CA1', 'VISrl', 'VISl', 'VISal', 'VISpm', 'VISam']
-# structure_acronyms = ['VISal', 'VISpm', 'VISam']
-# path = './data/ecephys_cache_dir/session_{}/stimulus_structure/'.format(session_id)
-# dataset = xr.open_dataset(os.path.join(path, stimulus_names[0]+'_'+structure_acronyms[0]+'.nc')).to_array()
-# data = dataset.data.squeeze().T
-# %%
 # distribution: degree, closeness, clustering coefficient, betweenness
 # %%
 cc = False
@@ -1107,13 +1100,14 @@ measure = 'ccg'
 metric_stimulus_individual(G_dict, threshold, percentile, measure)
 # %%
 ############# get rewired graphs #############
-algorithm = 'double_edge_swap'
+# algorithm = 'double_edge_swap'
+algorithm = 'configuration_model'
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, Q=100)
 # %%
 metric_stimulus_individual(rewired_G_dict, threshold, percentile, measure)
 # %%
 ############# plot delta metric_stimulus individually for each mouse #############
-metric_stimulus_individual_delta(G_dict, rewired_G_dict, threshold, percentile, measure)
+delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure)
 # %%
 ############# load each half of sequence as one graph with only visual regions #################
 measure = 'pearson'
@@ -1132,10 +1126,10 @@ G_dict1, G_dict2, area_dict = load_nc_as_two_graphs(directory, units, visual_reg
 metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, measure)
 # %%
 ############# plot delta metric_stimulus for whole and half graphs #############
-############# it takes a long time to rewire graphs #############
-algorithm = 'double_edge_swap'
-delta_metric_stimulus_half_graph(G_dict, algorithm, threshold, percentile, measure)
-
+############# it takes a long time (15 mins) to execute double edge swap, configuration model is much faster #############
+# algorithm = 'double_edge_swap'
+algorithm = 'configuration_model'
+delta_metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, algorithm, threshold, percentile, measure)
 # %%
 intra_inter_connection(G_dict, area_dict, percentile, measure)
 # %%
