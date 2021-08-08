@@ -44,7 +44,7 @@ def get_spiking_sequence(session_id, stimulus_name, structure_acronym):
   presentations = session.get_stimulus_table(stimulus_name)
   units = session.units[session.units["ecephys_structure_acronym"]==structure_acronym]
   time_step = 0.01
-  time_bins = np.arange(-0.1, 0.5 + time_step, time_step)
+  time_bins = np.arange(0, 1.5 + time_step, time_step)
   histograms = session.presentationwise_spike_counts(
       stimulus_presentation_ids=presentations.index.values,  
       bin_edges=time_bins,
@@ -58,7 +58,7 @@ def get_whole_spiking_sequence(session_id, stimulus_name):
   presentations = session.get_stimulus_table(stimulus_name)
   units = session.units
   time_step = 0.01
-  time_bins = np.arange(-0.1, 0.5 + time_step, time_step)
+  time_bins = np.arange(0, 1.5 + time_step, time_step)
   histograms = session.presentationwise_spike_counts(
       stimulus_presentation_ids=presentations.index.values,  
       bin_edges=time_bins,
@@ -653,11 +653,7 @@ def intra_inter_connection(G_dict, area_dict, percentile, measure):
 
 def metric_stimulus_error_region(G_dict, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if nx.is_directed(G):
-    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  else:
-    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric_names = get_metric_names(G_dict)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
   metric[:] = np.nan
   for metric_ind, metric_name in enumerate(metric_names):
@@ -691,11 +687,8 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
 
 def metric_stimulus_individual(G_dict, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if nx.is_directed(G):
-    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  else:
-    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric_names = get_metric_names(G_dict)
+  plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
   metric[:] = np.nan
   fig = plt.figure(figsize=(20, 10))
@@ -708,7 +701,7 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure):
         # print(nx.info(G))
         if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
           metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name)
-    plt.subplot(2, 4, metric_ind + 1)
+    plt.subplot(*plots_shape, metric_ind + 1)
     for row_ind, row in enumerate(rows):
       plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
     plt.gca().set_title(metric_name, fontsize=30, rotation=0)
@@ -740,15 +733,19 @@ def calculate_metric(G, metric_name):
     metric = nx.degree_assortativity_coefficient(G)
   elif metric_name == 'density':
     metric = nx.density(G)
+  elif metric_name == 'small-worldness':
+    if not nx.is_connected(G):
+      lcc = sorted(nx.connected_components(G), key=len, reverse=True)
+      G = G.subgraph(lcc[0])
+    if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+      metric = nx.sigma(G)
+    else:
+      metric = 0
   return metric
 
 def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if nx.is_directed(G):
-    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  else:
-    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric_names = get_metric_names(G_dict)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
   metric[:] = np.nan
   metric_base = np.empty((len(rows), len(cols), len(metric_names)))
@@ -824,11 +821,7 @@ def delta_metric_stimulus_stat(G_dict, rewired_G_dict, rows, cols, metric_names)
 def metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
   customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if nx.is_directed(G):
-    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  else:
-    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric_names = get_metric_names(G_dict)
   metric_stimulus = metric_stimulus_stat(G_dict, rows, cols, metric_names)
   metric_stimulus1 = metric_stimulus_stat(G_dict1, rows, cols, metric_names)
   metric_stimulus2 = metric_stimulus_stat(G_dict2, rows, cols, metric_names)
@@ -864,11 +857,7 @@ def metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, 
 def delta_metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, algorithm, threshold, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
   customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if nx.is_directed(G):
-    metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-  else:
-    metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  metric_names = get_metric_names(G_dict)
   print('Rewiring the whole graph...')
   rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure)
   print('Rewiring the 1st half graph...')
@@ -911,12 +900,8 @@ def delta_metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, algorithm, thresh
   plt.savefig('./plots/delta_metric_stimulus_half_graphs_{}_{}_{}.jpg'.format(algorithm, measure, num))
 
 def metric_heatmap(G_dict, measure):
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+  rows, cols = get_rowcol(G_dict, measure)
+  metric_names = get_metric_names(G_dict)
   stimulus_mecs = pd.DataFrame(index=rows, columns=metric_names)
   for metric_name in metric_names:
     print(metric_name)
@@ -956,6 +941,15 @@ def get_rowcol(G_dict, measure):
   cols = list(stimulus_rank_dict.keys())
   return rows, cols
 
+def get_metric_names(G_dict):
+  G = list(list(G_dict.items())[0][1].items())[0][1]
+  if nx.is_directed(G):
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'modularity', 'transitivity']
+  else:
+    # metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'small-worldness', 'transitivity']
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+  return metric_names
+
 def random_graph_baseline(G_dict, algorithm, measure, Q=100):
   rewired_G_dict = {}
   rows, cols = get_rowcol(G_dict, measure)
@@ -969,7 +963,7 @@ def random_graph_baseline(G_dict, algorithm, measure, Q=100):
       for col in cols:
         print(col)
         G = G_dict[row][col].copy() if col in G_dict[row] else nx.Graph()
-        if G.number_of_nodes() > 2 and G.number_of_edges() > 1:
+        if G.number_of_nodes() >= 2 and G.number_of_edges() >= 1:
           if algorithm == 'configuration_model':
             degree_sequence = [d for n, d in G.degree()]
             G = nx.configuration_model(degree_sequence)
@@ -983,7 +977,10 @@ def random_graph_baseline(G_dict, algorithm, measure, Q=100):
             G = nx.DiGraph(G)
             G.remove_edges_from(nx.selfloop_edges(G))
           elif algorithm == 'double_edge_swap':
-            nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
+            # at least four nodes with edges
+            degrees = dict(nx.degree(G))
+            if len(np.nonzero(list(degrees.values()))[0]) >= 4:
+              nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
         rewired_G_dict[row][col] = G
   return rewired_G_dict
 
@@ -1020,8 +1017,8 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
             region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
             region_connection[region_ind_i][region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
             assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
-      sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, vmax=1500, cmap="YlGnBu")
+      sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, vmax=1500, cmap="YlGnBu")
       sns_plot.set_xticks(np.arange(len(regions))+0.5)
       sns_plot.set_xticklabels(regions, rotation=90)
       sns_plot.set_yticks(np.arange(len(regions))+0.5)
@@ -1030,8 +1027,8 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  # plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
-  plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
+  plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
+  # plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
   
 
 # %%
@@ -1108,7 +1105,7 @@ metric_stimulus_individual(rewired_G_dict, threshold, percentile, measure)
 # %%
 ############# plot delta metric_stimulus individually for each mouse #############
 delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure)
-# %%
+ # %%
 ############# load each half of sequence as one graph with only visual regions #################
 measure = 'pearson'
 # measure = 'cosine'
@@ -1127,9 +1124,11 @@ metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, threshold, percentile, meas
 # %%
 ############# plot delta metric_stimulus for whole and half graphs #############
 ############# it takes a long time (15 mins) to execute double edge swap, configuration model is much faster #############
-# algorithm = 'double_edge_swap'
-algorithm = 'configuration_model'
+algorithm = 'double_edge_swap'
+# algorithm = 'configuration_model'
+start_time = time.time()
 delta_metric_stimulus_half_graph(G_dict, G_dict1, G_dict2, algorithm, threshold, percentile, measure)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 intra_inter_connection(G_dict, area_dict, percentile, measure)
 # %%
@@ -1154,11 +1153,7 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 algorithm = 'double_edge_swap'
 rows, cols = get_rowcol(G_dict, measure)
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-G = list(list(G_dict.items())[0][1].items())[0][1]
-if nx.is_directed(G):
-  metric_names = ['clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
-else:
-  metric_names = ['efficiency', 'clustering', 'transitivity', 'betweenness', 'closeness', 'modularity', 'assortativity', 'density']
+metric_names = get_metric_names(G_dict)
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure)
 rewired_G_dict1 = random_graph_baseline(G_dict1, algorithm, measure)
 rewired_G_dict2 = random_graph_baseline(G_dict2, algorithm, measure)
