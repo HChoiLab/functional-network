@@ -37,6 +37,81 @@ num_sessions = len(sessions)
 num_neurons = len(units)
 num_probes = len(units['name'].unique())
 
+customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+
+class CommunityLayout():
+  def __init__(self):
+    super(CommunityLayout,self).__init__()
+  def get_community_layout(self, g, partition):
+    """
+    Compute the layout for a modular graph.
+    Arguments:
+    ----------
+    g -- networkx.Graph or networkx.DiGraph instance
+        graph to plot
+
+    partition -- dict mapping int node -> int community
+        graph partitions
+    Returns:
+    --------
+    pos -- dict mapping int node -> (float x, float y)
+        node positions
+    """
+    pos_communities = _position_communities(g, partition, scale=3.)
+    pos_nodes = _position_nodes(g, partition, scale=1.)
+    # combine positions
+    pos = dict()
+    for node in g.nodes():
+        pos[node] = pos_communities[node] + pos_nodes[node]
+    return pos
+
+  def _position_communities(g, partition, **kwargs):
+      # create a weighted graph, in which each node corresponds to a community,
+      # and each edge weight to the number of edges between communities
+      between_community_edges = _find_between_community_edges(g, partition)
+      communities = set(partition.values())
+      hypergraph = nx.DiGraph()
+      hypergraph.add_nodes_from(communities)
+      for (ci, cj), edges in between_community_edges.items():
+          hypergraph.add_edge(ci, cj, weight=len(edges))
+      # find layout for communities
+      pos_communities = nx.spring_layout(hypergraph, **kwargs)
+      # set node positions to position of community
+      pos = dict()
+      for node, community in partition.items():
+          pos[node] = pos_communities[community]
+      return pos
+
+  def _find_between_community_edges(g, partition):
+      edges = dict()
+      for (ni, nj) in g.edges():
+          ci = partition[ni]
+          cj = partition[nj]
+
+          if ci != cj:
+              try:
+                  edges[(ci, cj)] += [(ni, nj)]
+              except KeyError:
+                  edges[(ci, cj)] = [(ni, nj)]
+      return edges
+
+  def _position_nodes(g, partition, **kwargs):
+      """
+      Positions nodes within communities.
+      """
+      communities = dict()
+      for node, community in partition.items():
+          try:
+              communities[community] += [node]
+          except KeyError:
+              communities[community] = [node]
+      pos = dict()
+      for ci, nodes in communities.items():
+          subgraph = g.subgraph(nodes)
+          pos_subgraph = nx.spring_layout(subgraph, **kwargs)
+          pos.update(pos_subgraph)
+      return pos
+
 def get_spiking_sequence(session_id, stimulus_name, structure_acronym):
   session = cache.get_session_data(session_id)
   print(session.metadata)
@@ -396,7 +471,7 @@ def plot_graph(G):
   plt.show()
 
 def plot_graph_color(G, area_dict, measure):
-  customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
+  # customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
   nx.set_node_attributes(G, area_dict, "area")
   edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
   degrees = dict(G.degree)
@@ -414,15 +489,14 @@ def plot_graph_color(G, area_dict, measure):
   nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[v * 10 for v in degrees.values()], 
   node_color=colors, alpha=0.4)
   plt.show()
-  # plt.savefig('./plots/graphs_{}.jpg'.format(measure))
+  plt.savefig('./plots/graphs_{}.jpg'.format(measure))
 
 def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
   G = G_dict[mouseID][stimulus]
   print(nx.info(G))
   if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
     node_area = area_dict[mouseID]
-    # customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-    customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+    # customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
     areas_uniq = list(set(node_area.values()))
     # print(areas_uniq)
     node_to_community = {node:areas_uniq.index(area) for node, area in node_area.items()}
@@ -435,7 +509,6 @@ def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
     # plt.show()
     for ind, a in enumerate(areas_uniq):
       plt.scatter([],[], c=customPalette[ind], label=a)
-
     plt.legend(loc='upper left')
     plt.tight_layout()
     plt.savefig('./plots/graph_region_{}_{}_{}.jpg'.format(measure, mouseID, stimulus))
@@ -497,16 +570,11 @@ def plot_multi_graphs(G_dict, measure, threshold, percentile, cc=False):
   plt.savefig(image_name)
   # plt.show()
 
-def plot_multi_graphs_color(G_dict, node_area, measure, cc=False):
-  # fig = plt.figure(figsize=(30, 40))
-  customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
+def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
+  com = CommunityLayout()
   ind = 1
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  fig = plt.figure(figsize=(4*len(cols), 4*len(rows)))
+  rows, cols = get_rowcol(G_dict, measure)
+  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
   right = left + width
@@ -516,17 +584,17 @@ def plot_multi_graphs_color(G_dict, node_area, measure, cc=False):
     for col_ind, col in enumerate(cols):
       plt.subplot(len(rows), len(cols), ind)
       if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30)
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
       if col_ind == 0:
         plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='right',
+        horizontalalignment='left',
         verticalalignment='center',
         # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=30, rotation=45)
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      nx.set_node_attributes(G, node_area[row], "area")
+      nx.set_node_attributes(G, area_dict[row], "area")
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         if cc:
           if nx.is_directed(G):
@@ -537,7 +605,12 @@ def plot_multi_graphs_color(G_dict, node_area, measure, cc=False):
             G = G.subgraph(Gcc[0])
         edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
         degrees = dict(G.degree)
-        pos = nx.spring_layout(G)
+        try:
+          partition = community.best_partition(G)
+          pos = com.get_community_layout(G, partition)
+        except:
+          print('Community detection unsuccessful!')
+          pos = nx.spring_layout(G)
         areas = [G.nodes[n]['area'] for n in G.nodes()]
         areas_uniq = list(set(areas))
         colors = [customPalette[areas_uniq.index(area)] for area in areas]
@@ -545,9 +618,14 @@ def plot_multi_graphs_color(G_dict, node_area, measure, cc=False):
         nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
         nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[v * 1 for v in degrees.values()], 
         node_color=colors, alpha=0.4)
+      if row_ind == col_ind == 0:
+        for ind, a in enumerate(areas_uniq):
+          plt.scatter([],[], c=customPalette[ind], label=a)
+        plt.legend(loc='upper left')
       
   plt.tight_layout()
-  plt.savefig('./plots/graphs_{}.jpg'.format(measure))
+  plt.savefig('./plots/graphs_region_color_{}.jpg'.format(measure))
+  # plt.show()
 
 def plot_degree_distribution(G):
   degree_freq = nx.degree_histogram(G)
@@ -1058,6 +1136,10 @@ visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_nc_regions_as_graph_whole(directory, units, visual_regions, weight, measure, threshold, percentile)
 # %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(G_dict, area_dict, measure, cc=cc)
+# %%
 for row in G_dict:
     for col in G_dict[row]:
         print(nx.info(G_dict[row][col]))
@@ -1189,3 +1271,7 @@ plt.tight_layout()
 # plt.show()
 num = threshold if measure=='pearson' else percentile
 plt.savefig('./plots/delta_metric_stimulus_half_graphs_{}_{}.jpg'.format(measure, num))
+
+# %%
+
+# %%
