@@ -57,18 +57,18 @@ class CommunityLayout():
     pos -- dict mapping int node -> (float x, float y)
         node positions
     """
-    pos_communities = _position_communities(g, partition, scale=3.)
-    pos_nodes = _position_nodes(g, partition, scale=1.)
+    pos_communities = self._position_communities(g, partition, scale=3.)
+    pos_nodes = self._position_nodes(g, partition, scale=1.)
     # combine positions
     pos = dict()
     for node in g.nodes():
         pos[node] = pos_communities[node] + pos_nodes[node]
     return pos
 
-  def _position_communities(g, partition, **kwargs):
+  def _position_communities(self, g, partition, **kwargs):
       # create a weighted graph, in which each node corresponds to a community,
       # and each edge weight to the number of edges between communities
-      between_community_edges = _find_between_community_edges(g, partition)
+      between_community_edges = self._find_between_community_edges(g, partition)
       communities = set(partition.values())
       hypergraph = nx.DiGraph()
       hypergraph.add_nodes_from(communities)
@@ -82,7 +82,7 @@ class CommunityLayout():
           pos[node] = pos_communities[community]
       return pos
 
-  def _find_between_community_edges(g, partition):
+  def _find_between_community_edges(self, g, partition):
       edges = dict()
       for (ni, nj) in g.edges():
           ci = partition[ni]
@@ -95,7 +95,7 @@ class CommunityLayout():
                   edges[(ci, cj)] = [(ni, nj)]
       return edges
 
-  def _position_nodes(g, partition, **kwargs):
+  def _position_nodes(self, g, partition, **kwargs):
       """
       Positions nodes within communities.
       """
@@ -619,8 +619,10 @@ def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
         nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[v * 1 for v in degrees.values()], 
         node_color=colors, alpha=0.4)
       if row_ind == col_ind == 0:
-        for ind, a in enumerate(areas_uniq):
-          plt.scatter([],[], c=customPalette[ind], label=a)
+        areas = [G.nodes[n]['area'] for n in G.nodes()]
+        areas_uniq = list(set(areas))
+        for index, a in enumerate(areas_uniq):
+          plt.scatter([],[], c=customPalette[index], label=a)
         plt.legend(loc='upper left')
       
   plt.tight_layout()
