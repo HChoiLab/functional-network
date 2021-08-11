@@ -622,9 +622,10 @@ def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
         areas = [G.nodes[n]['area'] for n in G.nodes()]
         areas_uniq = list(set(areas))
         for index, a in enumerate(areas_uniq):
-          plt.scatter([],[], c=customPalette[index], label=a)
-        plt.legend(loc='upper left')
-      
+          plt.scatter([],[], c=customPalette[index], label=a, s=30)
+        legend = plt.legend(loc='upper left', fontsize=20)
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
   plt.tight_layout()
   plt.savefig('./plots/graphs_region_color_{}.jpg'.format(measure))
   # plt.show()
