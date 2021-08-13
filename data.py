@@ -1,4 +1,5 @@
 #%%
+from collections import Counter
 import os
 import re
 import sys
@@ -470,26 +471,47 @@ def plot_graph(G):
   edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
   plt.show()
 
-def plot_graph_color(G, area_dict, measure):
-  # customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
-  nx.set_node_attributes(G, area_dict, "area")
-  edges,weights = zip(*nx.get_edge_attributes(G,'weight').items())
+def plot_graph_color(G, area_attr, cc):
+  com = CommunityLayout()
+  fig = plt.figure()
+  nx.set_node_attributes(G, area_attr, "area")
+  if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+    if cc:
+      if nx.is_directed(G):
+        Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
+        G = G.subgraph(Gcc[0])
+      else:
+        Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+        G = G.subgraph(Gcc[0])
+  try:
+    edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
+  except:
+    edges = nx.edges(G)
+    weights = np.ones(len(edges))
   degrees = dict(G.degree)
-  pos = nx.spring_layout(G)
-  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-  # pos = nx.spectral_layout(G, weight='weight')
+  try:
+    partition = community.best_partition(G)
+    pos = com.get_community_layout(G, partition)
+  except:
+    print('Community detection unsuccessful!')
+    pos = nx.spring_layout(G)
   areas = [G.nodes[n]['area'] for n in G.nodes()]
   areas_uniq = list(set(areas))
   colors = [customPalette[areas_uniq.index(area)] for area in areas]
-  
-  if len(np.unique(weights)) <= 1:
-    nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color='green', width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
-  else:
-    nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
-  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[v * 10 for v in degrees.values()], 
+  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+  nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
+  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
   node_color=colors, alpha=0.4)
+  areas = [G.nodes[n]['area'] for n in G.nodes()]
+  areas_uniq = list(set(areas))
+  for index, a in enumerate(areas_uniq):
+    plt.scatter([],[], c=customPalette[index], label=a, s=30)
+  legend = plt.legend(loc='upper left', fontsize=5)
+  for handle in legend.legendHandles:
+    handle.set_sizes([6.0])
+  plt.tight_layout()
   plt.show()
-  plt.savefig('./plots/graphs_{}.jpg'.format(measure))
+  
 
 def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
   G = G_dict[mouseID][stimulus]
@@ -516,19 +538,7 @@ def plot_graph_community(G_dict, area_dict, mouseID, stimulus, measure):
 def plot_multi_graphs(G_dict, measure, threshold, percentile, cc=False):
   # fig = plt.figure(figsize=(30, 40))
   ind = 1
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  # sort stimulus
-  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
-  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
-        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
+  rows, cols = get_rowcol(G_dict, measure)
   fig = plt.figure(figsize=(4*len(cols), 4*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -615,19 +625,21 @@ def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
         areas_uniq = list(set(areas))
         colors = [customPalette[areas_uniq.index(area)] for area in areas]
         # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-        nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.4)
-        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[v * 1 for v in degrees.values()], 
+        nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
+        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
         node_color=colors, alpha=0.4)
       if row_ind == col_ind == 0:
         areas = [G.nodes[n]['area'] for n in G.nodes()]
         areas_uniq = list(set(areas))
         for index, a in enumerate(areas_uniq):
           plt.scatter([],[], c=customPalette[index], label=a, s=30)
-        legend = plt.legend(loc='upper left', fontsize=20)
+        legend = plt.legend(loc='upper center', fontsize=20)
   for handle in legend.legendHandles:
     handle.set_sizes([60.0])
   plt.tight_layout()
-  plt.savefig('./plots/graphs_region_color_{}.jpg'.format(measure))
+  th = threshold if measure == 'pearson' else percentile
+  image_name = './plots/graphs_region_color_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/graphs_region_color_{}_{}.jpg'.format(measure, th)
+  plt.savefig(image_name)
   # plt.show()
 
 def plot_degree_distribution(G):
@@ -640,19 +652,7 @@ def plot_degree_distribution(G):
 
 def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=False):
   ind = 1
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  # sort stimulus
-  # stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
-  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-       'static_gratings', 'drifting_gratings', 'drifting_gratings_contrast',
-        'natural_movie_one', 'natural_movie_three', 'natural_scenes']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
+  rows, cols = get_rowcol(G_dict, measure)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -663,13 +663,13 @@ def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=F
     for col_ind, col in enumerate(cols):
       plt.subplot(len(rows), len(cols), ind)
       if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=45)
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
       if col_ind == 0:
         plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='right',
+        horizontalalignment='left',
         verticalalignment='center',
         # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=30, rotation=45)
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
@@ -789,9 +789,9 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure):
     plt.xticks(rotation=90)
   plt.legend()
   plt.tight_layout()
-  # plt.show()
+  plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num))
+  # plt.savefig('./plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num))
 
 def calculate_metric(G, metric_name):
   if metric_name == 'efficiency':
@@ -1110,7 +1110,27 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   num = threshold if measure=='pearson' else percentile
   plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
   # plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
-  
+
+def SBM_density(G_dict, area_dict, regions, measure):
+  SBM_dict = {}
+  rows, cols = get_rowcol(G_dict, measure)
+  for row_ind, row in enumerate(rows):
+    print(row)
+    if row not in SBM_dict:
+      SBM_dict[row] = {}
+    sizes = list(dict(Counter(area_dict[row].values())).values())
+    for col_ind, col in enumerate(cols):
+      probs = np.zeros((len(regions), len(regions)))
+      G = G_dict[row][col]
+      A = nx.adjacency_matrix(G)
+      A = A.todense()
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          probs[region_ind_i][region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j]) / A[region_indices_i[:, None], region_indices_j].size
+      SBM_dict[row][col] = nx.stochastic_block_model(sizes, probs, seed=0)
+  return SBM_dict
 
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
@@ -1235,46 +1255,7 @@ for mouseID in mouseIDs:
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 
 # %%
-algorithm = 'double_edge_swap'
-rows, cols = get_rowcol(G_dict, measure)
-customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray']
-metric_names = get_metric_names(G_dict)
-rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure)
-rewired_G_dict1 = random_graph_baseline(G_dict1, algorithm, measure)
-rewired_G_dict2 = random_graph_baseline(G_dict2, algorithm, measure)
-delta_metric_stimulus = delta_metric_stimulus_stat(G_dict, rewired_G_dict, rows, cols, metric_names)
-delta_metric_stimulus1 = delta_metric_stimulus_stat(G_dict1, rewired_G_dict1, rows, cols, metric_names)
-delta_metric_stimulus2 = delta_metric_stimulus_stat(G_dict2, rewired_G_dict2, rows, cols, metric_names)
+SBM_dict = SBM_density(G_dict, area_dict, visual_regions, measure)
 # %%
-fig = plt.figure(figsize=[20, 10])
-ind = 1
-for i, m in delta_metric_stimulus.groupby("metric"):
-  plt.subplot(2, 4, ind)
-  plt.gca().set_title(i, fontsize=20, rotation=0)
-  plt.plot(m['stimulus'], m['mean'], alpha=0.6, label='whole graph', color=customPalette[6])
-  plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2, color=customPalette[6])
-  plt.xticks(rotation=90)
-  ind += 1
-ind = 1
-for i, m in delta_metric_stimulus1.groupby("metric"):
-  plt.subplot(2, 4, ind)
-  plt.plot(m['stimulus'], m['mean'], alpha=0.6, label='1st subgraph', color=customPalette[1])
-  plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2, color=customPalette[1])
-  plt.xticks(rotation=90)
-  ind += 1
-ind = 1
-for i, m in delta_metric_stimulus2.groupby("metric"):
-  plt.subplot(2, 4, ind)
-  plt.plot(m['stimulus'], m['mean'], alpha=0.6, label='2nd subgraph', color=customPalette[4])
-  plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2, color=customPalette[4])
-  plt.xticks(rotation=90)
-  ind += 1
-plt.legend()
-plt.tight_layout()
-# plt.show()
-num = threshold if measure=='pearson' else percentile
-plt.savefig('./plots/delta_metric_stimulus_half_graphs_{}_{}.jpg'.format(measure, num))
-
-# %%
-
+metric_stimulus_individual(SBM_dict, threshold, percentile, measure)
 # %%
