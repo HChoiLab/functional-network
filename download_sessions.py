@@ -180,7 +180,7 @@ def load_npy_regions_as_graph_whole(directory, regions, weight, measure, thresho
         area_dict[mouseID][i] = instruction.ccf.iloc[i]
   return G_dict, area_dict
 
-def plot_all_spikes(session_ids, stimulus_names, resolution):
+def plot_all_spikes(directory, session_ids, stimulus_names, resolution):
     fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(session_ids)))
     left, width = .25, .5
     bottom, height = .25, .5
@@ -295,5 +295,10 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # print(mean_spikes)
 # print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
-# plot_all_spikes(session_ids, stimulus_names, 'heterogeneous')
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+plot_all_spikes(directory, session_ids, stimulus_names, 'heterogeneous')
 # %%
