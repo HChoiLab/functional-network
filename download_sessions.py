@@ -237,7 +237,7 @@ for session_id in session_ids:
     print('resolution {} for {}'.format(resolution, stimulus_name))
     histograms = get_regions_spiking_sequence(session_id, stimulus_name, visual_regions, resolution)
     mean_histograms = histograms.mean(dim="stimulus_presentation_id")
-    np.save((directory + '{}_{}.npy').format(session_id, stimulus_name), mean_histograms)
+    np.save((directory + '{}_{}.npy').format(session_id, stimulus_name), mean_histograms.data)
     print('finished {}, {},  {} / {}'.format(session_id, stimulus_name, ind, all_num))
     ind += 1
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
@@ -295,10 +295,10 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # print(mean_spikes)
 # print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-plot_all_spikes(directory, session_ids, stimulus_names, 'heterogeneous')
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# plot_all_spikes(directory, session_ids, stimulus_names, 'heterogeneous')
 # %%
