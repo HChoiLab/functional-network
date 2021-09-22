@@ -1,6 +1,7 @@
 # %%
 import os
 import sys
+import xarray as xr
 # import shutil
 import numpy as np
 import pandas as pd
@@ -86,6 +87,23 @@ def remove_outlier(array):
   not_outlier = distance_from_mean < max_deviations * standard_deviation
   return array[not_outlier]
 
+
+def bootstrap(histograms, num_presentations):
+  pop = histograms.data
+  axis = histograms.dims.index('stimulus_presentation_id')
+  sample_data = None
+  if axis == 0 and pop.shape[0] < num_presentations:
+    sample_data = pop[np.random.randint(pop.shape[0], size=(num_presentations - pop.shape[0], pop.shape[1], pop.shape[2])), np.arange(pop.shape[1]).reshape(1, -1, 1), np.arange(pop.shape[2]).reshape(1, 1, -1)]
+  elif axis == 1 and pop.shape[1] < num_presentations:
+    sample_data = pop[np.arange(pop.shape[0]).reshape(-1, 1, 1), np.random.randint(pop.shape[1], size=(pop.shape[0], num_presentations - pop.shape[1], pop.shape[2])), np.arange(pop.shape[2]).reshape(1, 1, -1)]
+  elif axis == 2 and pop.shape[2] < num_presentations:
+    sample_data = pop[np.arange(pop.shape[0]).reshape(-1, 1, 1), np.arange(pop.shape[1]).reshape(1, -1, 1), np.random.randint(pop.shape[2], size=(pop.shape[0], pop.shape[1], num_presentations - pop.shape[2]))]
+  if sample_data is not None:
+    # pop = np.concatenate((pop, sample_data), axis=axis)
+    samples = xr.DataArray(data=sample_data, dims=histograms.dims, coords={"stimulus_presentation_id":np.arange(sample_data.shape[axis]), 'time_relative_to_stimulus_onset':histograms['time_relative_to_stimulus_onset'].data, 'unit_id':histograms['unit_id'].data})
+    histograms = xr.concat((histograms, samples),dim="stimulus_presentation_id")
+  return histograms
+
 def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution):
   session = cache.get_session_data(session_id,
                                   amplitude_cutoff_maximum=np.inf,
@@ -122,6 +140,7 @@ def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution)
     try: stimulus_presentation_ids
     except NameError: stimulus_presentation_ids = stim_table.index.values
     #binarize tensor
+    duration = min(duration, 3)
     # binarize with 1 second bins
     time_bin_edges = np.linspace(0, duration, int(duration / resolution)+1)
 
@@ -225,7 +244,8 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-resolution_dict = {'spontaneous':0.2, 'flashes':0.02, 'gabors':0.001, 'drifting_gratings':0.004, 'static_gratings':0.0003, 'natural_scenes':0.0003, 'natural_movie_one':0.1, 'natural_movie_three':0.2}
+resolution_dict = {'spontaneous':0.08, 'flashes':0.008, 'gabors':0.0004, 'drifting_gratings':0.0016, 'static_gratings':0.00012, 'natural_scenes':0.00012, 'natural_movie_one':0.04, 'natural_movie_three':0.08}
+resolution = 0.002
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 if not os.path.isdir(directory):
   os.mkdir(directory)
@@ -233,9 +253,10 @@ ind = 1
 all_num = len(session_ids)*len(stimulus_names)
 for session_id in session_ids:
   for stimulus_name in stimulus_names:
-    resolution = resolution_dict[stimulus_name]
+    # resolution = resolution_dict[stimulus_name]
     print('resolution {} for {}'.format(resolution, stimulus_name))
     histograms = get_regions_spiking_sequence(session_id, stimulus_name, visual_regions, resolution)
+    histograms = bootstrap(histograms, 6000)
     mean_histograms = histograms.mean(dim="stimulus_presentation_id")
     np.save((directory + '{}_{}.npy').format(session_id, stimulus_name), mean_histograms.data)
     print('finished {}, {},  {} / {}'.format(session_id, stimulus_name, ind, all_num))
