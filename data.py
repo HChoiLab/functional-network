@@ -926,7 +926,7 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
   num = threshold if measure=='pearson' else percentile
   plt.savefig('./plots/metric_stimulus_{}_{}.jpg'.format(measure, num))
 
-def metric_stimulus_individual(G_dict, threshold, percentile, measure, cc):
+def metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc):
   rows, cols = get_rowcol(G_dict, measure)
   metric_names = get_metric_names(G_dict)
   plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
@@ -941,7 +941,10 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure, cc):
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         # print(nx.info(G))
         if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-          metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc)
+          if weight:
+            metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc)
+          else:
+            metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc)
     plt.subplot(*plots_shape, metric_ind + 1)
     for row_ind, row in enumerate(rows):
       plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
@@ -951,7 +954,8 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure, cc):
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num))
+  figname = './plots/metric_stimulus_individual_weighted_{}_{}.jpg'.format(measure, num) if weight else './plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num)
+  plt.savefig(figname)
 
 def calculate_metric(G, metric_name, cc):
   if metric_name == 'density':
@@ -989,7 +993,43 @@ def calculate_metric(G, metric_name, cc):
         metric = 0
   return metric
 
-def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, cc):
+def calculate_weighted_metric(G, metric_name, cc):
+  if metric_name == 'density':
+    metric = nx.density(G)
+  else:
+    if cc:
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+    if metric_name == 'efficiency':
+      metric = nx.global_efficiency(G)
+    elif metric_name == 'clustering':
+      metric = nx.average_clustering(G, weight='weight')
+    elif metric_name == 'transitivity':
+      metric = nx.transitivity(G)
+    elif metric_name == 'betweenness':
+      metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
+    elif metric_name == 'closeness':
+      metric = np.mean(list(nx.closeness_centrality(G).values()))
+    elif metric_name == 'modularity':
+      try:
+        part = community.best_partition(G, weight='weight')
+        metric = community.modularity(part, G, weight='weight') 
+      except:
+        metric = 0
+    elif metric_name == 'assortativity':
+      metric = nx.degree_assortativity_coefficient(G, weight='weight')
+    elif metric_name == 'small-worldness':
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+        metric = nx.sigma(G)
+      else:
+        metric = 0
+  return metric
+
+def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc):
   rows, cols = get_rowcol(G_dict, measure)
   metric_names = get_metric_names(G_dict)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -1005,8 +1045,12 @@ def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshol
         G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
         if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-          metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc=cc)
-          metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
+          if weight:
+            metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc=cc)
+            metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
+          else:
+            metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc=cc)
+            metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
     plt.subplot(2, 4, metric_ind + 1)
     for row_ind, row in enumerate(rows):
       plt.plot(cols, metric[row_ind, :, metric_ind] - metric_base[row_ind, :, metric_ind], label=row, alpha=1)
@@ -1016,7 +1060,8 @@ def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshol
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/delta_metric_stimulus_individual_{}_{}_{}.jpg'.format(algorithm, measure, num))
+  figname = './plots/delta_metric_stimulus_individual_weighted_{}_{}_{}.jpg'.format(algorithm, measure, num) if weight else './plots/delta_metric_stimulus_individual_{}_{}_{}.jpg'.format(algorithm, measure, num)
+  plt.savefig(figname)
 
 def metric_stimulus_stat(G_dict, rows, cols, metric_names):
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -1369,7 +1414,7 @@ measure = 'pearson'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.5
+threshold = 0
 percentile = 99
 weight = False # unweighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -1645,9 +1690,24 @@ measure = 'pearson'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.5
+threshold = 0.3
 percentile = 99
 weight = False # unweighted network
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
+# %%
+############# load weighted graph with only visual regions and n steps of the sequence #################
+ind = 0
+n = 100
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+threshold = 0.3
+percentile = 99
+weight = True # unweighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
@@ -1659,13 +1719,22 @@ cc = False
 plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
 ############# plot metric_stimulus individually for each mouse #############
 cc = True
-metric_stimulus_individual(G_dict, threshold, percentile, measure, cc)
+metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
 ############# get rewired graphs #############
 # algorithm = 'double_edge_swap'
 cc = True
-algorithm = 'configuration_model'
+algorithm = 'configuration_model' 
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
 ############# plot delta metric_stimulus individually for each mouse #############
 cc = True # for real graphs, cc is false for rewired baselines
-delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, cc)
+delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
+# %%
+rows, cols = get_rowcol(G_dict, measure)
+for row in G_dict:
+    for col in G_dict[row]:
+        nodes = nx.number_of_nodes(G_dict[row][col])
+        edges = nx.number_of_edges(G_dict[row][col])
+        print('Number of nodes for {} {} {}'.format(row, col, nodes))
+        print('Number of edges for {} {} {}'.format(row, col, edges))
+        print('Density for {} {} {}'.format(row, col, 2 * edges / nodes ** 2))
 # %%
