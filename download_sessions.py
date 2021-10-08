@@ -5,6 +5,7 @@ import xarray as xr
 # import shutil
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 import time
 from matplotlib import pyplot as plt
 import networkx as nx
@@ -139,8 +140,11 @@ def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution)
       duration -= 0.02
     try: stimulus_presentation_ids
     except NameError: stimulus_presentation_ids = stim_table.index.values
+
+    # import pdb; pdb.set_trace()
+
     #binarize tensor
-    duration = min(duration, 3)
+    # duration = min(duration, 3)
     # binarize with 1 second bins
     time_bin_edges = np.linspace(0, duration, int(duration / resolution)+1)
 
@@ -158,6 +162,75 @@ def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution)
         unit_ids=df_cortex.unit_id.values
     )
     return histograms
+
+def get_regions_spiking_sequence_repeat(session_id, stimulus_name, regions, resolution):
+  session = cache.get_session_data(session_id,
+                                  amplitude_cutoff_maximum=np.inf,
+                                  presence_ratio_minimum=-np.inf,
+                                  isi_violations_maximum=np.inf)
+  df = session.units
+  df = df.rename(columns={"channel_local_index": "channel_id", 
+                          "ecephys_structure_acronym": "ccf", 
+                          "probe_id":"probe_global_id", 
+                          "probe_description":"probe_id",
+                          'probe_vertical_position': "ypos"})
+  df['unit_id']=df.index
+  if stimulus_name!='invalid_presentation':
+    stim_table = session.get_stimulus_table([stimulus_name])
+    stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+    if 'natural_movie' in stimulus_name:
+        frame_times = stim_table.End-stim_table.Start
+        print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
+        # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
+        # chunch each movie clip
+        stim_table = stim_table[stim_table.frame==0]
+        stim_table = stim_table.drop(['End'], axis=1)
+        duration = np.mean(remove_outlier(np.diff(stim_table.Start.values))[:10]) - 1e-4
+    elif stimulus_name=='spontaneous':
+        index = np.where(stim_table.duration>=20)[0]
+        if len(index): # only keep the longest spontaneous; has to be longer than 20 sec
+            duration=20
+            stimulus_presentation_ids = stim_table.index[index]
+    else:
+        ISI = np.mean(session.get_inter_presentation_intervals_for_stimulus([stimulus_name]).interval.values)
+        duration = round(np.mean(stim_table.duration.values), 2)+ISI
+    if stimulus_name == 'gabors':
+      duration -= 0.02
+    try: stimulus_presentation_ids
+    except NameError: stimulus_presentation_ids = stim_table.index.values
+
+    # import pdb; pdb.set_trace()
+
+    #binarize tensor
+    # duration = min(duration, 3)
+    # binarize with 1 second bins
+    time_bin_edges = np.linspace(0, duration, int(duration / resolution)+1)
+
+    # and get a set of units with only decent snr
+    #decent_snr_unit_ids = session.units[
+    #    session.units['snr'] >= 1.5
+    #].index.values
+    cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+    print('Number of units is {}, duration is {}'.format(len(cortical_units_ids), duration))
+    # get binarized tensor
+    df_cortex = df.iloc[cortical_units_ids]
+    histograms = session.presentationwise_spike_counts(
+        bin_edges=time_bin_edges,
+        stimulus_presentation_ids=stimulus_presentation_ids,
+        unit_ids=df_cortex.unit_id.values
+    )
+    # import pdb; pdb.set_trace()
+    part_stim_table = stim_table.loc[stimulus_presentation_ids]
+    # average_repeat = xr.DataArray(data=np.zeros((len(part_stim_table['stimulus_condition_id'].unique()), len(histograms['time_relative_to_stimulus_onset']), len(histograms['unit_id']))), dims=('stimulus_condition_id', 'time_relative_to_stimulus_onset', 'unit_id'), coords={'stimulus_condition_id':part_stim_table['stimulus_condition_id'].unique(), 'time_relative_to_stimulus_onset':histograms['time_relative_to_stimulus_onset'].data, 'unit_id':histograms['unit_id'].data})
+    # average_repeat.sel(stimulus_condition_id=0) = np.ones((len(part_stim_table['stimulus_condition_id'].unique()), len(histograms['time_relative_to_stimulus_onset']), len(histograms['unit_id']))).squeeze()
+    average_data = np.zeros((len(part_stim_table['stimulus_condition_id'].unique()), len(histograms['time_relative_to_stimulus_onset']), len(histograms['unit_id'])))
+    for ind, cond in enumerate(part_stim_table['stimulus_condition_id'].unique()):
+      # pre_id = part_stim_table[part_stim_table['stimulus_condition_id']==cond].index.tolist()
+      pre_id = np.where((part_stim_table['stimulus_condition_id']==cond))[0]
+      # average over repeats
+      average_data[ind, :, :] = histograms.isel(stimulus_presentation_id=pre_id).mean(dim="stimulus_presentation_id").data
+    average_repeat = xr.DataArray(data=average_data, dims=('stimulus_condition_id', 'time_relative_to_stimulus_onset', 'unit_id'), coords={'stimulus_condition_id':part_stim_table['stimulus_condition_id'].unique(), 'time_relative_to_stimulus_onset':histograms['time_relative_to_stimulus_onset'].data, 'unit_id':histograms['unit_id'].data})
+    return average_repeat
 
 def load_npy_regions_as_graph_whole(directory, regions, weight, measure, threshold, percentile):
   G_dict = {}
@@ -220,13 +293,35 @@ def plot_all_spikes(directory, session_ids, stimulus_names, resolution):
             transform=plt.gca().transAxes, fontsize=20, rotation=90)
             plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
             ind += 1
-            sequences = np.load(os.path.join(directory, '{}_{}.npy'.format(session_id, stimulus_name)))
-            plt.plot(sequences[-100:, :10], alpha=0.2)
+            sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+            # sequences = np.load(os.path.join(directory, '{}_{}.npy'.format(session_id, stimulus_name)))
+            print('{}, {}'.format(stimulus_name, sequences.shape))
+            plt.plot(sequences[-1000:, :10], alpha=0.2)
             plt.xlabel('step')
             plt.ylabel('average number of spikes')
     plt.suptitle('resolution={}s'.format(resolution), fontsize=30)
     plt.tight_layout()
     plt.savefig('./plots/all_spikes_{}.jpg'.format(resolution))
+
+def save_npz(matrix, filename):
+    matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
+    sparse_matrix = sp.csc_matrix(matrix_2d)
+    np.savez(filename, [sparse_matrix, matrix.shape])
+    return 'npz file saved'
+
+def load_npz(filename):
+    """
+    load npz files with sparse matrix and dimension
+    output dense matrix with the correct dim
+    """
+    npzfile = np.load(filename, allow_pickle=True) 
+    sparse_matrix = npzfile['arr_0'][0]
+    ndim=npzfile['arr_0'][1]
+
+    new_matrix_2d = np.array(sparse_matrix.todense())
+    new_matrix = new_matrix_2d
+    # new_matrix = new_matrix_2d.reshape(ndim)
+    return new_matrix
 # %%
 # measure = 'pearson'
 # threshold = 0.5
@@ -236,32 +331,33 @@ def plot_all_spikes(directory, session_ids, stimulus_names, resolution):
 # directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 # G_dict, area_dict = load_npy_regions_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile)
 
-# %%
-############# save npy files #############
-start_time = time.time()
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-resolution_dict = {'spontaneous':0.08, 'flashes':0.008, 'gabors':0.0004, 'drifting_gratings':0.0016, 'static_gratings':0.00012, 'natural_scenes':0.00012, 'natural_movie_one':0.04, 'natural_movie_three':0.08}
-resolution = 0.002
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-if not os.path.isdir(directory):
-  os.mkdir(directory)
-ind = 1
-all_num = len(session_ids)*len(stimulus_names)
-for session_id in session_ids:
-  for stimulus_name in stimulus_names:
-    # resolution = resolution_dict[stimulus_name]
-    print('resolution {} for {}'.format(resolution, stimulus_name))
-    histograms = get_regions_spiking_sequence(session_id, stimulus_name, visual_regions, resolution)
-    histograms = bootstrap(histograms, 6000)
-    mean_histograms = histograms.mean(dim="stimulus_presentation_id")
-    np.save((directory + '{}_{}.npy').format(session_id, stimulus_name), mean_histograms.data)
-    print('finished {}, {},  {} / {}'.format(session_id, stimulus_name, ind, all_num))
-    ind += 1
-print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# # %%
+# ############# save npy files #############
+# start_time = time.time()
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# # resolution_dict = {'spontaneous':0.2, 'flashes':0.02, 'gabors':0.002, 'drifting_gratings':0.004, 'static_gratings':0.0003, 'natural_scenes':0.0003, 'natural_movie_one':0.1, 'natural_movie_three':0.2}
+# resolution = 0.002
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# if not os.path.isdir(directory):
+#   os.mkdir(directory)
+# ind = 1
+# all_num = len(session_ids)*len(stimulus_names)
+# for session_id in session_ids:
+#   for stimulus_name in stimulus_names:
+#     # resolution = resolution_dict[stimulus_name]
+#     print('resolution {} for {}'.format(resolution, stimulus_name))
+#     histograms = get_regions_spiking_sequence(session_id, stimulus_name, visual_regions, resolution)
+#     # histograms = bootstrap(histograms, 6000)
+#     print('Shape of histograms {}'.format(histograms.shape))
+#     mean_histograms_bs = histograms.mean(dim="stimulus_presentation_id")
+#     np.save((directory + '{}_{}.npy').format(session_id, stimulus_name), mean_histograms_bs.data)
+#     print('finished {}, {},  {} / {}'.format(session_id, stimulus_name, ind, all_num))
+#     ind += 1
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 ############# calculate mean spikes from cache #############
 # start_time = time.time()
@@ -321,5 +417,120 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-# plot_all_spikes(directory, session_ids, stimulus_names, 'heterogeneous')
+# plot_all_spikes(directory, session_ids, stimulus_names, 0.01)
+# %%
+# %%
+############# flatten spiking sequences and average over repeats and save to npz files #############
+start_time = time.time()
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# resolution_dict = {'spontaneous':0.2, 'flashes':0.02, 'gabors':0.002, 'drifting_gratings':0.004, 'static_gratings':0.0003, 'natural_scenes':0.0003, 'natural_movie_one':0.1, 'natural_movie_three':0.2}
+resolution = 0.001
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+if not os.path.isdir(directory):
+  os.mkdir(directory)
+ind = 1
+all_num = len(session_ids)*len(stimulus_names)
+# session_id = session_ids[0]
+# stimulus_name = stimulus_names[1]
+for session_id in session_ids:
+  for stimulus_name in stimulus_names:
+  # resolution = resolution_dict[stimulus_name]
+    print('resolution {} for {}'.format(resolution, stimulus_name))
+    histograms = get_regions_spiking_sequence_repeat(session_id, stimulus_name, visual_regions, resolution)
+    print('Shape of histograms {}'.format(histograms.shape)) # condition, time, neuron
+    matrix = histograms.values
+    matrix = matrix.swapaxes(0, 2) # neuron, time, condition
+
+# matrix = matrix.swapaxes(0, 1) # time, neuron, condition
+# print(matrix.shape)
+# mean_matrix = matrix.mean(axis=2)
+# print(mean_matrix.shape)
+# plt.figure()
+# plt.plot(mean_matrix[:, :10], alpha=0.2)
+# plt.xlabel('step')
+# plt.ylabel('average number of spikes')
+# plt.tight_layout()
+# plt.savefig('./plots/spikes_{}_{}.jpg'.format(stimulus_name, resolution))
+
+    save_npz(matrix, (directory + '{}_{}.npz').format(session_id, stimulus_name))
+    print('finished {}, {},  {} / {}'.format(session_id, stimulus_name, ind, all_num))
+    ind += 1
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
+
+# %%
+############# calculate mean spikes for from npz files #############
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# all_num = len(stimulus_names)
+# mean_spikes = {'spontaneous':0, 'flashes':0, 'gabors':0, 'drifting_gratings':0, 'static_gratings':0, 'natural_scenes':0, 'natural_movie_one':0, 'natural_movie_three':0}
+# for session_ind, session_id in enumerate(session_ids):
+#   print(session_id)
+#   for stimulus_ind, stimulus_name in enumerate(stimulus_names):
+#       sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+#       mean_spikes[stimulus_name] += sequences.mean()
+# for i in mean_spikes:
+#     mean_spikes[i] /= all_num
+# print(mean_spikes)
+# %%
+############# calculate min duration for from npz files #############
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# all_num = len(stimulus_names)
+# min_len = 10000000000
+# for session_ind, session_id in enumerate(session_ids):
+#   for stimulus_ind, stimulus_name in enumerate(stimulus_names):
+#       sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+#       print(session_id, stimulus_name, sequences.shape)
+#       min_len = sequences.shape[1] if sequences.shape[1] < min_len else min_len
+# print(min_len) # 26000
+# %%
+############# calculate min number of spikes for from npz files #############
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# all_num = len(stimulus_names)
+# min_num = 10000000000
+# for session_ind, session_id in enumerate(session_ids):
+#   for stimulus_ind, stimulus_name in enumerate(stimulus_names):
+#       sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+#       sequences = sequences[:, :26000]
+#       i,j = np.nonzero(sequences)
+#       print(session_id, stimulus_name, len(i))
+#       min_num = len(i) if len(i) < min_num else min_num
+# print(min_num) # 564524
+# %%
+############# calculate min number of spikes for from npz files #############
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# all_num = len(stimulus_names)
+# min_num = 10000000000
+# for session_ind, session_id in enumerate(session_ids):
+#   for stimulus_ind, stimulus_name in enumerate(stimulus_names):
+#       sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+#       sequences = sequences[:, :26000]
+#       i,j = np.nonzero(sequences)
+#       ix = np.random.choice(len(i), 564524, replace=False)
+#       sample_seq = np.zeros_like(sequences)
+#       sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
+#       i,j = np.nonzero(sample_seq)
+#       print(session_id, stimulus_name, len(i))
 # %%
