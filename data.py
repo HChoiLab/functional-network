@@ -451,9 +451,11 @@ def load_npy_regions_as_graph_whole(directory, regions, weight, measure, thresho
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    print(file)
-    if file.endswith(".npy"):
-      sequences = np.load(os.path.join(directory, file)).T
+    if file.endswith(".npz"):
+      print(file)
+      sequences = load_npz(os.path.join(directory, file))
+      # sequences = np.load(os.path.join(directory, file)).T
+
       # data = xr.open_dataset(os.path.join(directory, file)).to_array()
       # if len(data.data.shape) > 2:
       #   sequences = data.data.squeeze().T
@@ -477,7 +479,7 @@ def load_npy_regions_as_graph_whole(directory, regions, weight, measure, thresho
         if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
           G_dict[mouseID] = {}
         instruction = instruction.reset_index()
-      stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
       G_dict[mouseID][stimulus_name] = generate_graph(sequences, measure=measure, cc=True, weight=weight, threshold=threshold, percentile=percentile)
       if not mouseID in area_dict:
         area_dict[mouseID] = {}
@@ -522,6 +524,42 @@ def load_npy_regions_nsteps_as_graph(directory, n, ind, regions, weight, measure
         instruction = instruction.reset_index()
       stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
       G_dict[mouseID][stimulus_name] = generate_graph(sub_sequence, measure=measure, cc=False, weight=weight, threshold=threshold, percentile=percentile)
+      if not mouseID in area_dict:
+        area_dict[mouseID] = {}
+      for i in range(instruction.shape[0]):
+        area_dict[mouseID][i] = instruction.ccf.iloc[i]
+  return G_dict, area_dict
+
+def load_npz_regions_downsample_as_graph_whole(directory, regions, weight, measure, threshold, percentile, min_len, min_num):
+  G_dict = {}
+  area_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz"):
+      print(file)
+      sequences = load_npz(os.path.join(directory, file))
+      sample_seq = down_sample(sequences, min_len, min_num)
+      mouseID = file.split('_')[0]
+      if not mouseID in G_dict:
+        session = cache.get_session_data(int(mouseID),
+                                amplitude_cutoff_maximum=np.inf,
+                                presence_ratio_minimum=-np.inf,
+                                isi_violations_maximum=np.inf)
+        df = session.units
+        df = df.rename(columns={"channel_local_index": "channel_id", 
+                                "ecephys_structure_acronym": "ccf", 
+                                "probe_id":"probe_global_id", 
+                                "probe_description":"probe_id",
+                                'probe_vertical_position': "ypos"})
+        cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+        df_cortex = df.iloc[cortical_units_ids]
+        instruction = df_cortex.ccf
+        if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
+          G_dict[mouseID] = {}
+        instruction = instruction.reset_index()
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      G_dict[mouseID][stimulus_name] = generate_graph(sample_seq, measure=measure, cc=True, weight=weight, threshold=threshold, percentile=percentile)
       if not mouseID in area_dict:
         area_dict[mouseID] = {}
       for i in range(instruction.shape[0]):
@@ -927,6 +965,37 @@ def metric_stimulus_error_region(G_dict, percentile, measure):
   plt.savefig('./plots/metric_stimulus_{}_{}.jpg'.format(measure, num))
 
 def metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc):
+  rows, cols = get_rowcol(G_dict, measure)
+  metric_names = get_metric_names(G_dict)
+  plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
+  fig = plt.figure(figsize=(20, 10))
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+        # print(nx.info(G))
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+          if weight:
+            metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc)
+          else:
+            metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc)
+    plt.subplot(*plots_shape, metric_ind + 1)
+    for row_ind, row in enumerate(rows):
+      plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
+    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+    plt.xticks(rotation=90)
+  plt.legend()
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  figname = './plots/metric_stimulus_individual_weighted_{}_{}.jpg'.format(measure, num) if weight else './plots/metric_stimulus_individual_{}_{}.jpg'.format(measure, num)
+  plt.savefig(figname)
+
+def metric_stimulus_length(G_dict, threshold, percentile, measure, weight, cc):
   rows, cols = get_rowcol(G_dict, measure)
   metric_names = get_metric_names(G_dict)
   plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
@@ -1379,6 +1448,49 @@ def SBM_density(G_dict, area_dict, regions, measure):
       SBM_dict[row][col] = nx.stochastic_block_model(sizes, probs, seed=100)
   return SBM_dict
 
+def save_npz(matrix, filename):
+    matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
+    sparse_matrix = sp.csc_matrix(matrix_2d)
+    np.savez(filename, [sparse_matrix, matrix.shape])
+    return 'npz file saved'
+
+def load_npz(filename):
+    """
+    load npz files with sparse matrix and dimension
+    output dense matrix with the correct dim
+    """
+    npzfile = np.load(filename, allow_pickle=True) 
+    sparse_matrix = npzfile['arr_0'][0]
+    ndim=npzfile['arr_0'][1]
+
+    new_matrix_2d = np.array(sparse_matrix.todense())
+    new_matrix = new_matrix_2d
+    # new_matrix = new_matrix_2d.reshape(ndim)
+    return new_matrix
+    
+def min_len_spike(directory, session_ids, stimulus_names):
+  min_len = 10000000000
+  for session_id in session_ids:
+    for stimulus_name in stimulus_names:
+        sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+        min_len = sequences.shape[1] if sequences.shape[1] < min_len else min_len
+  min_num = 10000000000
+  for session_id in session_ids:
+    for stimulus_name in stimulus_names:
+        sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+        sequences = sequences[:, :min_len]
+        i,j = np.nonzero(sequences)
+        min_num = len(i) if len(i) < min_num else min_num
+  print('Minimal length of sequence is {}, minimal number of spikes is {}'.format(min_len, min_num)) # 564524
+  return min_len, min_num
+
+def down_sample(sequences, min_len, min_num):
+  sequences = sequences[:, :min_len]
+  i,j = np.nonzero(sequences)
+  ix = np.random.choice(len(i), min_num, replace=False)
+  sample_seq = np.zeros_like(sequences)
+  sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
+  return sample_seq
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -1712,6 +1824,19 @@ visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
 # %%
+############# load weighted graph with only visual regions #################
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+threshold = 0.03
+percentile = 99
+weight = True # weighted network
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+G_dict, area_dict = load_npy_regions_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile)
+# %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
 plot_multi_graphs_color(G_dict, area_dict, measure, cc=cc)
@@ -1737,4 +1862,23 @@ for row in G_dict:
         print('Number of nodes for {} {} {}'.format(row, col, nodes))
         print('Number of edges for {} {} {}'.format(row, col, edges))
         print('Density for {} {} {}'.format(row, col, 2 * edges / nodes ** 2))
+# %%
+############# load weighted graph with only visual regions #################
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+threshold = 0.02
+percentile = 99
+weight = True # weighted network
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+min_len, min_num = min_len_spike(directory, session_ids, stimulus_names)
+G_dict, area_dict = load_npz_regions_downsample_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile, min_len, min_num)
+
 # %%
