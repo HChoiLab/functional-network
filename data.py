@@ -1123,7 +1123,7 @@ def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshol
     plt.subplot(2, 4, metric_ind + 1)
     for row_ind, row in enumerate(rows):
       plt.plot(cols, metric[row_ind, :, metric_ind] - metric_base[row_ind, :, metric_ind], label=row, alpha=1)
-    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+    plt.gca().set_title(r'$\Delta$' + metric_name, fontsize=30, rotation=0)
     plt.xticks(rotation=90)
   plt.legend()
   plt.tight_layout()
@@ -1382,8 +1382,29 @@ def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
   return rewired_G_dict
 
 def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, percentile):
-  ind = 1
   rows, cols = get_rowcol(G_dict, measure)
+  scale = np.zeros(len(rows))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        A = nx.adjacency_matrix(G)
+        A = A.todense()
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
+    scale[row_ind] = region_connection[row_ind, :, :, :].max()
+  ind = 1
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -1403,19 +1424,8 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      region_connection = np.zeros((len(regions), len(regions)))
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        A = nx.adjacency_matrix(G)
-        A = A.todense()
-        for region_ind_i, region_i in enumerate(regions):
-          for region_ind_j, region_j in enumerate(regions):
-            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-            region_connection[region_ind_i][region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
-      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, vmax=1500, cmap="YlGnBu")
+      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind], cmap="YlGnBu")
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
       sns_plot.set_xticks(np.arange(len(regions))+0.5)
       sns_plot.set_xticklabels(regions, rotation=90)
       sns_plot.set_yticks(np.arange(len(regions))+0.5)
@@ -1426,6 +1436,78 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   num = threshold if measure=='pearson' else percentile
   plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
   # plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
+
+def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, threshold, percentile):
+  rows, cols = get_rowcol(G_dict, measure)
+  cols.remove('spontaneous')
+  scale_min = np.zeros(len(rows))
+  scale_max = np.zeros(len(rows))
+  region_connection_bl = np.zeros((len(rows), len(regions), len(regions)))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    G = G_dict[row]['spontaneous']
+    if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+      nodes = list(G.nodes())
+      A = nx.adjacency_matrix(G)
+      A = A.todense()
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          region_connection_bl[row_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+          assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        A = nx.adjacency_matrix(G)
+        A = A.todense()
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+    scale_min[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).min()
+    scale_max[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).max()
+  ind = 1
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap((region_connection[row_ind, col_ind, :, :]-region_connection_bl[row_ind])/region_connection_bl[row_ind].sum(), vmin=scale_min[row_ind], vmax=scale_max[row_ind], cmap="YlGnBu")
+      # sns_plot = sns.heatmap((region_connection-region_connection_bl)/region_connection_bl.sum(), cmap="YlGnBu")
+      sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      sns_plot.set_xticklabels(regions, rotation=90)
+      sns_plot.set_yticks(np.arange(len(regions))+0.5)
+      sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  plt.savefig('./plots/region_connection_delta_scale_{}_{}.jpg'.format(measure, num))
+  # plt.savefig('./plots/region_connection_delta_{}_{}.jpg'.format(measure, num))
 
 def SBM_density(G_dict, area_dict, regions, measure):
   SBM_dict = {}
@@ -1794,21 +1876,6 @@ for i in nodes:
 print(nodes)
 print(edges)
 # %%
-############# load graph with only visual regions and n steps of the sequence #################
-ind = 0
-n = 100
-measure = 'pearson'
-# measure = 'cosine'
-# measure = 'correlation'
-# measure = 'MI'
-# measure = 'causality'
-threshold = 0.3
-percentile = 99
-weight = False # unweighted network
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
-# %%
 ############# load weighted graph with only visual regions and n steps of the sequence #################
 ind = 0
 n = 100
@@ -1824,18 +1891,30 @@ visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
 # %%
+# %%
+############# count minimum length and number of spikes #################
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+min_len, min_num = min_len_spike(directory, session_ids, stimulus_names)
+# %%
 ############# load weighted graph with only visual regions #################
 measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.03
-percentile = 99
+threshold = 0.012
+percentile = 99.8
 weight = True # weighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-G_dict, area_dict = load_npy_regions_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile)
+G_dict, area_dict = load_npz_regions_downsample_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile, min_len, min_num)
+# %%
+region_connection_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
+# %%
+region_connection_delta_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
@@ -1862,14 +1941,14 @@ for row in G_dict:
         print('Number of nodes for {} {} {}'.format(row, col, nodes))
         print('Number of edges for {} {} {}'.format(row, col, edges))
         print('Density for {} {} {}'.format(row, col, 2 * edges / nodes ** 2))
+
+
 # %%
-############# load weighted graph with only visual regions #################
 measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
-threshold = 0.02
 percentile = 99
 weight = True # weighted network
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -1879,6 +1958,114 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
 min_len, min_num = min_len_spike(directory, session_ids, stimulus_names)
-G_dict, area_dict = load_npz_regions_downsample_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile, min_len, min_num)
+# %%
+threshold = -1
+ind = 1
+rows, cols = session_ids, stimulus_names
+weight_mean = pd.DataFrame(index=rows, columns=cols)
+weight_max = pd.DataFrame(index=rows, columns=cols)
+weight_fraction = pd.DataFrame(index=rows, columns=cols)
+fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    plt.subplot(len(rows), len(cols), ind)
+    if row_ind == 0:
+      plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=30, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    sequences = load_npz(os.path.join(directory, str(row) + '_' + col + '.npz'))
+    sample_seq = down_sample(sequences, min_len, min_num)
+    adj_mat = corr_mat(sample_seq, measure, threshold, percentile)
+    if not weight:
+      adj_mat[adj_mat.nonzero()] = 1
+    adj_mat[adj_mat==0] = np.nan
+    weight_fraction.loc[row, col] = np.nansum(adj_mat > 0.01) / adj_mat.size
+    weight_mean.loc[row, col] = np.nanmean(adj_mat)
+    weight_max.loc[row, col] = np.nanmax(adj_mat)
+    sns.distplot(adj_mat.flatten(), hist=True, kde=True, 
+        bins=int(180/5), color = 'darkblue', 
+        hist_kws={'edgecolor':'black'},
+        kde_kws={'linewidth': 2})
+    plt.xlabel('Edge weight (Pearson correlation)')
+    plt.ylabel('Density')
+plt.tight_layout()
+plt.savefig('./plots/edge_weight_distribution.jpg')
 
+# %%
+measure = 'pearson'
+threshold = 0.06
+percentile = 99
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+ind = 1
+rows, cols = session_ids, stimulus_names
+weight_mean = pd.DataFrame(index=rows, columns=cols)
+weight_max = pd.DataFrame(index=rows, columns=cols)
+fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    plt.subplot(len(rows), len(cols), ind)
+    if row_ind == 0:
+      plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=30, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    sequences = load_npz(os.path.join(directory, str(row) + '_' + col + '.npz'))
+    sample_seq = down_sample(sequences, min_len, min_num)
+    adj_mat = corr_mat(sample_seq, measure, threshold, percentile)
+    if not weight:
+      adj_mat[adj_mat.nonzero()] = 1
+    adj_mat[adj_mat==0] = np.nan
+    weight_mean.loc[row, col] = np.nanmean(adj_mat)
+    weight_max.loc[row, col] = np.nanmax(adj_mat)
+    sns.distplot(adj_mat.flatten(), hist=True, kde=True, 
+        bins=int(180/5), color = 'darkblue', 
+        hist_kws={'edgecolor':'black'},
+        kde_kws={'linewidth': 2})
+    plt.xlabel('Edge weight (Pearson correlation)')
+    plt.ylabel('Density')
+plt.tight_layout()
+plt.savefig('./plots/edge_weight_distribution_thresholded.jpg')
+# plt.show()
+# %%
+############# count the fraction of edges above threshold #################
+ind = 1
+rows, cols = session_ids, stimulus_names
+weight_fraction = pd.DataFrame(index=rows, columns=cols)
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    ind += 1
+    sequences = load_npz(os.path.join(directory, str(row) + '_' + col + '.npz'))
+    sample_seq = down_sample(sequences, min_len, min_num)
+    adj_mat = corr_mat(sample_seq, measure, threshold=-1, percentile=0)
+    if not weight:
+      adj_mat[adj_mat.nonzero()] = 1
+    adj_mat[adj_mat==0] = np.nan
+    weight_fraction.loc[row, col] = np.nansum(adj_mat > threshold) / adj_mat.size
+# %%
 # %%
