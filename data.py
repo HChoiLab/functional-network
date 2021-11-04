@@ -593,7 +593,7 @@ def load_adj_regions_downsample_as_graph_whole(directory, weight, measure, thres
       stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
       if not mouseID in G_dict:
         G_dict[mouseID] = {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=adj_mat, cc=True, weight=weight)
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=adj_mat, cc=False, weight=weight)
   return G_dict
 
 def load_nc_regions_as_n_graphs(directory, n, regions, weight, measure, threshold, percentile):
@@ -879,7 +879,14 @@ def plot_degree_distribution(G):
   plt.xlabel('Degree')
   plt.ylabel('Frequency')
 
+def func_powerlaw(x, m, c):
+  return x**m * c
+
 def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=False):
+  alphas = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  xmins = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  loglikelihoods = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  proportions = pd.DataFrame(index=session_ids, columns=stimulus_names)
   ind = 1
   rows, cols = get_rowcol(G_dict, measure)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -910,16 +917,32 @@ def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=F
           else:
             Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
             G = G.subgraph(Gcc[0])
-        degree_freq = nx.degree_histogram(G)
-        degrees = range(len(degree_freq))
-        plt.loglog(degrees, degree_freq,'go-') 
+        degree_freq = nx.degree_histogram(G)[1:]
+        degrees = np.array(range(1, len(degree_freq) + 1))
+        g_degrees = list(dict(G.degree()).values())
+        [alpha, xmin, L] = plfit(g_degrees, 'finite')
+        proportion = np.sum(np.array(g_degrees)>=xmin)/len(g_degrees)
+        alphas.loc[int(row)][col], xmins.loc[int(row)][col], loglikelihoods.loc[int(row)][col], proportions.loc[int(row)][col] = alpha, xmin, L, proportion
+        # C is normalization constant that makes sure the sum is equal to real data points
+        C = (np.array(degree_freq) / sum(degree_freq))[degrees>=xmin].sum() / np.power(degrees[degrees>=xmin], -alpha).sum()
+        plt.scatter([],[], label='alpha={:.1f}'.format(alpha), s=20)
+        plt.scatter([],[], label='xmin={}'.format(xmin), s=20)
+        plt.scatter([],[], label='loglikelihood={:.1f}'.format(L), s=20)
+        plt.plot(degrees, np.array(degree_freq) / sum(degree_freq),'go-')
+        plt.plot(degrees[degrees>=xmin], func_powerlaw(degrees[degrees>=xmin], *np.array([-alpha, C])), linestyle='--', linewidth=2, color='black')
+        
+        plt.legend(loc='upper right', fontsize=7)
         plt.xlabel('Degree')
         plt.ylabel('Frequency')
+        plt.xscale('log')
+        plt.yscale('log')
       
   plt.tight_layout()
   th = threshold if measure == 'pearson' else percentile
   image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
-  plt.savefig(image_name)
+  # plt.show()
+  plt.savefig(image_name, dpi=300)
+  return alphas, xmins, loglikelihoods, proportions
 
 def plot_running_speed(session_ids, stimulus_names):
   fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(session_ids)))
@@ -1003,6 +1026,48 @@ def intra_inter_connection(G_dict, area_dict, percentile, measure):
   num = threshold if measure=='pearson' else percentile
   plt.savefig('./plots/intra_inter_{}_{}.jpg'.format(measure, num))
 
+def plot_power_law_stats_individual(alphas, xmins, loglikelihoods, proportions, measure, threshold, percentile):
+  pl_stats = {'alpha':alphas, 'xmin':xmins, 'loglikelihood':loglikelihoods, 'proportion':proportions}
+  session_ids, stimulus_names = list(alphas.index), list(alphas.columns)
+  fig = plt.figure(figsize=[6, 20])
+  for metric_ind, metric_name in enumerate(['alpha', 'xmin', 'loglikelihood', 'proportion']):
+    plt.subplot(4, 1, metric_ind + 1)
+    for session_id in session_ids:
+      plt.plot(stimulus_names, pl_stats[metric_name].loc[session_id], label=session_id, alpha=0.6)
+    plt.legend()
+    plt.xticks(rotation=90)
+    plt.title(metric_name)
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  image_name = './plots/power_law_stats_individual_cc_{}_{}.jpg'.format(measure, num) if cc else './plots/power_law_stats_individual_{}_{}.jpg'.format(measure, num)
+  plt.savefig(image_name)
+
+def plot_power_law_stats(alphas, xmins, loglikelihoods, proportions, measure, threshold, percentile):
+  pl_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+  pl_stats = {'alpha':alphas, 'xmin':xmins, 'loglikelihood':loglikelihoods, 'proportion':proportions}
+  for metric_name in ['alpha', 'xmin', 'loglikelihood', 'proportion']:
+    df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+    df['mean'] = pl_stats[metric_name].mean()
+    df['std'] = pl_stats[metric_name].std()
+    df['metric'] = metric_name
+    df['stimulus'] = list(alphas.columns)
+    pl_stimulus = pl_stimulus.append(df, ignore_index=True)
+  fig = plt.figure(figsize=[6, 20])
+  ind = 1
+  for i, m in pl_stimulus.groupby("metric"):
+    plt.subplot(4, 1, ind)
+    ind += 1
+    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
+    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
+    plt.legend()
+    plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  image_name = './plots/power_law_stats_cc_{}_{}.jpg'.format(measure, num) if cc else './plots/power_law_stats_{}_{}.jpg'.format(measure, num)
+  plt.savefig(image_name)
+
 def metric_stimulus_error_region(G_dict, percentile, measure):
   rows, cols = get_rowcol(G_dict, measure)
   metric_names = get_metric_names(G_dict)
@@ -1069,7 +1134,7 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, c
   plt.savefig(figname)
   return metric
 
-def metric_speed(G_dict, metric, speed_df, measure, weight, threshold, percentile):
+def metric_speed(G_dict, metric, mean_speed_df, measure, weight, threshold, percentile):
   metric_names = get_metric_names(G_dict)
   rows, cols = get_rowcol(G_dict, measure)
   plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
@@ -1078,7 +1143,7 @@ def metric_speed(G_dict, metric, speed_df, measure, weight, threshold, percentil
     print(metric_name)
     plt.subplot(*plots_shape, metric_ind + 1)
     for row_ind, row in enumerate(rows):
-      plt.scatter(speed_df.values[row_ind, :], metric[row_ind, :, metric_ind], label=row, alpha=0.5)
+      plt.scatter(mean_speed_df.values[row_ind, :], metric[row_ind, :, metric_ind], label=row, alpha=0.5)
     plt.gca().set_title(metric_name, fontsize=30, rotation=0)
     plt.xlabel('mean running speed')
   plt.legend()
@@ -1088,7 +1153,7 @@ def metric_speed(G_dict, metric, speed_df, measure, weight, threshold, percentil
   figname = './plots/metric_speed_{}_{}.jpg'.format(measure, num) if weight else './plots/metric_speed_{}_{}.jpg'.format(measure, num)
   plt.savefig(figname)
 
-def delta_metric_speed(G_dict, delta_metric, speed_df, measure, weight, threshold, percentile):
+def delta_metric_speed(G_dict, delta_metric, mean_speed_df, measure, weight, threshold, percentile):
   metric_names = get_metric_names(G_dict)
   rows, cols = get_rowcol(G_dict, measure)
   plots_shape = (3, 3) if len(metric_names) == 9 else (2, 4)
@@ -1097,7 +1162,7 @@ def delta_metric_speed(G_dict, delta_metric, speed_df, measure, weight, threshol
     print(metric_name)
     plt.subplot(*plots_shape, metric_ind + 1)
     for row_ind, row in enumerate(rows):
-      plt.scatter(speed_df.values[row_ind, :], delta_metric[row_ind, :, metric_ind], label=row, alpha=0.5)
+      plt.scatter(mean_speed_df.values[row_ind, :], delta_metric[row_ind, :, metric_ind], label=row, alpha=0.5)
     plt.gca().set_title(r'$\Delta$' + metric_name, fontsize=30, rotation=0)
     plt.xlabel('mean running speed')
   plt.legend()
@@ -1210,11 +1275,9 @@ def calculate_weighted_metric(G, metric_name, cc):
         metric = 0
   return metric
 
-def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc):
-  rows, cols = get_rowcol(G_dict, measure)
-  metric_names = get_metric_names(G_dict)
-  metric = np.empty((len(rows), len(cols), len(metric_names)))
-  metric[:] = np.nan
+def delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc):
+  rows, cols = get_rowcol(rewired_G_dict, measure)
+  metric_names = get_metric_names(rewired_G_dict)
   metric_base = np.empty((len(rows), len(cols), len(metric_names)))
   metric_base[:] = np.nan
   fig = plt.figure(figsize=(20, 10))
@@ -1223,14 +1286,11 @@ def delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshol
     for row_ind, row in enumerate(rows):
       print(row)
       for col_ind, col in enumerate(cols):
-        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
         G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
-        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if G_base.number_of_nodes() > 2 and G_base.number_of_edges() > 0:
           if weight:
-            metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc=cc)
             metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
           else:
-            metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc=cc)
             metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
     plt.subplot(2, 4, metric_ind + 1)
     for row_ind, row in enumerate(rows):
@@ -2028,7 +2088,7 @@ for file in files:
     print(file)
     sequences = load_npz(os.path.join(directory, file))
     sample_seq = down_sample(sequences, min_len, min_num)
-    adj_mat = corr_mat(sequences, measure)
+    adj_mat = corr_mat(sample_seq, measure)
     np.save(os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)), file.replace('npz', 'npy')), adj_mat)
 # %%
 ############# save area_dict and average speed dataframe #################
@@ -2053,6 +2113,7 @@ a_file.close()
 mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
 # %%
 ############# load weighted graph with only visual regions #################
+measure = 'pearson'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
 threshold = 0.012
 percentile = 99.8
@@ -2066,8 +2127,8 @@ region_connection_delta_heatmap(G_dict, area_dict, visual_regions, measure, thre
 ############# plot all graphs with community layout and color as region #################
 cc = True
 plot_multi_graphs_color(G_dict, area_dict, measure, cc=cc)
-cc = False
-plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
+cc = True
+alphas, xmins, loglikelihoods, proportions = plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
 ############# plot metric_stimulus individually for each mouse #############
 cc = True
 metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
@@ -2078,13 +2139,15 @@ algorithm = 'configuration_model'
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
 ############# plot delta metric_stimulus individually for each mouse #############
 cc = True # for real graphs, cc is false for rewired baselines
-delta_metric = delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
+delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
 # %%
-########### plot correlation between metric and running speed
+########### plot correlation between metric and running speed #############
 metric_speed(G_dict, metric, mean_speed_df, measure, weight, threshold, percentile)
 delta_metric_speed(G_dict, delta_metric, mean_speed_df, measure, weight, threshold, percentile)
 # %%
-
+########### plot power law stats against stimulus #############
+plot_power_law_stats(alphas, xmins, loglikelihoods, proportions, measure, threshold, percentile)
+plot_power_law_stats_individual(alphas, xmins, loglikelihoods, proportions, measure, threshold, percentile)
 # %%
 rows, cols = get_rowcol(G_dict, measure)
 for row in G_dict:
@@ -2221,65 +2284,7 @@ for row_ind, row in enumerate(rows):
 # %%
 # %%
 # %%
-cc = False
-def func_powerlaw(x, m, c):
-  return x**m * c
-alphas = pd.DataFrame(index=session_ids, columns=stimulus_names)
-xmins = pd.DataFrame(index=session_ids, columns=stimulus_names)
-loglikelihoods = pd.DataFrame(index=session_ids, columns=stimulus_names)
-ind = 1
-rows, cols = get_rowcol(G_dict, measure)
-fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-left, width = .25, .5
-bottom, height = .25, .5
-right = left + width
-top = bottom + height
-for row_ind, row in enumerate(rows):
-  print(row)
-  for col_ind, col in enumerate(cols):
-    plt.subplot(len(rows), len(cols), ind)
-    if row_ind == 0:
-      plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-    if col_ind == 0:
-      plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-      horizontalalignment='left',
-      verticalalignment='center',
-      # rotation='vertical',
-      transform=plt.gca().transAxes, fontsize=20, rotation=90)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-    if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-      if cc:
-        if nx.is_directed(G):
-          Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
-          G = G.subgraph(Gcc[0])
-        else:
-          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-          G = G.subgraph(Gcc[0])
-      degree_freq = nx.degree_histogram(G)[1:]
-      degrees = np.array(range(1, len(degree_freq) + 1))
-      [alpha, xmin, L] = plfit(list(dict(G.degree()).values()), 'finite')
-      alphas.loc[int(row)][col], xmins.loc[int(row)][col], loglikelihoods.loc[int(row)][col] = alpha, xmin, L
-      # C is normalization constant that makes sure the sum is equal to real data points
-      C = (np.array(degree_freq) / sum(degree_freq))[degrees>=xmin].sum() / np.power(degrees[degrees>=xmin], -alpha).sum()
-      plt.scatter([],[], label='alpha={:.1f}'.format(alpha), s=20)
-      plt.scatter([],[], label='xmin={}'.format(xmin), s=20)
-      plt.scatter([],[], label='loglikelihood={:.1f}'.format(L), s=20)
-      plt.plot(degrees, np.array(degree_freq) / sum(degree_freq),'go-')
-      plt.plot(degrees[degrees>=xmin], func_powerlaw(degrees[degrees>=xmin], *np.array([-alpha, C])), linestyle='--', linewidth=2, color='black')
-      
-      plt.legend(loc='upper right', fontsize=7)
-      plt.xlabel('Degree')
-      plt.ylabel('Frequency')
-      plt.xscale('log')
-      plt.yscale('log')
-    
-plt.tight_layout()
-th = threshold if measure == 'pearson' else percentile
-image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
-plt.show()
-# plt.savefig(image_name)
+
  # %%
 import powerlaw
 degrees = list(dict(G.degree()).values())
@@ -2454,4 +2459,6 @@ th = threshold if measure == 'pearson' else percentile
 # plt.show()
 image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
 plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+# %%
+
 # %%
