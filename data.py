@@ -27,6 +27,7 @@ from scipy.spatial.distance import pdist, squareform, cosine
 from sklearn.metrics.pairwise import cosine_similarity
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 from plfit import plfit
+import pickle
 data_directory = './data/ecephys_cache_dir'
 manifest_path = os.path.join(data_directory, "manifest.json")
 cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
@@ -286,7 +287,7 @@ def compute_adj(path, measure):
         np.fill_diagonal(adj_mat, 0)
         np.save(os.path.join(path.replace('spiking_sequence', '{}_matrix'.format(measure)), file.replace('.nc', '.npy')), adj_mat)
 
-def corr_mat(sequences, measure, threshold=0.5, percentile=90):
+def corr_mat(sequences, measure):
   if measure == 'pearson':
     adj_mat = np.corrcoef(sequences)
   elif measure == 'cosine':
@@ -301,14 +302,9 @@ def corr_mat(sequences, measure, threshold=0.5, percentile=90):
     sys.exit('Unrecognized measure value!!! Choices: pearson, cosin, correlation.')
   adj_mat = np.nan_to_num(adj_mat)
   np.fill_diagonal(adj_mat, 0)
-  if measure == 'pearson':
-    adj_mat[adj_mat < threshold] = 0
-  else:
-    adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
   return adj_mat
 
-def generate_graph(sequences, measure, cc=False, weight=False, threshold=0.5, percentile=90):
-  adj_mat = corr_mat(sequences, measure, threshold, percentile)
+def generate_graph(adj_mat, cc=False, weight=False):
   if not weight:
     adj_mat[adj_mat.nonzero()] = 1
   G = nx.from_numpy_array(adj_mat) # same as from_numpy_matrix
@@ -535,61 +531,70 @@ def load_npy_regions_nsteps_as_graph(directory, n, ind, regions, weight, measure
         area_dict[mouseID][i] = instruction.ccf.iloc[i]
   return G_dict, area_dict
 
-def load_npz_regions_downsample_as_graph_whole(directory, regions, weight, measure, threshold, percentile, min_len, min_num):
-  G_dict = {}
+def load_area_speed(session_ids, stimulus_names, regions):
   area_dict = {}
   speed_dict = {}
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if file.endswith(".npz"):
-      print(file)
-      sequences = load_npz(os.path.join(directory, file))
-      sample_seq = down_sample(sequences, min_len, min_num)
-      mouseID = file.split('_')[0]
-      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      if not mouseID in G_dict:
-        session = cache.get_session_data(int(mouseID),
+  for mouseID in session_ids:
+    print(mouseID)
+    session = cache.get_session_data(int(mouseID),
                                 amplitude_cutoff_maximum=np.inf,
                                 presence_ratio_minimum=-np.inf,
                                 isi_violations_maximum=np.inf)
-        df = session.units
-        df = df.rename(columns={"channel_local_index": "channel_id", 
-                                "ecephys_structure_acronym": "ccf", 
-                                "probe_id":"probe_global_id", 
-                                "probe_description":"probe_id",
-                                'probe_vertical_position': "ypos"})
-        cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
-        df_cortex = df.iloc[cortical_units_ids]
-        instruction = df_cortex.ccf
-        if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
-          G_dict[mouseID] = {}
-          speed_dict[mouseID] = {}
-        instruction = instruction.reset_index()
-      if stimulus_name!='invalid_presentation':
-        stim_table = session.get_stimulus_table([stimulus_name])
-        stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
-        if 'natural_movie' in stimulus_name:
-            frame_times = stim_table.End-stim_table.Start
-            print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
-            # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
-            # chunch each movie clip
-            stim_table = stim_table[stim_table.frame==0]
-      G_dict[mouseID][stimulus_name] = generate_graph(sample_seq, measure=measure, cc=True, weight=weight, threshold=threshold, percentile=percentile)
+    df = session.units
+    df = df.rename(columns={"channel_local_index": "channel_id", 
+                            "ecephys_structure_acronym": "ccf", 
+                            "probe_id":"probe_global_id", 
+                            "probe_description":"probe_id",
+                            'probe_vertical_position': "ypos"})
+    cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+    df_cortex = df.iloc[cortical_units_ids]
+    instruction = df_cortex.ccf
+    if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
+      speed_dict[mouseID] = {}
+    instruction = instruction.reset_index()
+    if not mouseID in area_dict:
+      area_dict[mouseID] = {}
+    for i in range(instruction.shape[0]):
+      area_dict[mouseID][i] = instruction.ccf.iloc[i]
+    for stimulus_name in stimulus_names:
+      print(stimulus_name)
+      stim_table = session.get_stimulus_table([stimulus_name])
+      stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+      if 'natural_movie' in stimulus_name:
+        frame_times = stim_table.End-stim_table.Start
+        print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
+        # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
+        # chunch each movie clip
+        stim_table = stim_table[stim_table.frame==0]
       speed = session.running_speed[(session.running_speed['start_time']>=stim_table['Start'].min()) & (session.running_speed['end_time']<=stim_table['End'].max())]
       speed_dict[mouseID][stimulus_name] = speed['velocity'].mean()
-      if not mouseID in area_dict:
-        area_dict[mouseID] = {}
-      for i in range(instruction.shape[0]):
-        area_dict[mouseID][i] = instruction.ccf.iloc[i]
   # switch speed_dict to dataframe
   mouseIDs = list(speed_dict.keys())
   stimuli = list(speed_dict[list(speed_dict.keys())[0]].keys())
-  speed_df = pd.DataFrame(columns=stimuli, index=mouseIDs)
+  mean_speed_df = pd.DataFrame(columns=stimuli, index=mouseIDs)
   for k in speed_dict:
     for v in speed_dict[k]:
-      speed_df.loc[k][v] = speed_dict[k][v]
-  return G_dict, area_dict, speed_df
+      mean_speed_df.loc[k][v] = speed_dict[k][v]
+  return area_dict, mean_speed_df
+
+def load_adj_regions_downsample_as_graph_whole(directory, weight, measure, threshold, percentile):
+  G_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npy"):
+      print(file)
+      adj_mat = np.load(os.path.join(directory, file))
+      if measure == 'pearson':
+        adj_mat[adj_mat < threshold] = 0
+      else:
+        adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=adj_mat, cc=True, weight=weight)
+  return G_dict
 
 def load_nc_regions_as_n_graphs(directory, n, regions, weight, measure, threshold, percentile):
   G_sub_dict = dict.fromkeys(range(n), {})
@@ -2008,23 +2013,51 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
 min_len, min_num = min_len_spike(directory, session_ids, stimulus_names)
 # %%
-############# load weighted graph with only visual regions #################
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+############# save correlation matrices #################
 min_len, min_num = (260000, 578082)
 measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
 # measure = 'MI'
 # measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+files = os.listdir(directory)
+files.sort(key=lambda x:int(x[:9]))
+for file in files:
+  if file.endswith(".npz"):
+    print(file)
+    sequences = load_npz(os.path.join(directory, file))
+    sample_seq = down_sample(sequences, min_len, min_num)
+    adj_mat = corr_mat(sequences, measure)
+    np.save(os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)), file.replace('npz', 'npy')), adj_mat)
+# %%
+############# save area_dict and average speed dataframe #################
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+area_dict, mean_speed_df = load_area_speed(session_ids, stimulus_names, visual_regions)
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'wb')
+pickle.dump(area_dict, a_file)
+a_file.close()
+mean_speed_df.to_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+# %%
+############# load area_dict and average speed dataframe #################
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+# %%
+############# load weighted graph with only visual regions #################
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
 threshold = 0.012
 percentile = 99.8
 weight = True # weighted network
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-G_dict, area_dict, speed_df = load_npz_regions_downsample_as_graph_whole(directory, visual_regions, weight, measure, threshold, percentile, min_len, min_num)
+G_dict = load_adj_regions_downsample_as_graph_whole(directory, weight, measure, threshold, percentile)
 # %%
 region_connection_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
 # %%
@@ -2048,8 +2081,8 @@ cc = True # for real graphs, cc is false for rewired baselines
 delta_metric = delta_metric_stimulus_individual(G_dict, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
 # %%
 ########### plot correlation between metric and running speed
-metric_speed(G_dict, metric, speed_df, measure, weight, threshold, percentile)
-delta_metric_speed(G_dict, delta_metric, speed_df, measure, weight, threshold, percentile)
+metric_speed(G_dict, metric, mean_speed_df, measure, weight, threshold, percentile)
+delta_metric_speed(G_dict, delta_metric, mean_speed_df, measure, weight, threshold, percentile)
 # %%
 
 # %%
@@ -2189,10 +2222,11 @@ for row_ind, row in enumerate(rows):
 # %%
 # %%
 cc = False
-from scipy.optimize import curve_fit
 def func_powerlaw(x, m, c):
   return x**m * c
-
+alphas = pd.DataFrame(index=session_ids, columns=stimulus_names)
+xmins = pd.DataFrame(index=session_ids, columns=stimulus_names)
+loglikelihoods = pd.DataFrame(index=session_ids, columns=stimulus_names)
 ind = 1
 rows, cols = get_rowcol(G_dict, measure)
 fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -2225,11 +2259,17 @@ for row_ind, row in enumerate(rows):
           G = G.subgraph(Gcc[0])
       degree_freq = nx.degree_histogram(G)[1:]
       degrees = np.array(range(1, len(degree_freq) + 1))
-      [alpha, xmin, L] = plfit(list(dict(G.degree()).values()))
+      [alpha, xmin, L] = plfit(list(dict(G.degree()).values()), 'finite')
+      alphas.loc[int(row)][col], xmins.loc[int(row)][col], loglikelihoods.loc[int(row)][col] = alpha, xmin, L
       # C is normalization constant that makes sure the sum is equal to real data points
       C = (np.array(degree_freq) / sum(degree_freq))[degrees>=xmin].sum() / np.power(degrees[degrees>=xmin], -alpha).sum()
+      plt.scatter([],[], label='alpha={:.1f}'.format(alpha), s=20)
+      plt.scatter([],[], label='xmin={}'.format(xmin), s=20)
+      plt.scatter([],[], label='loglikelihood={:.1f}'.format(L), s=20)
       plt.plot(degrees, np.array(degree_freq) / sum(degree_freq),'go-')
       plt.plot(degrees[degrees>=xmin], func_powerlaw(degrees[degrees>=xmin], *np.array([-alpha, C])), linestyle='--', linewidth=2, color='black')
+      
+      plt.legend(loc='upper right', fontsize=7)
       plt.xlabel('Degree')
       plt.ylabel('Frequency')
       plt.xscale('log')
@@ -2240,7 +2280,7 @@ th = threshold if measure == 'pearson' else percentile
 image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
 plt.show()
 # plt.savefig(image_name)
-# %%
+ # %%
 import powerlaw
 degrees = list(dict(G.degree()).values())
 results = powerlaw.Fit(degrees)
