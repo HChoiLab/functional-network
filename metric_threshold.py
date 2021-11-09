@@ -1276,35 +1276,24 @@ def calculate_weighted_metric(G, metric_name, cc):
         metric = 0
   return metric
 
-def delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc):
+def delta_metric_stimulus_mat(metric, rewired_G_dict, num_rewire, algorithm, threshold, percentile, measure, weight, cc):
   rows, cols = get_rowcol(rewired_G_dict, measure)
   metric_names = get_metric_names(rewired_G_dict)
-  metric_base = np.empty((len(rows), len(cols), len(metric_names)))
+  metric_base = np.empty((len(rows), len(cols), num_rewire, len(metric_names)))
   metric_base[:] = np.nan
-  fig = plt.figure(figsize=(20, 10))
   for metric_ind, metric_name in enumerate(metric_names):
     print(metric_name)
     for row_ind, row in enumerate(rows):
       print(row)
       for col_ind, col in enumerate(cols):
-        G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
-        if G_base.number_of_nodes() > 2 and G_base.number_of_edges() > 0:
-          if weight:
-            metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
-          else:
-            metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
-    plt.subplot(2, 4, metric_ind + 1)
-    for row_ind, row in enumerate(rows):
-      plt.plot(cols, metric[row_ind, :, metric_ind] - metric_base[row_ind, :, metric_ind], label=row, alpha=1)
-    plt.gca().set_title(r'$\Delta$' + metric_name, fontsize=30, rotation=0)
-    plt.xticks(rotation=90)
-  plt.legend()
-  plt.tight_layout()
-  # plt.show()
-  num = threshold if measure=='pearson' else percentile
-  figname = './plots/delta_metric_stimulus_individual_weighted_{}_{}_{}.jpg'.format(algorithm, measure, num) if weight else './plots/delta_metric_stimulus_individual_{}_{}_{}.jpg'.format(algorithm, measure, num)
-  plt.savefig(figname)
-  return metric - metric_base
+        for num in range(num_rewire):
+          G_base = rewired_G_dict[row][col][num] if col in rewired_G_dict[row] else nx.Graph()
+          if G_base.number_of_nodes() > 2 and G_base.number_of_edges() > 0:
+            if weight:
+              metric_base[row_ind, col_ind, num, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
+            else:
+              metric_base[row_ind, col_ind, num, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
+  return metric[:, :, None, :] - metric_base
 
 def metric_stimulus_stat(G_dict, rows, cols, metric_names):
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -1509,6 +1498,8 @@ def get_rowcol(G_dict, measure):
 
 def get_metric_names(G_dict):
   G = list(list(G_dict.items())[0][1].items())[0][1]
+  if type(G) == list:
+    G = G[0]
   if nx.is_directed(G):
     metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'modularity', 'transitivity']
   else:
@@ -1516,18 +1507,20 @@ def get_metric_names(G_dict):
     metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
   return metric_names
 
-def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
+def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
   rewired_G_dict = {}
   rows, cols = get_rowcol(G_dict, measure)
   G = list(list(G_dict.items())[0][1].items())[0][1]
   if nx.is_directed(G):
     algorithm = 'directed_configuration_model'
   for row in rows:
-      print(row)
-      if not row in rewired_G_dict:
-        rewired_G_dict[row] = {}
-      for col in cols:
-        print(col)
+    print(row)
+    if not row in rewired_G_dict:
+      rewired_G_dict[row] = {}
+    for col in cols:
+      print(col)
+      rewired_G_dict[row][col] = []
+      for num in range(num_rewire):
         G = G_dict[row][col].copy() if col in G_dict[row] else nx.Graph()
         if G.number_of_nodes() >= 2 and G.number_of_edges() >= 1:
           if cc:
@@ -1552,7 +1545,7 @@ def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
             degrees = dict(nx.degree(G))
             if len(np.nonzero(list(degrees.values()))[0]) >= 4:
               nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
-        rewired_G_dict[row][col] = G
+        rewired_G_dict[row][col].append(G)
   return rewired_G_dict
 
 def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, percentile):
@@ -1759,18 +1752,20 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 rows, cols = session_ids, stimulus_names
+metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
 measure = 'pearson'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
 thresholds = [0, 0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.014]
+thresholds = [0.012]
 # thresholds = list(np.arange(0, 0.014, 0.001))
 percentile = 99.8
 weight = True # weighted network
-metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+num_rewire = 100 # number of random networks for each real one
 num_nodes = np.zeros((len(rows), len(cols), len(thresholds)))
 num_edges = np.zeros((len(rows), len(cols), len(thresholds)))
 densities = np.zeros((len(rows), len(cols), len(thresholds)))
 metrics = np.zeros((len(rows), len(cols), len(metric_names), len(thresholds)))
-delta_metrics = np.zeros((len(rows), len(cols), len(metric_names), len(thresholds)))
+delta_metrics = np.zeros((len(rows), len(cols), num_rewire, len(metric_names), len(thresholds)))
 for ind, threshold in enumerate(thresholds):
   print('threshold = {}'.format(threshold))
   G_dict = load_adj_regions_downsample_as_graph_whole(directory, weight, measure, threshold, percentile)
@@ -1787,15 +1782,14 @@ for ind, threshold in enumerate(thresholds):
   metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
   metrics[:, :, :, ind] = metric
   algorithm = 'configuration_model'
-  rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
+  rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100)
   cc = True # for real graphs, cc is false for rewired baselines
-  delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
-  delta_metrics[:, :, :, ind] = delta_metric
+  delta_metric = delta_metric_stimulus_mat(metric, rewired_G_dict, num_rewire, algorithm, threshold, percentile, measure, weight, cc)# (len(rows), len(cols), num_rewire, len(metric_names))
+  delta_metrics[:, :, :, :, ind] = delta_metric
 num_nodes = flat(num_nodes)
 num_edges = flat(num_edges)
 densities = flat(densities)
 stat_dict = {'number of nodes':num_nodes, 'number of edges':num_edges, 'density':densities,'metrics':metrics, 'delta metrics':delta_metrics}
-
 
 
 # save data
@@ -1877,3 +1871,45 @@ print("--- %s minutes ---" % ((time.time() - start_time)/60))
 # plt.tight_layout()
 # plt.savefig('./plots/delta_metrics_threshold_{}.jpg'.format(measure))
 # %%
+# plot violin artificial/natural per mouse
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# mouse_ind = 4
+# a_file = open('./data/ecephys_cache_dir/sessions/0.012_10.pkl', 'rb')
+# stat_dict = pickle.load(a_file)
+# a_file.close()
+# metric_ind = 6 # modularity
+# delta_metrics = stat_dict['delta metrics'].squeeze()[mouse_ind, :, :, metric_ind] # (len(rows), len(cols), num_rewire)
+# metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+# measure = 'pearson'
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# stimuli_inds = {'resting state':[0], 'artificial stimuli':[1, 2, 3, 4], 'natural stimuli':[5, 6, 7]}
+# delta_modularity = pd.concat([pd.DataFrame(np.concatenate((delta_metrics[stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * delta_metrics[stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['delta_modularity', 'type']) for s_type in stimuli_inds], ignore_index=True)
+# delta_modularity['delta_modularity'] = pd.to_numeric(delta_modularity['delta_modularity'])
+# Fig = plt.figure()
+# ax = sns.violinplot(x='type', y='delta_modularity', data=delta_modularity)
+# ax.set(xlabel=None)
+# plt.title(session_ids[mouse_ind])
+# plt.savefig('./plots/violin_{}.jpg'.format(mouse_ind))
+# %%
+# plot violin artificial/natural
+# a_file = open('./data/ecephys_cache_dir/sessions/0.012_10.pkl', 'rb')
+# stat_dict = pickle.load(a_file)
+# a_file.close()
+# metric_ind = 6 # modularity
+# delta_metrics = stat_dict['delta metrics'].squeeze()[:, :, :, metric_ind] # (len(rows), len(cols), num_rewire)
+# metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+# measure = 'pearson'
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# stimuli_inds = {'resting state':[0], 'artificial stimuli':[1, 2, 3, 4], 'natural stimuli':[5, 6, 7]}
+# delta_modularity = pd.concat([pd.DataFrame(np.concatenate((delta_metrics[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * delta_metrics[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['delta_modularity', 'type']) for s_type in stimuli_inds], ignore_index=True)
+# delta_modularity['delta_modularity'] = pd.to_numeric(delta_modularity['delta_modularity'])
+# Fig = plt.figure()
+# ax = sns.violinplot(x='type', y='delta_modularity', data=delta_modularity)
+# ax.set(xlabel=None)
+# plt.savefig('./plots/violin.jpg')
+# %%
+# delta_modularity[delta_modularity['type'] == 'natural stimuli']['delta_modularity'].mean()
