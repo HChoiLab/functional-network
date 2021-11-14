@@ -266,15 +266,17 @@ area_dict = pickle.load(a_file)
 int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
 area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
 a_file.close()
-# %%
-spike_pos = [np.nonzero(t)[0] / 1000 for t in sample_seq[:, :10000]]
 areas = list(area_dict[str(session_ids[mouse_id])].values())
-# areas_uniq = list(np.unique(areas)) # not correct, why??????????
 areas_uniq = unique(areas)
-# areas_uniq = list(set(areas))
-colors1 = [customPalette[areas_uniq.index(area)] for area in areas]
+areas_num = [(np.array(areas)==a).sum() for a in areas_uniq]
+areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+sequence_by_area = {a:[name for name, age in area_dict[str(session_ids[mouse_id])].items() if age == a] for a in areas_uniq}
+# %%
+sorted_sample_seq = np.vstack([sample_seq[sequence_by_area[a], :10000] for a in areas_uniq])
+spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :10000]] # divided by 1000 cuz bin size is 1 ms
+colors1 = [customPalette[i] for i in sum([[areas_uniq.index(a)] * areas_num[areas_uniq.index(a)] for a in areas_uniq], [])]
 uniq_colors = unique(colors1)
-text_pos = [np.where(np.array(colors1)==c)[0].mean() for c in uniq_colors]
+text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
 colors2 = 'black'
 lineoffsets2 = 1
 linelengths2 = 1
@@ -331,3 +333,4 @@ rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, c
 mouse_id, stimulus_id = 1, 7
 plot_example_graph(rewired_G_dict, area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, baseline=True)
 # %%
+[name for name, age in area_dict[str(session_ids[mouse_id])].items() if age == 'LP']
