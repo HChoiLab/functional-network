@@ -593,7 +593,9 @@ def load_adj_regions_downsample_as_graph_whole(directory, weight, measure, thres
       stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
       if not mouseID in G_dict:
         G_dict[mouseID] = {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=adj_mat, cc=False, weight=weight)
+      G_dict[mouseID][stimulus_name] = []
+      for i in range(adj_mat.shape[2]):
+        G_dict[mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
   return G_dict
 
 def load_nc_regions_as_n_graphs(directory, n, regions, weight, measure, threshold, percentile):
@@ -941,7 +943,8 @@ def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=F
   th = threshold if measure == 'pearson' else percentile
   image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
   # plt.show()
-  plt.savefig(image_name, dpi=300)
+  # plt.savefig(image_name, dpi=300)
+  plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
   return alphas, xmins, loglikelihoods, proportions
 
 def plot_running_speed(session_ids, stimulus_names):
@@ -1275,6 +1278,25 @@ def calculate_weighted_metric(G, metric_name, cc):
         metric = 0
   return metric
 
+def delta_metric_stimulus_mat(metric, rewired_G_dict, num_rewire, algorithm, threshold, percentile, measure, weight, cc):
+  rows, cols = get_rowcol(rewired_G_dict, measure)
+  metric_names = get_metric_names(rewired_G_dict)
+  metric_base = np.empty((len(rows), len(cols), num_rewire, len(metric_names)))
+  metric_base[:] = np.nan
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        for num in range(num_rewire):
+          G_base = rewired_G_dict[row][col][num] if col in rewired_G_dict[row] else nx.Graph()
+          if G_base.number_of_nodes() > 2 and G_base.number_of_edges() > 0:
+            if weight:
+              metric_base[row_ind, col_ind, num, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
+            else:
+              metric_base[row_ind, col_ind, num, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
+  return metric[:, :, None, :] - metric_base
+
 def delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc):
   rows, cols = get_rowcol(rewired_G_dict, measure)
   metric_names = get_metric_names(rewired_G_dict)
@@ -1304,6 +1326,32 @@ def delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshol
   figname = './plots/delta_metric_stimulus_individual_weighted_{}_{}_{}.jpg'.format(algorithm, measure, num) if weight else './plots/delta_metric_stimulus_individual_{}_{}_{}.jpg'.format(algorithm, measure, num)
   plt.savefig(figname)
   return metric - metric_base
+
+def plot_delta_metric_stimulus_error(session_ids, stimulus_names, delta_metrics, measure, threshold, percentile):
+  rows, cols = session_ids, stimulus_names
+  metric_stimulus = pd.DataFrame(columns=['mouseID', 'stimulus', 'metric', 'mean', 'std'])
+  for metric_ind, metric_name in enumerate(metric_names):
+    df = pd.DataFrame(columns=['mouseID', 'stimulus', 'metric', 'mean', 'std'])
+    for row_ind, row in enumerate(rows):
+      df['mean'] = np.nanmean(delta_metrics[row_ind, :, :, metric_ind], axis=-1)
+      df['std'] = np.nanstd(delta_metrics[row_ind, :, :, metric_ind], axis=-1)
+      df['metric'] = metric_name
+      df['stimulus'] = cols
+      df['mouseID'] = [row] * len(cols)
+      metric_stimulus = metric_stimulus.append(df, ignore_index=True)
+  fig = plt.figure(figsize=[20, 10])
+  for i, m in metric_stimulus.groupby(['metric', 'mouseID']):
+    ind = metric_names.index(i[0]) + 1
+    plt.subplot(2, 4, ind)
+    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['mouseID'].iloc[0])
+    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
+    plt.legend()
+    plt.xticks(rotation=90)
+    plt.title(r'$\Delta$' + m['metric'].iloc[0], fontsize=30)
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  plt.savefig('./plots/delta_metric_stimulus_{}_{}.jpg'.format(measure, num))
 
 def metric_stimulus_stat(G_dict, rows, cols, metric_names):
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -1597,7 +1645,7 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind], cmap="YlGnBu")
+      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r")# cmap="YlGnBu"
       # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
       sns_plot.set_xticks(np.arange(len(regions))+0.5)
       sns_plot.set_xticklabels(regions, rotation=90)
@@ -1669,7 +1717,7 @@ def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, thresho
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      sns_plot = sns.heatmap((region_connection[row_ind, col_ind, :, :]-region_connection_bl[row_ind])/region_connection_bl[row_ind].sum(), vmin=scale_min[row_ind], vmax=scale_max[row_ind], cmap="YlGnBu")
+      sns_plot = sns.heatmap((region_connection[row_ind, col_ind, :, :]-region_connection_bl[row_ind])/region_connection_bl[row_ind].sum(), vmin=scale_min[row_ind], vmax=scale_max[row_ind],center=0,cmap="RdBu_r") #  cmap="YlGnBu"
       # sns_plot = sns.heatmap((region_connection-region_connection_bl)/region_connection_bl.sum(), cmap="YlGnBu")
       sns_plot.set_xticks(np.arange(len(regions))+0.5)
       sns_plot.set_xticklabels(regions, rotation=90)
@@ -1679,8 +1727,8 @@ def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, thresho
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  plt.savefig('./plots/region_connection_delta_scale_{}_{}.jpg'.format(measure, num))
-  # plt.savefig('./plots/region_connection_delta_{}_{}.jpg'.format(measure, num))
+  # plt.savefig('./plots/region_connection_delta_scale_{}_{}.jpg'.format(measure, num))
+  plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
 def SBM_density(G_dict, area_dict, regions, measure):
   SBM_dict = {}
@@ -1746,6 +1794,53 @@ def down_sample(sequences, min_len, min_num):
   sample_seq = np.zeros_like(sequences)
   sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
   return sample_seq
+
+def flat(array):
+  return array.reshape(array.size//array.shape[-1], array.shape[-1])
+
+def unique(l):
+  u, ind = np.unique(l, return_index=True)
+  return list(u[np.argsort(ind)])
+
+def plot_pie_chart(G_dict, measure, region_counts):
+  ind = 1
+  rows, cols = get_rowcol(G_dict, measure)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = region_counts[row][col].keys()
+      sizes = region_counts[row][col].values()
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      areas_uniq = ['VISam', 'VISpm', 'LGd', 'VISp', 'VISl', 'VISal', 'LP', 'VISrl']
+      colors = [customPalette[areas_uniq.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  plt.suptitle('Maximum clique distribution', size=30)
+  plt.tight_layout()
+  th = threshold if measure == 'pearson' else percentile
+  plt.show()
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -2083,13 +2178,17 @@ measure = 'pearson'
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 files = os.listdir(directory)
 files.sort(key=lambda x:int(x[:9]))
+num_sample = 10 # number of random sampling
 for file in files:
   if file.endswith(".npz"):
     print(file)
     sequences = load_npz(os.path.join(directory, file))
-    sample_seq = down_sample(sequences, min_len, min_num)
-    adj_mat = corr_mat(sample_seq, measure)
-    np.save(os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)), file.replace('npz', 'npy')), adj_mat)
+    all_adj_mat = np.zeros((sequences.shape[0], sequences.shape[0], num_sample))
+    for i in range(num_sample):
+      sample_seq = down_sample(sequences, min_len, min_num)
+      adj_mat = corr_mat(sample_seq, measure)
+      all_adj_mat[:, :, i] = adj_mat
+    np.save(os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)), file.replace('npz', 'npy')), all_adj_mat)
 # %%
 ############# save area_dict and average speed dataframe #################
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -2104,6 +2203,11 @@ a_file.close()
 mean_speed_df.to_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
 # %%
 ############# load area_dict and average speed dataframe #################
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
 area_dict = pickle.load(a_file)
 # change the keys of area_dict from int to string
@@ -2135,7 +2239,7 @@ metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weig
 ############# get rewired graphs #############
 # algorithm = 'double_edge_swap'
 cc = True
-algorithm = 'configuration_model' 
+algorithm = 'configuration_model'
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
 ############# plot delta metric_stimulus individually for each mouse #############
 cc = True # for real graphs, cc is false for rewired baselines
@@ -2281,10 +2385,6 @@ for row_ind, row in enumerate(rows):
       adj_mat[adj_mat.nonzero()] = 1
     adj_mat[adj_mat==0] = np.nan
     weight_fraction.loc[row, col] = np.nansum(adj_mat > threshold) / adj_mat.size
-# %%
-# %%
-# %%
-
  # %%
 import powerlaw
 degrees = list(dict(G.degree()).values())
@@ -2296,169 +2396,159 @@ alternatives = ['truncated_power_law', 'lognormal', 'exponential']
 R, p = results.distribution_compare('power_law', 'lognormal')
 print(R, p)
 # %%
-com = CommunityLayout()
-ind = 1
+############ load G_dict
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+threshold = 0.012
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+measure = 'pearson'
+########## load networks with multiple realizations of downsampling
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
+# thresholds = list(np.arange(0, 0.014, 0.001))
+percentile = 99.8
+weight = True # weighted network
+G_dict = load_adj_regions_downsample_as_graph_whole(directory, weight, measure, threshold, percentile)
+# %%
 rows, cols = get_rowcol(G_dict, measure)
-fig = plt.figure(figsize=(6*len(cols), 6))
+region_counts = {}
+for row in rows:
+  print(row)
+  if row not in region_counts:
+    region_counts[row] = {}
+  for col in cols:
+    areas = area_dict[row]
+    G = G_dict[row][col][0]
+    nodes = np.array(list(dict(nx.degree(G)).keys()))
+    degrees = np.array(list(dict(nx.degree(G, weight='weight')).values()))
+    hub_th = np.mean(degrees) + 3 * np.std(degrees)
+    hub_nodes = nodes[np.where(degrees > hub_th)]
+    region_hubs = [areas[n] for n in hub_nodes]
+    uniq, counts = np.unique(region_hubs, return_counts=True)
+    region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+# %%
+# Pie chart, where the slices will be ordered and plotted counter-clockwise:
+labels = region_counts[rows[0]][cols[7]].keys()
+sizes = region_counts[rows[0]][cols[7]].values()
+explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+areas_uniq = ['VISam', 'VISpm', 'LGd', 'VISp', 'VISl', 'VISal', 'LP', 'VISrl']
+colors = [customPalette[areas_uniq.index(l)] for l in labels]
+patches, texts, pcts = plt.pie(sizes, radius=1, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+        shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+for i, patch in enumerate(patches):
+  texts[i].set_color(patch.get_facecolor())
+# for i in range(len(p[0])):
+#   p[0][i].set_alpha(0.6)
+plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+plt.show()
+
+# %%
+ind = 1
+hub_num = np.zeros((len(rows), len(cols)))
+rows, cols = get_rowcol(G_dict, measure)
+fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+# fig.patch.set_facecolor('black')
 left, width = .25, .5
 bottom, height = .25, .5
 right = left + width
 top = bottom + height
-row = '755434585'
-for col_ind, col in enumerate(cols):
-  plt.subplot(1, len(cols), ind)
-  plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
-  plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-  ind += 1
-  G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-  nx.set_node_attributes(G, area_dict[row], "area")
-  if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-    if cc:
-      if nx.is_directed(G):
-        Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
-        G = G.subgraph(Gcc[0])
-      else:
-        Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-        G = G.subgraph(Gcc[0])
-    try:
-      edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
-    except:
-      edges = nx.edges(G)
-      weights = np.ones(len(edges))
-    degrees = dict(G.degree)
-    try:
-      partition = community.best_partition(G)
-      pos = com.get_community_layout(G, partition)
-    except:
-      print('Community detection unsuccessful!')
-      pos = nx.spring_layout(G)
-    areas = [G.nodes[n]['area'] for n in G.nodes()]
-    areas_uniq = list(set(areas))
-    colors = [customPalette[areas_uniq.index(area)] for area in areas]
-    # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-    nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
-    nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
-    node_color=colors, alpha=0.4)
-  if col_ind == len(cols) - 1:
-    areas = [G.nodes[n]['area'] for n in G.nodes()]
-    areas_uniq = list(set(areas))
-    for index, a in enumerate(areas_uniq):
-      plt.scatter([],[], c=customPalette[index], label=a, s=30)
-    legend = plt.legend(loc='center left', fontsize=20, bbox_to_anchor=(1, 0.5))
-for handle in legend.legendHandles:
-  handle.set_sizes([60.0])
-plt.tight_layout()
-th = threshold if measure == 'pearson' else percentile
-image_name = './plots/graphs_region_color_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/graphs_region_color_{}_{}.jpg'.format(measure, th)
-# plt.savefig(image_name)
-plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
-# %%
-rows, cols = get_rowcol(G_dict, measure)
-metric_names = get_metric_names(G_dict)
-metric = np.empty((len(rows), len(cols), len(metric_names)))
-metric[:] = np.nan
-metric_base = np.empty((len(rows), len(cols), len(metric_names)))
-metric_base[:] = np.nan
-for metric_ind, metric_name in enumerate(metric_names):
-  print(metric_name)
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
-      # print(nx.info(G))
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        if weight:
-          metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc=cc)
-          metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
-        else:
-          metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc=cc)
-          metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
-metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-for metric_ind, metric_name in enumerate(metric_names):
-  df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-  df['mean'] = np.nanmean(metric[:, :, metric_ind] - metric_base[:, :, metric_ind], axis=0)
-  df['std'] = np.nanstd(metric[:, :, metric_ind] - metric_base[:, :, metric_ind], axis=0)
-  df['metric'] = metric_name
-  df['stimulus'] = cols
-  metric_stimulus = metric_stimulus.append(df, ignore_index=True)
-# %%
-fig = plt.figure(figsize=(48, 6))
-ind = 1
-for i, m in metric_stimulus.groupby("metric"):
-  plt.subplot(1, 8, ind)
-  plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
-  plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
-  plt.gca().set_title(r'$\Delta$' + i, fontsize=30, rotation=0)
-  plt.xticks(rotation=90)
-  ind += 1
-plt.tight_layout()
-# plt.show()
-num = threshold if measure=='pearson' else percentile
-image_name = './plots/metric_stimulus_error_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/metric_stimulus_error_{}_{}.jpg'.format(measure, th)
-plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
-# plt.savefig('./plots/metric_stimulus_{}_{}.jpg'.format(measure, num))
-
-# metric_names = get_metric_names(G_dict)
-# metric = np.empty((len(rows), len(cols), len(metric_names)))
-# metric[:] = np.nan
-# metric_base = np.empty((len(rows), len(cols), len(metric_names)))
-# metric_base[:] = np.nan
-# fig = plt.figure(figsize=(20, 10))
-# for metric_ind, metric_name in enumerate(metric_names):
-#   print(metric_name)
-#   for row_ind, row in enumerate(rows):
-#     print(row)
-#     for col_ind, col in enumerate(cols):
-#       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-#       G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
-#       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-#         if weight:
-#           metric[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G, metric_name, cc=cc)
-#           metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
-#         else:
-#           metric[row_ind, col_ind, metric_ind] = calculate_metric(G, metric_name, cc=cc)
-#           metric_base[row_ind, col_ind, metric_ind] = calculate_metric(G_base, metric_name, cc=False)
-#   plt.subplot(2, 4, metric_ind + 1)
-#   for row_ind, row in enumerate(rows):
-#     plt.plot(cols, metric[row_ind, :, metric_ind] - metric_base[row_ind, :, metric_ind], label=row, alpha=1)
-#   plt.gca().set_title(r'$\Delta$' + metric_name, fontsize=30, rotation=0)
-#   plt.xticks(rotation=90)
-# plt.legend()
-# plt.tight_layout()
-# %%
-ind = 1
-rows, cols = get_rowcol(G_dict, measure)
-fig = plt.figure(figsize=(4*len(cols), 4))
-left, width = .25, .5
-bottom, height = .25, .5
-right = left + width
-top = bottom + height
-for col_ind, col in enumerate(cols):
-  plt.subplot(1, len(cols), ind)
-  plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-  plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-  ind += 1
-  G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-  if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-    if cc:
-      if nx.is_directed(G):
-        Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
-        G = G.subgraph(Gcc[0])
-      else:
-        Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-        G = G.subgraph(Gcc[0])
-    degree_freq = nx.degree_histogram(G)[1:]
-    degrees = range(1, len(degree_freq) + 1)
-    plt.loglog(degrees, degree_freq,'go-') 
-    plt.xlabel('Degree')
-    plt.ylabel('Frequency')
-    
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    ax = plt.subplot(len(rows), len(cols), ind)
+    if row_ind == 0:
+      plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=20, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    labels = region_counts[row][col].keys()
+    sizes = region_counts[row][col].values()
+    hub_num[row_ind][col_ind] = sum(sizes)
+    explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+    areas_uniq = ['VISam', 'VISpm', 'LGd', 'VISp', 'VISl', 'VISal', 'LP', 'VISrl']
+    colors = [customPalette[areas_uniq.index(l)] for l in labels]
+    patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+            shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+    for i, patch in enumerate(patches):
+      texts[i].set_color(patch.get_facecolor())
+    # for i in range(len(p[0])):
+    #   p[0][i].set_alpha(0.6)
+    ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+plt.suptitle('Hub nodes distribution', size=30)
 plt.tight_layout()
 th = threshold if measure == 'pearson' else percentile
 # plt.show()
-image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
-plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+plt.savefig('./plots/pie_chart_strength.jpg', dpi=300)
+# plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
 # %%
-
+plt.figure(figsize=(8, 7))
+for row_ind, row in enumerate(rows):
+  plt.plot(cols, hub_num[row_ind, :], label=row, alpha=1)
+plt.gca().set_title('number of hub nodes', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/num_hubs_individual_strength.jpg')
+# %%
+plt.figure(figsize=(8, 7))
+plt.plot(cols, hub_num.mean(axis=0), label=row, alpha=0.6)
+plt.fill_between(cols, hub_num.mean(axis=0) - hub_num.std(axis=0), hub_num.mean(axis=0) + hub_num.std(axis=0), alpha=0.2)
+plt.gca().set_title('number of hub nodes', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.tight_layout()
+plt.savefig('./plots/num_hubs_strength.jpg')
+# %%
+########### maximum clique distribution
+region_counts = {}
+rows, cols = get_rowcol(G_dict, measure)
+max_cliq_size = pd.DataFrame(index=rows, columns=cols)
+G = G_dict['719161530']['static_gratings'][1]
+for row in rows:
+  print(row)
+  if row not in region_counts:
+    region_counts[row] = {}
+  for col in cols:
+    G = G_dict[row][col][0]
+    cliqs = np.array(list(nx.find_cliques(G)))
+    cliq_size = np.array([len(l) for l in cliqs])
+    max_cliq_size.loc[row][col] = max(cliq_size)
+    if type(cliqs[np.where(cliq_size==max(cliq_size))[0]][0]) == list: # multiple maximum cliques
+      cliq_nodes = []
+      for li in cliqs[np.where(cliq_size==max(cliq_size))[0]]:
+        cliq_nodes += li
+    else:
+      cliq_nodes = cliqs[np.argmax(cliq_size)]
+    cliq_area = [area_dict[row][n] for n in cliq_nodes]
+    uniq, counts = np.unique(cliq_area, return_counts=True)
+    region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+plot_pie_chart(G_dict, measure, region_counts)
+# plt.savefig('./plots/pie_chart_strength.jpg', dpi=300)
+# %%
+######### weight distribution
+region_counts = {}
+rows, cols = get_rowcol(G_dict, measure)
+max_cliq_size = pd.DataFrame(index=rows, columns=cols)
+for row in rows:
+  print(row)
+  if row not in region_counts:
+    region_counts[row] = {}
+  for col in cols:
+    G = G_dict[row][col][0]
+    sorted_edges = sorted(G.edges(data=True),key= lambda x: x[2]['weight'],reverse=True)
+    cliq_area = [area_dict[row][sorted_edges[0][0]], area_dict[row][sorted_edges[0][1]]]
+    uniq, counts = np.unique(cliq_area, return_counts=True)
+    region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+plot_pie_chart(G_dict, measure, region_counts)
 # %%
