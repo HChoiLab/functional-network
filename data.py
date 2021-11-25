@@ -598,6 +598,31 @@ def load_adj_regions_downsample_as_graph_whole(directory, weight, measure, thres
         G_dict[mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
   return G_dict
 
+def load_adj_regions_downsample_as_dynamic_graph(directory, weight, measure, threshold, percentile):
+  folders = os.listdir(directory)
+  subfolders = [f for f in folders if 'dy' in f]
+  files = [os.listdir(os.path.join(directory, s)) for s in subfolders]
+  dy_G_dict = {}
+  for l in range(len(files)):
+    dy_G_dict[l] = {}
+    print(l)
+    for file in files[l]:
+      if file.endswith(".npy"):
+        print(file)
+        adj_mat = np.load(os.path.join(directory, subfolders[l], file))
+        if measure == 'pearson':
+          adj_mat[adj_mat < threshold] = 0
+        else:
+          adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
+        mouseID = file.split('_')[0]
+        stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+        if not mouseID in dy_G_dict[l]:
+          dy_G_dict[l][mouseID] = {}
+        dy_G_dict[l][mouseID][stimulus_name] = []
+        for i in range(adj_mat.shape[2]):
+          dy_G_dict[l][mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
+  return dy_G_dict
+
 def load_nc_regions_as_n_graphs(directory, n, regions, weight, measure, threshold, percentile):
   G_sub_dict = dict.fromkeys(range(n), {})
   area_dict = {}
@@ -1658,7 +1683,7 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(measure, num))
   # plt.savefig('./plots/region_connection_{}_{}.jpg'.format(measure, num))
 
-def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, threshold, percentile):
+def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, threshold, percentile, index):
   rows, cols = get_rowcol(G_dict, measure)
   cols.remove('spontaneous')
   scale_min = np.zeros(len(rows))
@@ -1667,7 +1692,7 @@ def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, thresho
   region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
   for row_ind, row in enumerate(rows):
     print(row)
-    G = G_dict[row]['spontaneous']
+    G = G_dict[row]['spontaneous'][0]
     if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
       nodes = list(G.nodes())
       A = nx.adjacency_matrix(G)
@@ -1682,7 +1707,7 @@ def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, thresho
           region_connection_bl[row_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
           assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
     for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      G = G_dict[row][col][0] if col in G_dict[row] else nx.Graph()
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         nodes = list(G.nodes())
         A = nx.adjacency_matrix(G)
@@ -1727,8 +1752,8 @@ def region_connection_delta_heatmap(G_dict, area_dict, regions, measure, thresho
   plt.tight_layout()
   # plt.show()
   num = threshold if measure=='pearson' else percentile
-  # plt.savefig('./plots/region_connection_delta_scale_{}_{}.jpg'.format(measure, num))
-  plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
+  plt.savefig('./plots/region_connection_delta_scale_{}_{}_{}.jpg'.format(measure, num, index))
+  # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
 def SBM_density(G_dict, area_dict, regions, measure):
   SBM_dict = {}
@@ -1789,6 +1814,25 @@ def min_len_spike(directory, session_ids, stimulus_names):
 
 def down_sample(sequences, min_len, min_num):
   sequences = sequences[:, :min_len]
+  i,j = np.nonzero(sequences)
+  ix = np.random.choice(len(i), min_num, replace=False)
+  sample_seq = np.zeros_like(sequences)
+  sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
+  return sample_seq
+
+def min_spike_sub(directory, session_ids, stimulus_names, ind, min_len):
+  min_num = 10000000000
+  for session_id in session_ids:
+    for stimulus_name in stimulus_names:
+        sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+        sequences = sequences[:, ind * min_len:(ind + 1) * min_len]
+        i,j = np.nonzero(sequences)
+        min_num = len(i) if len(i) < min_num else min_num
+  print('Minimal length of sequence is {}, minimal number of spikes is {}'.format(min_len, min_num))
+  return min_num
+
+def down_sample_sub(sequences, min_len, min_num, ind):
+  sequences = sequences[:, ind * min_len:(ind + 1) * min_len]
   i,j = np.nonzero(sequences)
   ix = np.random.choice(len(i), min_num, replace=False)
   sample_seq = np.zeros_like(sequences)
@@ -2160,6 +2204,37 @@ directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 G_dict, area_dict = load_npy_regions_nsteps_as_graph(directory, n, ind, visual_regions, weight, measure, threshold, percentile)
 # %%
 # %%
+############# save subsequence correlation matrices #################
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+min_len, min_num = (260000, 578082)
+measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+# measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+files = os.listdir(directory)
+files.sort(key=lambda x:int(x[:9]))
+num_sample = 10 # number of random sampling
+num_subsequence = 10 # number of subsequences each sequence is splitted into
+for file in files:
+  if file.endswith(".npz"):
+    print(file)
+    sequences = load_npz(os.path.join(directory, file))
+    all_adj_mat = np.zeros((sequences.shape[0], sequences.shape[0], num_sample))
+    for ind in range(num_subsequence):
+      print(ind)
+      min_num = min_spike_sub(directory, session_ids, stimulus_names, ind, int(min_len / num_subsequence))
+      for i in range(num_sample):
+        sample_seq = down_sample_sub(sequences, int(min_len / num_subsequence), min_num, ind)
+        adj_mat = corr_mat(sample_seq, measure)
+        all_adj_mat[:, :, i] = adj_mat
+      np.save(os.path.join(directory.replace('spiking_sequence_', 'adj_mat_{}_sub_{}'.format(measure, ind)), file.replace('npz', 'npy')), all_adj_mat)
+# %%
 ############# count minimum length and number of spikes #################
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
@@ -2417,6 +2492,31 @@ percentile = 99.8
 weight = True # weighted network
 G_dict = load_adj_regions_downsample_as_graph_whole(directory, weight, measure, threshold, percentile)
 # %%
+############ load dy_G_dict
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+threshold = 0.012
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+measure = 'pearson'
+########## load networks with multiple realizations of downsampling
+directory = './data/ecephys_cache_dir/sessions/'.format(measure)
+# thresholds = list(np.arange(0, 0.014, 0.001))
+percentile = 99.8
+weight = True # weighted network
+dy_G_dict = load_adj_regions_downsample_as_dynamic_graph(directory, weight, measure, threshold, percentile)
+# %%
+for index in range(10):
+  print(index)
+  region_connection_delta_heatmap(dy_G_dict[index], area_dict, visual_regions, measure, threshold, percentile, index)
+# %%
 rows, cols = get_rowcol(G_dict, measure)
 region_counts = {}
 for row in rows:
@@ -2551,4 +2651,148 @@ for row in rows:
     uniq, counts = np.unique(cliq_area, return_counts=True)
     region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
 plot_pie_chart(G_dict, measure, region_counts)
+# %%
+threshold = 0.1
+ind = 1
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+weight_mean = pd.DataFrame(index=rows, columns=cols)
+weight_max = pd.DataFrame(index=rows, columns=cols)
+weight_fraction = pd.DataFrame(index=rows, columns=cols)
+fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    plt.subplot(len(rows), len(cols), ind)
+    if row_ind == 0:
+      plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=30, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    adj_mat = nx.adjacency_matrix(dy_G_dict[0][row][col][0]).todense()
+    if not weight:
+      adj_mat[adj_mat.nonzero()] = 1
+    adj_mat[adj_mat==0] = np.nan
+    adj_mat[adj_mat<threshold] = np.nan
+    weight_fraction.loc[row, col] = np.nansum(adj_mat > 0.01) / adj_mat.size
+    weight_mean.loc[row, col] = np.nanmean(adj_mat)
+    weight_max.loc[row, col] = np.nanmax(adj_mat)
+    sns.distplot(adj_mat.flatten(), hist=True, kde=True, 
+        bins=int(180/5), color = 'darkblue', 
+        hist_kws={'edgecolor':'black'},
+        kde_kws={'linewidth': 2})
+    plt.xlabel('Edge weight (Pearson correlation)')
+    plt.ylabel('Density')
+plt.tight_layout()
+plt.show()
+# %%
+############# fraction of neighbors that appear at all time steps
+num_steps = 10
+num_sample = 10
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+constant_ns_fraction = np.zeros((len(rows), len(cols), num_sample))
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    for s in range(num_sample):
+      G = dy_G_dict[0][row][col][s]
+      nodes = [n for n in G if G[n].keys()]
+      frac = np.zeros(len(nodes))
+      for node in nodes:
+        for index in range(num_steps):
+          G = dy_G_dict[index][row][col][s]
+          if G[node].keys(): # if it has at least one neighbor
+            if index == 0:
+              n_s = set([n for n in G[node]])
+              num_n = len(n_s)
+            else:
+              n_s = n_s & set([n for n in G[node]])
+              num_n += len([n for n in G[node]])
+              if index == 9:
+                frac[nodes.index(node)] = len(n_s) / (num_n / 10) # average fraction of constant neighbors in the dynamic network
+      constant_ns_fraction[row_ind, col_ind, s] = frac.mean()
+# %%
+plt.figure(figsize=(6, 5))
+for row_ind, row in enumerate(rows):
+  plt.plot(cols, constant_ns_fraction[row_ind, :, :].mean(axis=1), label=row, alpha=1)
+plt.gca().set_title('fraction of constant neighbors', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/constant_neighbor_fraction.jpg')
+# %%
+plt.figure(figsize=(10, 8))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((constant_ns_fraction[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * constant_ns_fraction[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['fraction', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['fraction'] = pd.to_numeric(mec['fraction'])
+ax = sns.violinplot(x='type', y='fraction', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('fraction of constant neighbors', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/constant_neighbor_fraction_violin.jpg')
+# %%
+################### how repeated neighbors are
+num_steps = 10
+num_sample = 10
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+neighbor_repeats = np.zeros((len(rows), len(cols), num_sample))
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    for s in range(num_sample):
+      G = dy_G_dict[0][row][col][s]
+      nodes = [n for n in G if G[n].keys()]
+      frac = np.zeros(len(nodes))
+      for node in nodes:
+        for index in range(num_steps):
+          G = dy_G_dict[index][row][col][s]
+          if G[node].keys(): # if it has at least one neighbor
+            if index == 0:
+              neighbors = [n for n in G[node]]
+            else:
+              neighbors += [n for n in G[node]]
+              if index == 9:
+                frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
+      neighbor_repeats[row_ind, col_ind, s] = frac.mean()
+# %%
+plt.figure(figsize=(6, 5))
+for row_ind, row in enumerate(rows):
+  plt.plot(cols, neighbor_repeats[row_ind, :, :].mean(axis=1), label=row, alpha=1)
+plt.gca().set_title('repeats of neighbors', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_repeats.jpg')
+# %%
+plt.figure(figsize=(10, 8))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((neighbor_repeats[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * neighbor_repeats[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['fraction', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['fraction'] = pd.to_numeric(mec['fraction'])
+ax = sns.violinplot(x='type', y='fraction', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('repeats of neighbors', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_repeats_violin.jpg')
 # %%
