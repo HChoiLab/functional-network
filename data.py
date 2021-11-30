@@ -854,7 +854,7 @@ def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
         transform=plt.gca().transAxes, fontsize=30, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      G = G_dict[row][col][0] if col in G_dict[row] else nx.Graph()
       nx.set_node_attributes(G, area_dict[row], "area")
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         if cc:
@@ -935,7 +935,7 @@ def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=F
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      G = G_dict[row][col][0] if col in G_dict[row] else nx.Graph()
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         if cc:
           if nx.is_directed(G):
@@ -1142,7 +1142,7 @@ def metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, c
     for row_ind, row in enumerate(rows):
       print(row)
       for col_ind, col in enumerate(cols):
-        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+        G = G_dict[row][col][0] if col in G_dict[row] else nx.Graph()
         # print(nx.info(G))
         if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
           if weight:
@@ -1581,6 +1581,8 @@ def get_rowcol(G_dict, measure):
 
 def get_metric_names(G_dict):
   G = list(list(G_dict.items())[0][1].items())[0][1]
+  if type(G) == list:
+    G = G[0]
   if nx.is_directed(G):
     metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'modularity', 'transitivity']
   else:
@@ -1591,7 +1593,7 @@ def get_metric_names(G_dict):
 def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
   rewired_G_dict = {}
   rows, cols = get_rowcol(G_dict, measure)
-  G = list(list(G_dict.items())[0][1].items())[0][1]
+  G = list(list(G_dict.items())[0][1].items())[0][1][0]
   if nx.is_directed(G):
     algorithm = 'directed_configuration_model'
   for row in rows:
@@ -1600,7 +1602,7 @@ def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
         rewired_G_dict[row] = {}
       for col in cols:
         print(col)
-        G = G_dict[row][col].copy() if col in G_dict[row] else nx.Graph()
+        G = G_dict[row][col][0].copy() if col in G_dict[row] else nx.Graph()
         if G.number_of_nodes() >= 2 and G.number_of_edges() >= 1:
           if cc:
             largest_cc = max(nx.connected_components(G), key=len)
@@ -1797,37 +1799,40 @@ def load_npz(filename):
     return new_matrix
     
 def min_len_spike(directory, session_ids, stimulus_names):
+  print('Counting minimal duration...')
   min_len = 10000000000
   for session_id in session_ids:
     for stimulus_name in stimulus_names:
         sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
         min_len = sequences.shape[1] if sequences.shape[1] < min_len else min_len
+  print('Counting minimal number of spikes per sequence...')
   min_num = 10000000000
   for session_id in session_ids:
     for stimulus_name in stimulus_names:
         sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
         sequences = sequences[:, :min_len]
         i,j = np.nonzero(sequences)
-        min_num = len(i) if len(i) < min_num else min_num
+        min_num = len(i)//sequences.shape[0] if len(i)//sequences.shape[0] < min_num else min_num
   print('Minimal length of sequence is {}, minimal number of spikes is {}'.format(min_len, min_num)) # 564524
   return min_len, min_num
 
 def down_sample(sequences, min_len, min_num):
   sequences = sequences[:, :min_len]
   i,j = np.nonzero(sequences)
-  ix = np.random.choice(len(i), min_num, replace=False)
+  ix = np.random.choice(len(i), min_num * sequences.shape[0], replace=False)
   sample_seq = np.zeros_like(sequences)
   sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
   return sample_seq
 
 def min_spike_sub(directory, session_ids, stimulus_names, ind, min_len):
+  print('Counting minimal number of spikes per sequence...')
   min_num = 10000000000
   for session_id in session_ids:
     for stimulus_name in stimulus_names:
         sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
         sequences = sequences[:, ind * min_len:(ind + 1) * min_len]
         i,j = np.nonzero(sequences)
-        min_num = len(i) if len(i) < min_num else min_num
+        min_num = len(i)//sequences.shape[0] if len(i)//sequences.shape[0] < min_num else min_num
   print('Minimal length of sequence is {}, minimal number of spikes is {}'.format(min_len, min_num))
   return min_num
 
@@ -1884,7 +1889,13 @@ def plot_pie_chart(G_dict, measure, region_counts):
   plt.suptitle('Maximum clique distribution', size=30)
   plt.tight_layout()
   th = threshold if measure == 'pearson' else percentile
-  plt.show()
+  # plt.savefig('./plots/max_clique_distri.jpg')
+  plt.savefig('./plots/max_weight_distri.jpg')
+  # plt.show()
+
+def t_pearson(r, n):
+  return r * np.sqrt((n - 2) / (1 - r ** 2))
+
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -2233,7 +2244,10 @@ for file in files:
         sample_seq = down_sample_sub(sequences, int(min_len / num_subsequence), min_num, ind)
         adj_mat = corr_mat(sample_seq, measure)
         all_adj_mat[:, :, i] = adj_mat
-      np.save(os.path.join(directory.replace('spiking_sequence_', 'adj_mat_{}_sub_{}'.format(measure, ind)), file.replace('npz', 'npy')), all_adj_mat)
+      path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}_dy_{}'.format(measure, ind)))
+      if not os.path.exists(path):
+        os.makedirs(path)
+      np.save(os.path.join(path, file.replace('npz', 'npy')), all_adj_mat)
 # %%
 ############# count minimum length and number of spikes #################
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -2244,7 +2258,7 @@ session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
 min_len, min_num = min_len_spike(directory, session_ids, stimulus_names)
 # %%
 ############# save correlation matrices #################
-min_len, min_num = (260000, 578082)
+min_len, min_num = (260000, 739)
 measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
@@ -2301,7 +2315,7 @@ G_dict = load_adj_regions_downsample_as_graph_whole(directory, weight, measure, 
 # %%
 region_connection_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
 # %%
-region_connection_delta_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
+region_connection_delta_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile, 'static')
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
@@ -2313,6 +2327,7 @@ cc = True
 metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
 ############# get rewired graphs #############
 # algorithm = 'double_edge_swap'
+# %%
 cc = True
 algorithm = 'configuration_model'
 rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
@@ -2639,7 +2654,6 @@ plot_pie_chart(G_dict, measure, region_counts)
 ######### weight distribution
 region_counts = {}
 rows, cols = get_rowcol(G_dict, measure)
-max_cliq_size = pd.DataFrame(index=rows, columns=cols)
 for row in rows:
   print(row)
   if row not in region_counts:
@@ -2647,8 +2661,8 @@ for row in rows:
   for col in cols:
     G = G_dict[row][col][0]
     sorted_edges = sorted(G.edges(data=True),key= lambda x: x[2]['weight'],reverse=True)
-    cliq_area = [area_dict[row][sorted_edges[0][0]], area_dict[row][sorted_edges[0][1]]]
-    uniq, counts = np.unique(cliq_area, return_counts=True)
+    max_weight_area = [area_dict[row][sorted_edges[0][0]], area_dict[row][sorted_edges[0][1]]]
+    uniq, counts = np.unique(max_weight_area, return_counts=True)
     region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
 plot_pie_chart(G_dict, measure, region_counts)
 # %%
@@ -2795,4 +2809,108 @@ plt.gca().set_title('repeats of neighbors', fontsize=35, rotation=0)
 plt.legend()
 plt.tight_layout()
 plt.savefig('./plots/neighbor_repeats_violin.jpg')
+# %%
+################### Shannon entropy of neighbors
+from scipy.stats import entropy
+num_steps = 10
+num_sample = 10
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+neighbor_entropy = np.zeros((len(rows), len(cols), num_sample))
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    for s in range(num_sample):
+      G = dy_G_dict[0][row][col][s]
+      nodes = [n for n in G if G[n].keys()]
+      frac = np.zeros(len(nodes))
+      for node in nodes:
+        for index in range(num_steps):
+          G = dy_G_dict[index][row][col][s]
+          if G[node].keys(): # if it has at least one neighbor
+            if index == 0:
+              neighbors = [n for n in G[node]]
+            else:
+              neighbors += [n for n in G[node]]
+              if index == 9:
+                frac[nodes.index(node)] = entropy(list(Counter(neighbors).values()), base=2)
+                # frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
+      neighbor_entropy[row_ind, col_ind, s] = frac.mean()
+# %%
+plt.figure(figsize=(6, 5))
+for row_ind, row in enumerate(rows):
+  plt.plot(cols, neighbor_entropy[row_ind, :, :].mean(axis=1), label=row, alpha=1)
+plt.gca().set_title('neighbor entropy', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_entropy.jpg')
+# %%
+plt.figure(figsize=(10, 8))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((neighbor_entropy[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * neighbor_entropy[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['fraction', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['fraction'] = pd.to_numeric(mec['fraction'])
+ax = sns.violinplot(x='type', y='fraction', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('neighbor entropy', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_entropy_violin.jpg')
+# %%
+################### Normalized Shannon entropy of neighbors
+from scipy.stats import entropy
+num_steps = 10
+num_sample = 10
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+normalized_neighbor_entropy = np.zeros((len(rows), len(cols), num_sample))
+for row_ind, row in enumerate(rows):
+  print(row)
+  for col_ind, col in enumerate(cols):
+    for s in range(num_sample):
+      G = dy_G_dict[0][row][col][s]
+      nodes = [n for n in G if G[n].keys()]
+      frac = np.zeros(len(nodes))
+      for node in nodes:
+        for index in range(num_steps):
+          G = dy_G_dict[index][row][col][s]
+          if G[node].keys(): # if it has at least one neighbor
+            if index == 0:
+              neighbors = [n for n in G[node]]
+            else:
+              neighbors += [n for n in G[node]]
+              if index == 9:
+                frac[nodes.index(node)] = entropy(list(Counter(neighbors).values()), base=2) / np.log2(len(set(neighbors)))
+                # frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
+      normalized_neighbor_entropy[row_ind, col_ind, s] = frac.mean()
+# %%
+plt.figure(figsize=(6, 5))
+for row_ind, row in enumerate(rows):
+  plt.plot(cols, normalized_neighbor_entropy[row_ind, :, :].mean(axis=1), label=row, alpha=1)
+plt.gca().set_title('normalized neighbor entropy', fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_entropy_normalized.jpg')
+# %%
+plt.figure(figsize=(10, 8))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((normalized_neighbor_entropy[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * normalized_neighbor_entropy[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['fraction', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['fraction'] = pd.to_numeric(mec['fraction'])
+ax = sns.violinplot(x='type', y='fraction', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('normalized neighbor entropy', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/neighbor_entropy_normalized_violin.jpg')
 # %%
