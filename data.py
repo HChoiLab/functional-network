@@ -14,12 +14,13 @@ from matplotlib import pyplot as plt
 import matplotlib
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
-
 import networkx as nx
+import dynetx as dn
+import dynetx.algorithms as al
 # from requests.sessions import session
 from netgraph import Graph
 import xarray as xr
-from sklearn.metrics.cluster import normalized_mutual_info_score
+from sklearn.metrics.cluster import mutual_info_score, normalized_mutual_info_score
 from statsmodels.tsa.stattools import grangercausalitytests
 # from CPAC.series_mod import cond_entropy
 # from CPAC.series_mod import entropy
@@ -28,6 +29,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 from plfit import plfit
 import pickle
+from math import comb
 data_directory = './data/ecephys_cache_dir'
 manifest_path = os.path.join(data_directory, "manifest.json")
 cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
@@ -211,11 +213,11 @@ def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution)
 
 def MI(matrix):
   n=matrix.shape[0]
-  MI=np.zeros((n,n))
+  MI_score=np.zeros((n,n))
   for i in range(n):
-      for j in range(n):
-          MI[i,j]=normalized_mutual_info_score(matrix[i,:], matrix[j,:])
-  return MI
+      for j in range(i+1, n):
+          MI_score[i,j]=normalized_mutual_info_score(matrix[i,:], matrix[j,:])
+  return np.maximum(MI_score, MI_score.transpose())
 
 def granger_causality(matrix):
   # calculate granger causality in time domain
@@ -608,6 +610,31 @@ def load_adj_regions_downsample_as_dynamic_graph(directory, weight, measure, thr
     print(l)
     for file in files[l]:
       if file.endswith(".npy"):
+        print(file)
+        adj_mat = np.load(os.path.join(directory, subfolders[l], file))
+        if measure == 'pearson':
+          adj_mat[adj_mat < threshold] = 0
+        else:
+          adj_mat[np.where(adj_mat<np.nanpercentile(np.abs(adj_mat), percentile))] = 0
+        mouseID = file.split('_')[0]
+        stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+        if not mouseID in dy_G_dict[l]:
+          dy_G_dict[l][mouseID] = {}
+        dy_G_dict[l][mouseID][stimulus_name] = []
+        for i in range(adj_mat.shape[2]):
+          dy_G_dict[l][mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
+  return dy_G_dict
+
+def load_dynamic_graph_twomice(directory, weight, measure, threshold, percentile):
+  folders = os.listdir(directory)
+  subfolders = [f for f in folders if 'dy' in f]
+  files = [os.listdir(os.path.join(directory, s)) for s in subfolders]
+  dy_G_dict = {}
+  for l in range(len(files)):
+    dy_G_dict[l] = {}
+    print(l)
+    for file in files[l]:
+      if file.endswith(".npy") and ('719161530' in file or '750749662' in file or '755434585' in file or '756029989' in file):
         print(file)
         adj_mat = np.load(os.path.join(directory, subfolders[l], file))
         if measure == 'pearson':
@@ -1636,7 +1663,7 @@ def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, pe
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      G = G_dict[row][col][0] if col in G_dict[row] else nx.Graph()
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         nodes = list(G.nodes())
         A = nx.adjacency_matrix(G)
@@ -1839,7 +1866,7 @@ def min_spike_sub(directory, session_ids, stimulus_names, ind, min_len):
 def down_sample_sub(sequences, min_len, min_num, ind):
   sequences = sequences[:, ind * min_len:(ind + 1) * min_len]
   i,j = np.nonzero(sequences)
-  ix = np.random.choice(len(i), min_num, replace=False)
+  ix = np.random.choice(len(i), min_num * sequences.shape[0], replace=False)
   sample_seq = np.zeros_like(sequences)
   sample_seq[i[ix], j[ix]] = sequences[i[ix], j[ix]]
   return sample_seq
@@ -1896,6 +1923,27 @@ def plot_pie_chart(G_dict, measure, region_counts):
 def t_pearson(r, n):
   return r * np.sqrt((n - 2) / (1 - r ** 2))
 
+def save_adj_ztest(directory, measure, alpha):
+  path = directory.replace(measure, measure+'_ttest')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      adj_mat_ds = np.load(os.path.join(directory, file))
+      adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      adj_mat = np.zeros_like(adj_mat_ds)
+      total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
+      for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
+        sample = ws.DescrStatsW(adj_mat_ds[row_a, row_b, :])
+        shuffle = ws.DescrStatsW(adj_mat_bl[row_a, row_b, :])
+        cm_obj = ws.CompareMeans(sample, shuffle)
+        zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
+        if z_pval < alpha:
+          adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
+      np.save(os.path.join(path, file), adj_mat)
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -2221,7 +2269,7 @@ stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-min_len, min_num = (260000, 578082)
+min_len, min_num = (260000, 739)
 measure = 'pearson'
 # measure = 'cosine'
 # measure = 'correlation'
@@ -2277,7 +2325,10 @@ for file in files:
       sample_seq = down_sample(sequences, min_len, min_num)
       adj_mat = corr_mat(sample_seq, measure)
       all_adj_mat[:, :, i] = adj_mat
-    np.save(os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)), file.replace('npz', 'npy')), all_adj_mat)
+    path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
+    if not os.path.exists(path):
+      os.makedirs(path)
+    np.save(os.path.join(path, file.replace('npz', 'npy')), all_adj_mat)
 # %%
 ############# save area_dict and average speed dataframe #################
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -2346,8 +2397,8 @@ plot_power_law_stats_individual(alphas, xmins, loglikelihoods, proportions, meas
 rows, cols = get_rowcol(G_dict, measure)
 for row in G_dict:
     for col in G_dict[row]:
-        nodes = nx.number_of_nodes(G_dict[row][col])
-        edges = nx.number_of_edges(G_dict[row][col])
+        nodes = nx.number_of_nodes(G_dict[row][col][0])
+        edges = nx.number_of_edges(G_dict[row][col][0])
         print('Number of nodes for {} {} {}'.format(row, col, nodes))
         print('Number of edges for {} {} {}'.format(row, col, edges))
         print('Density for {} {} {}'.format(row, col, 2 * edges / nodes ** 2))
@@ -2528,7 +2579,7 @@ percentile = 99.8
 weight = True # weighted network
 dy_G_dict = load_adj_regions_downsample_as_dynamic_graph(directory, weight, measure, threshold, percentile)
 # %%
-for index in range(10):
+for index in range(40, 100):
   print(index)
   region_connection_delta_heatmap(dy_G_dict[index], area_dict, visual_regions, measure, threshold, percentile, index)
 # %%
@@ -2709,8 +2760,8 @@ plt.tight_layout()
 plt.show()
 # %%
 ############# fraction of neighbors that appear at all time steps
-num_steps = 10
-num_sample = 10
+num_steps = 100
+num_sample = 1
 rows, cols = get_rowcol(dy_G_dict[0], measure)
 constant_ns_fraction = np.zeros((len(rows), len(cols), num_sample))
 for row_ind, row in enumerate(rows):
@@ -2730,7 +2781,7 @@ for row_ind, row in enumerate(rows):
             else:
               n_s = n_s & set([n for n in G[node]])
               num_n += len([n for n in G[node]])
-              if index == 9:
+              if index == num_steps - 1:
                 frac[nodes.index(node)] = len(n_s) / (num_n / 10) # average fraction of constant neighbors in the dynamic network
       constant_ns_fraction[row_ind, col_ind, s] = frac.mean()
 # %%
@@ -2761,8 +2812,8 @@ plt.tight_layout()
 plt.savefig('./plots/constant_neighbor_fraction_violin.jpg')
 # %%
 ################### how repeated neighbors are
-num_steps = 10
-num_sample = 10
+num_steps = 100
+num_sample = 1
 rows, cols = get_rowcol(dy_G_dict[0], measure)
 neighbor_repeats = np.zeros((len(rows), len(cols), num_sample))
 for row_ind, row in enumerate(rows):
@@ -2780,8 +2831,8 @@ for row_ind, row in enumerate(rows):
               neighbors = [n for n in G[node]]
             else:
               neighbors += [n for n in G[node]]
-              if index == 9:
-                frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
+              if index == num_steps - 1:
+                frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / len(neighbors)).mean() # how repeated neighbors in the dynamic network are
       neighbor_repeats[row_ind, col_ind, s] = frac.mean()
 # %%
 plt.figure(figsize=(6, 5))
@@ -2812,8 +2863,8 @@ plt.savefig('./plots/neighbor_repeats_violin.jpg')
 # %%
 ################### Shannon entropy of neighbors
 from scipy.stats import entropy
-num_steps = 10
-num_sample = 10
+num_steps = 100
+num_sample = 1
 rows, cols = get_rowcol(dy_G_dict[0], measure)
 neighbor_entropy = np.zeros((len(rows), len(cols), num_sample))
 for row_ind, row in enumerate(rows):
@@ -2831,7 +2882,7 @@ for row_ind, row in enumerate(rows):
               neighbors = [n for n in G[node]]
             else:
               neighbors += [n for n in G[node]]
-              if index == 9:
+              if index == num_steps - 1:
                 frac[nodes.index(node)] = entropy(list(Counter(neighbors).values()), base=2)
                 # frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
       neighbor_entropy[row_ind, col_ind, s] = frac.mean()
@@ -2864,8 +2915,8 @@ plt.savefig('./plots/neighbor_entropy_violin.jpg')
 # %%
 ################### Normalized Shannon entropy of neighbors
 from scipy.stats import entropy
-num_steps = 10
-num_sample = 10
+num_steps = 100
+num_sample = 1
 rows, cols = get_rowcol(dy_G_dict[0], measure)
 normalized_neighbor_entropy = np.zeros((len(rows), len(cols), num_sample))
 for row_ind, row in enumerate(rows):
@@ -2883,7 +2934,7 @@ for row_ind, row in enumerate(rows):
               neighbors = [n for n in G[node]]
             else:
               neighbors += [n for n in G[node]]
-              if index == 9:
+              if index == num_steps - 1:
                 frac[nodes.index(node)] = entropy(list(Counter(neighbors).values()), base=2) / np.log2(len(set(neighbors)))
                 # frac[nodes.index(node)] = (np.array(list(Counter(neighbors).values())) / 10).mean() # how repeated neighbors in the dynamic network are
       normalized_neighbor_entropy[row_ind, col_ind, s] = frac.mean()
@@ -2914,3 +2965,217 @@ plt.legend()
 plt.tight_layout()
 plt.savefig('./plots/neighbor_entropy_normalized_violin.jpg')
 # %%
+############ load dy_G_dict
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+threshold = 0.1
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+measure = 'pearson'
+########## load networks with multiple realizations of downsampling
+directory = './data/ecephys_cache_dir/sessions/'.format(measure)
+# thresholds = list(np.arange(0, 0.014, 0.001))
+percentile = 99.8
+weight = True # weighted network
+dy_G_dict = load_dynamic_graph_twomice(directory, weight, measure, threshold, percentile)
+# %%
+#################### plot number of edges and density with time
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+time_steps = list(dy_G_dict.keys())
+n_edges = np.zeros((len(rows), len(cols), len(time_steps)))
+densities = np.zeros((len(rows), len(cols), len(time_steps)))
+for t in dy_G_dict:
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = dy_G_dict[t][row][col][0]
+      nodes = nx.number_of_nodes(G)
+      edges = nx.number_of_edges(G)
+      n_edges[row_ind, col_ind, time_steps.index(t)] = edges
+      densities[row_ind, col_ind, time_steps.index(t)] = nx.density(G)
+      print('Number of nodes for {} {} {}'.format(row, col, nodes))
+      print('Number of edges for {} {} {}'.format(row, col, edges))
+      print('Density for {} {} {}'.format(row, col, nx.density(G)))
+# %%
+fig = plt.figure(figsize=(4*len(cols), 13))
+for col_ind, col in enumerate(cols):
+  plt.subplot(2, 4, col_ind + 1)
+  for row_ind, row in enumerate(rows):
+    plt.plot(time_steps, n_edges[row_ind, col_ind, :], label=row, alpha=0.4)
+  plt.gca().set_title(col, fontsize=30, rotation=0)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  plt.xlabel('snapshot', size=30)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/edges_with_time.jpg')
+# plt.show()
+fig = plt.figure(figsize=(4*len(cols), 13))
+for col_ind, col in enumerate(cols):
+  plt.subplot(2, 4, col_ind + 1)
+  for row_ind, row in enumerate(rows):
+    plt.plot(time_steps, densities[row_ind, col_ind, :], label=row, alpha=0.4)
+  plt.gca().set_title(col, fontsize=30, rotation=0)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  plt.xlabel('snapshot', size=30)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/density_with_time.jpg')
+# %%
+################# pairwise correlation of number of dynamic edges
+plt.figure(figsize=(10, 8))
+correlation = np.zeros((comb(len(rows), 2), len(cols)))
+for col_ind, col in enumerate(cols):
+  correlation[:, col_ind] = np.corrcoef(n_edges[:, col_ind, :])[np.triu_indices(len(rows), 1)]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((correlation[:, stimuli_inds[s_type]].flatten()[:, None], np.array([s_type] * correlation[:, stimuli_inds[s_type]].flatten().size)[:, None]), 1), columns=['metric', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['metric'] = pd.to_numeric(mec['metric'])
+ax = sns.violinplot(x='type', y='metric', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('pairwise correlation of temporal edges', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/edge_correlation_violin.jpg')
+# %%
+plt.figure(figsize=(10, 8))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting gratings', 'static gratings',
+          'natural images', 'natural movies']
+stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+mec = pd.concat([pd.DataFrame(np.concatenate((densities[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * densities[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=['density', 'type']) for s_type in stimuli_inds], ignore_index=True)
+mec['density'] = pd.to_numeric(mec['density'])
+ax = sns.violinplot(x='type', y='density', data=mec, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+plt.yticks(fontsize=20)
+plt.xticks(fontsize=22, rotation=90)
+plt.gca().set_title('density of each snapshot', fontsize=35, rotation=0)
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/dynamic_density_violin.jpg')
+# %%
+rows, cols = get_rowcol(dy_G_dict[0], measure)
+row, col = rows[0], cols[0]
+dy_G = dn.DynGraph(edge_removal=True)
+for t in dy_G_dict:
+  dy_G.add_interactions_from(dy_G_dict[t][row][col][0].edges(), t=t, e=t+1)
+# %%
+g = dn.DynGraph()
+g.add_interaction("A", "C", 1, 2)
+g.add_interaction("B", "D", 2, 3)
+g.add_interaction("A", "C", 4, 5)
+g.add_interaction("B", "D", 2, 3)
+g.add_interaction("B", "C", 6, 7)
+g.add_interaction("C", "D", 3, 4)
+g.add_interaction("E", "B", 7, 8)
+g.add_interaction("D", "E", 8, 9)
+paths = al.time_respecting_paths(g, "A", "E", start=1, end=8)
+for p in paths:
+  print(al.path_length(paths[p][0]))
+  print(al.path_duration(paths[p][0]))
+# %%
+from scipy import signal
+import itertools
+############# save correlation matrices #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+# measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+measure = 'crosscorr'
+# measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+files = os.listdir(directory)
+files.sort(key=lambda x:int(x[:9]))
+num_sample = 1 # number of random sampling
+for file in files:
+  if file.endswith(".npz"):
+    break
+file = files[-53]
+print(file)
+sequences = load_npz(os.path.join(directory, file))
+sample_seq = down_sample(sequences, min_len, min_num)
+# %%
+adj_mat = np.zeros((sample_seq.shape[0], sample_seq.shape[0]))
+start_time = time.time()
+for row_a, row_b in itertools.permutations(range(sample_seq.shape[0]), 2):
+  adj_mat[row_a, row_b] = np.correlate(sample_seq[row_a, :], sample_seq[row_b, :])
+print("--- %s minutes for np.correlate" % ((time.time() - start_time)/60))
+start_time = time.time()
+for row_a, row_b in itertools.permutations(range(sample_seq.shape[0]), 2):
+  adj_mat[row_a, row_b] = signal.correlate(sample_seq[row_a, :], sample_seq[row_b, :], mode='valid', method='direct')
+print("--- %s minutes for signal.correlate" % ((time.time() - start_time)/60))
+start_time = time.time()
+for row_a, row_b in itertools.combinations(range(sample_seq.shape[0]), 2):
+  c_xy = np.histogram2d(sample_seq[row_a, :], sample_seq[row_b, :], 100)[0]
+  adj_mat[row_a, row_b] = mutual_info_score(None, None, contingency=c_xy)
+print("--- %s minutes for mutual_info_score" % ((time.time() - start_time)/60))
+  
+# %%
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+threshold = 0.1
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+print('Counting minimal duration...')
+min_len = 10000
+for session_id in session_ids:
+  for stimulus_name in stimulus_names:
+      sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+      min_len = sequences.shape[1] if sequences.shape[1] < min_len else min_len
+print('Counting minimal number of spikes per sequence...')
+min_num = 10000000000
+for session_id in session_ids:
+  for stimulus_name in stimulus_names:
+      sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+      sequences = sequences[:, :min_len]
+      i,j = np.nonzero(sequences)
+      min_num = len(i)//sequences.shape[0] if len(i)//sequences.shape[0] < min_num else min_num
+print('Minimal length of sequence is {}, minimal number of spikes is {}'.format(min_len, min_num)) # 564524
+# %%
+measure = 'pearson'
+########## load networks with baseline
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}'.format(measure)
+# thresholds = list(np.arange(0, 0.014, 0.001))
+percentile = 99.8
+weight = True # weighted network
+G_dict = {}
+files = os.listdir(directory)
+files.sort(key=lambda x:int(x[:9]))
+for file in files:
+  if '_bl' not in file:
+    print(file)
+    adj_mat = np.load(os.path.join(directory, file))
+    adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+    # There can be at most 1 random correlation larger
+    for i in range(adj_mat.shape[2]):
+      adj_mat[adj_mat[:, :, i] < np.partition(adj_mat_bl, -2)[:, :, -2]] = 0
+    adj_mat[adj_mat < 0] = 0
+    mouseID = file.split('_')[0]
+    stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+    if not mouseID in G_dict:
+      G_dict[mouseID] = {}
+    G_dict[mouseID][stimulus_name] = []
+    for i in range(adj_mat.shape[2]):
+      G_dict[mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
+# %%
+threshold = 0
+# %%
+################## save Z-Test significant adj_mat
+alpha = 0.01
+measure = 'pearson'
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
+save_adj_ztest(directory, measure, alpha)
