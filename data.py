@@ -1946,6 +1946,24 @@ def save_adj_ztest(directory, measure, alpha):
         if z_pval < alpha:
           adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
       np.save(os.path.join(path, file), adj_mat)
+
+def save_adj_larger(directory, measure):
+  path = directory.replace(measure, measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      adj_mat_ds = np.load(os.path.join(directory, file))
+      adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      adj_mat = np.zeros_like(adj_mat_ds)
+      total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
+      for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
+        if adj_mat_ds[row_a, row_b, :].min() > adj_mat_bl[row_a, row_b, :].max():
+          adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
+      np.save(os.path.join(path, file), adj_mat)
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -3181,3 +3199,10 @@ alpha = 0.01
 measure = 'pearson'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
 save_adj_ztest(directory, measure, alpha)
+# %%
+################## save significant adj_mat
+start_time = time.time()
+measure = 'pearson'
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
+save_adj_larger(directory, measure)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
