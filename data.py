@@ -1926,7 +1926,7 @@ def t_pearson(r, n):
   return r * np.sqrt((n - 2) / (1 - r ** 2))
 
 def save_adj_ztest(directory, measure, alpha):
-  path = directory.replace(measure, measure+'_ttest')
+  path = directory.replace(measure, measure+'_ztest')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
