@@ -123,6 +123,37 @@ class CommunityLayout():
           pos.update(pos_subgraph)
       return pos
 
+def get_rowcol(G_dict, measure):
+  rows = list(G_dict.keys())
+  cols = []
+  for row in rows:
+    cols += list(G_dict[row].keys())
+  cols = list(set(cols))
+  if 'drifting_gratings_contrast' in cols:
+    cols.remove('drifting_gratings_contrast')
+  # sort stimulus
+  if measure == 'ccg':
+    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  else:
+    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
+  return rows, cols
+
+def get_metric_names(G_dict):
+  G = list(list(G_dict.items())[0][1].items())[0][1]
+  if type(G) == list:
+    G = G[0]
+  if nx.is_directed(G):
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'modularity', 'transitivity']
+  else:
+    # metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'small-worldness', 'transitivity']
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+  return metric_names
+
 def get_spiking_sequence(session_id, stimulus_name, structure_acronym):
   session = cache.get_session_data(session_id)
   print(session.metadata)
@@ -923,8 +954,8 @@ def plot_multi_graphs_color(G_dict, area_dict, measure, cc=False):
   plt.tight_layout()
   th = threshold if measure == 'pearson' else percentile
   image_name = './plots/graphs_region_color_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/graphs_region_color_{}_{}.jpg'.format(measure, th)
-  # plt.savefig(image_name)
-  plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+  plt.savefig(image_name)
+  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
 
 def plot_degree_distribution(G):
@@ -997,8 +1028,8 @@ def plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc=F
   th = threshold if measure == 'pearson' else percentile
   image_name = './plots/degree_distribution_cc_{}_{}.jpg'.format(measure, th) if cc else './plots/degree_distribution_{}_{}.jpg'.format(measure, th)
   # plt.show()
-  # plt.savefig(image_name, dpi=300)
-  plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
+  plt.savefig(image_name, dpi=300)
+  # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
   return alphas, xmins, loglikelihoods, proportions
 
 def plot_running_speed(session_ids, stimulus_names):
@@ -1588,50 +1619,23 @@ def metric_heatmap(G_dict, measure):
     plt.tight_layout()
     plt.savefig('./plots/'+measure+'_'+metric_name+'.jpg')
 
-def get_rowcol(G_dict, measure):
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  if 'drifting_gratings_contrast' in cols:
-    cols.remove('drifting_gratings_contrast')
-  # sort stimulus
-  if measure == 'ccg':
-    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
-  else:
-    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
-  return rows, cols
-
-def get_metric_names(G_dict):
-  G = list(list(G_dict.items())[0][1].items())[0][1]
-  if type(G) == list:
-    G = G[0]
-  if nx.is_directed(G):
-    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'modularity', 'transitivity']
-  else:
-    # metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'small-worldness', 'transitivity']
-    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
-  return metric_names
-
-def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
+def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
   rewired_G_dict = {}
   rows, cols = get_rowcol(G_dict, measure)
   G = list(list(G_dict.items())[0][1].items())[0][1][0]
   if nx.is_directed(G):
     algorithm = 'directed_configuration_model'
   for row in rows:
-      print(row)
-      if not row in rewired_G_dict:
-        rewired_G_dict[row] = {}
-      for col in cols:
-        print(col)
+    print(row)
+    if not row in rewired_G_dict:
+      rewired_G_dict[row] = {}
+    for col in cols:
+      print(col)
+      rewired_G_dict[row][col] = []
+      for num in range(num_rewire):
         G = G_dict[row][col][0].copy() if col in G_dict[row] else nx.Graph()
+        weights = np.squeeze(np.array(nx.adjacency_matrix(G)[nx.adjacency_matrix(G).nonzero()]))
+        np.random.shuffle(weights)
         if G.number_of_nodes() >= 2 and G.number_of_edges() >= 1:
           if cc:
             largest_cc = max(nx.connected_components(G), key=len)
@@ -1655,7 +1659,10 @@ def random_graph_baseline(G_dict, algorithm, measure, cc, Q=100):
             degrees = dict(nx.degree(G))
             if len(np.nonzero(list(degrees.values()))[0]) >= 4:
               nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
-        rewired_G_dict[row][col] = G
+        # add link weights
+        for ind, e in enumerate(G.edges()):
+          G[e[0]][e[1]]['weight'] = weights[ind]
+        rewired_G_dict[row][col].append(G)
   return rewired_G_dict
 
 def region_connection_heatmap(G_dict, area_dict, regions, measure, threshold, percentile):
@@ -1939,12 +1946,13 @@ def save_adj_ztest(directory, measure, alpha):
       adj_mat = np.zeros_like(adj_mat_ds)
       total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
       for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
-        sample = ws.DescrStatsW(adj_mat_ds[row_a, row_b, :])
-        shuffle = ws.DescrStatsW(adj_mat_bl[row_a, row_b, :])
-        cm_obj = ws.CompareMeans(sample, shuffle)
-        zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
-        if z_pval < alpha:
-          adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
+        if adj_mat_ds[row_a, row_b, :].mean() > 0: # only keep positive edges
+          sample = ws.DescrStatsW(adj_mat_ds[row_a, row_b, :])
+          shuffle = ws.DescrStatsW(adj_mat_bl[row_a, row_b, :])
+          cm_obj = ws.CompareMeans(sample, shuffle)
+          zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
+          if z_pval < alpha:
+            adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
       np.save(os.path.join(path, file), adj_mat)
 
 def save_adj_larger(directory, measure):
@@ -1961,9 +1969,26 @@ def save_adj_larger(directory, measure):
       adj_mat = np.zeros_like(adj_mat_ds)
       total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
       for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
-        if adj_mat_ds[row_a, row_b, :].min() > adj_mat_bl[row_a, row_b, :].max():
+        if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
           adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
       np.save(os.path.join(path, file), adj_mat)
+
+def load_significant_adj(directory, weight):
+  G_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npy"):
+      print(file)
+      adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npy', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      G_dict[mouseID][stimulus_name] = []
+      for i in range(adj_mat.shape[2]):
+        G_dict[mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
+  return G_dict
 # %%
 all_areas = units['ecephys_structure_acronym'].unique()
 # %%
@@ -3206,3 +3231,74 @@ measure = 'pearson'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
 save_adj_larger(directory, measure)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# %%
+############# load area_dict and average speed dataframe #################
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+# %%
+#################### load graph with significant edges (larger)
+measure = 'pearson'
+weight = True
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_larger/'.format(measure)
+G_dict = load_significant_adj(directory, weight)
+# %%
+#################### load graph with significant edges (Z-Test)measure = 'pearson'
+measure = 'pearson'
+weight = True
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_ztest/'.format(measure)
+G_dict = load_significant_adj(directory, weight)
+# %%
+rows, cols = get_rowcol(G_dict, measure)
+for row in G_dict:
+    for col in G_dict[row]:
+        nodes = nx.number_of_nodes(G_dict[row][col][0])
+        edges = nx.number_of_edges(G_dict[row][col][0])
+        print('Number of nodes for {} {} {}'.format(row, col, nodes))
+        print('Number of edges for {} {} {}'.format(row, col, edges))
+        print('Density for {} {} {}'.format(row, col, 2 * edges / nodes ** 2))
+# %%
+threshold = 1
+percentile = 1
+# %%
+region_connection_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile)
+# %%
+region_connection_delta_heatmap(G_dict, area_dict, visual_regions, measure, threshold, percentile, 'static')
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(G_dict, area_dict, measure, cc=cc)
+cc = True
+alphas, xmins, loglikelihoods, proportions = plot_multi_degree_distributions(G_dict, measure, threshold, percentile, cc)
+# %%
+############# plot metric_stimulus individually for each mouse #############
+cc = True
+metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
+############# get rewired graphs #############
+# algorithm = 'double_edge_swap'
+# %%
+cc = True
+algorithm = 'configuration_model'
+rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
+############# plot delta metric_stimulus individually for each mouse #############
+cc = True # for real graphs, cc is false for rewired baselines
+delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
+# %%
+############# plot metric_stimulus individually and delta metric_stimulus individually from local #############
+cc = True
+metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
+cc = True
+algorithm = 'configuration_model'
+rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
+############# plot delta metric_stimulus individually for each mouse #############
+cc = True # for real graphs, cc is false for rewired baselines
+delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
