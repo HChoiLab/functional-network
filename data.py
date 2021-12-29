@@ -1393,7 +1393,7 @@ def delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshol
     for row_ind, row in enumerate(rows):
       print(row)
       for col_ind, col in enumerate(cols):
-        G_base = rewired_G_dict[row][col] if col in rewired_G_dict[row] else nx.Graph()
+        G_base = rewired_G_dict[row][col][0] if col in rewired_G_dict[row] else nx.Graph()
         if G_base.number_of_nodes() > 2 and G_base.number_of_edges() > 0:
           if weight:
             metric_base[row_ind, col_ind, metric_ind] = calculate_weighted_metric(G_base, metric_name, cc=False)
@@ -1932,6 +1932,19 @@ def plot_pie_chart(G_dict, measure, region_counts):
 def t_pearson(r, n):
   return r * np.sqrt((n - 2) / (1 - r ** 2))
 
+def load_npz_3d(filename):
+    """
+    load npz files with sparse matrix and dimension
+    output dense matrix with the correct dim
+    """
+    npzfile = np.load(filename, allow_pickle=True) 
+    sparse_matrix = npzfile['arr_0'][0]
+    ndim=npzfile['arr_0'][1]
+
+    new_matrix_2d = np.array(sparse_matrix.todense())
+    new_matrix = new_matrix_2d.reshape(ndim)
+    return new_matrix
+
 def save_adj_ztest(directory, measure, alpha):
   path = directory.replace(measure, measure+'_ztest')
   if not os.path.exists(path):
@@ -1941,8 +1954,10 @@ def save_adj_ztest(directory, measure, alpha):
   for file in files:
     if '_bl' not in file:
       print(file)
-      adj_mat_ds = np.load(os.path.join(directory, file))
-      adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      adj_mat_ds = load_npz_3d(os.path.join(directory, file))
+      adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       adj_mat = np.zeros_like(adj_mat_ds)
       total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
       for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
@@ -1953,7 +1968,8 @@ def save_adj_ztest(directory, measure, alpha):
           zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
           if z_pval < alpha:
             adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
-      np.save(os.path.join(path, file), adj_mat)
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(adj_mat, os.path.join(path, file))
 
 def save_adj_larger(directory, measure):
   path = directory.replace(measure, measure+'_larger')
@@ -1964,14 +1980,17 @@ def save_adj_larger(directory, measure):
   for file in files:
     if '_bl' not in file:
       print(file)
-      adj_mat_ds = np.load(os.path.join(directory, file))
-      adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      adj_mat_ds = load_npz_3d(os.path.join(directory, file))
+      adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       adj_mat = np.zeros_like(adj_mat_ds)
       total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
       for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
         if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
           adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
-      np.save(os.path.join(path, file), adj_mat)
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(adj_mat, os.path.join(path, file))
 
 def load_significant_adj(directory, weight):
   G_dict = {}
@@ -3252,7 +3271,7 @@ weight = True
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_larger/'.format(measure)
 G_dict = load_significant_adj(directory, weight)
 # %%
-#################### load graph with significant edges (Z-Test)measure = 'pearson'
+#################### load graph with significant edges (Z-Test)
 measure = 'pearson'
 weight = True
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_ztest/'.format(measure)
@@ -3302,3 +3321,10 @@ rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
 ############# plot delta metric_stimulus individually for each mouse #############
 cc = True # for real graphs, cc is false for rewired baselines
 delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
+
+# %%
+cc = True
+num_rewire = 2
+algorithm = 'configuration_model'
+rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100)
+# %%
