@@ -1659,6 +1659,9 @@ def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
             degrees = dict(nx.degree(G))
             if len(np.nonzero(list(degrees.values()))[0]) >= 4:
               nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
+          elif algorithm == 'connected_double_edge_swap':
+            swaps = nx.connected_double_edge_swap(G, nswap=Q*G.number_of_edges(), _window_threshold=3)
+            print('Number of successful swaps: {}'.format(swaps))
         # add link weights
         for ind, e in enumerate(G.edges()):
           G[e[0]][e[1]]['weight'] = weights[ind]
@@ -3271,6 +3274,16 @@ weight = True
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_larger/'.format(measure)
 G_dict = load_significant_adj(directory, weight)
 # %%
+############# keep largest connected components
+if cc:
+  for row in G_dict:
+    for col in G_dict[row]:
+      for i, G in enumerate(G_dict[row][col]):
+        if not nx.is_connected(G):
+          largest_cc = max(nx.connected_components(G), key=len)
+          G_dict[row][col][i] = nx.subgraph(G, largest_cc)
+          # print(G.number_of_nodes(), G_dict[row][col][i].number_of_nodes())
+# %%
 #################### load graph with significant edges (Z-Test)
 measure = 'pearson'
 weight = True
@@ -3305,26 +3318,12 @@ metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weig
 ############# get rewired graphs #############
 # algorithm = 'double_edge_swap'
 # %%
-cc = True
-algorithm = 'configuration_model'
-rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
-############# plot delta metric_stimulus individually for each mouse #############
-cc = True # for real graphs, cc is false for rewired baselines
-delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
-# %%
-############# plot metric_stimulus individually and delta metric_stimulus individually from local #############
-cc = True
-metric = metric_stimulus_individual(G_dict, threshold, percentile, measure, weight, cc)
-cc = True
-algorithm = 'configuration_model'
-rewired_G_dict = random_graph_baseline(G_dict, algorithm, measure, cc, Q=100)
-############# plot delta metric_stimulus individually for each mouse #############
-cc = True # for real graphs, cc is false for rewired baselines
-delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
-
-# %%
-cc = True
+cc = False
 num_rewire = 2
-algorithm = 'configuration_model'
-rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100)
-# %%
+# algorithm = 'configuration_model'
+# algorithm = 'double_edge_swap'
+algorithm = 'connected_double_edge_swap'
+rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=10)
+############# plot delta metric_stimulus individually for each mouse #############
+cc = True # for real graphs, cc is false for rewired baselines
+delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
