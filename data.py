@@ -1974,12 +1974,15 @@ def save_adj_ztest(directory, measure, alpha):
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
 
-def save_adj_larger(directory, measure):
+def save_adj_larger(directory, measure, alpha):
   path = directory.replace(measure, measure+'_larger')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
+  adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_temp.shape[2]
+  k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
   for file in files:
     if '_bl' not in file:
       print(file)
@@ -1990,7 +1993,8 @@ def save_adj_larger(directory, measure):
       adj_mat = np.zeros_like(adj_mat_ds)
       total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
       for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
-        if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
+        if adj_mat_ds[row_a, row_b, :].mean() > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0): # only keep positive edges:
+        # if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
           adj_mat[row_a, row_b, :] = adj_mat_ds[row_a, row_b, :]
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
@@ -3250,8 +3254,9 @@ save_adj_ztest(directory, measure, alpha)
 ################## save significant adj_mat
 start_time = time.time()
 measure = 'pearson'
+alpha = 0.01
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
-save_adj_larger(directory, measure)
+save_adj_larger(directory, measure, alpha)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 ############# load area_dict and average speed dataframe #################
@@ -3327,3 +3332,12 @@ rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, c
 ############# plot delta metric_stimulus individually for each mouse #############
 cc = True # for real graphs, cc is false for rewired baselines
 delta_metric = delta_metric_stimulus_individual(metric, rewired_G_dict, algorithm, threshold, percentile, measure, weight, cc)
+# %%
+def Z_score(r):
+  return np.log((1+r)/(1-r)) / 2
+# %%
+Fig = plt.figure()
+r = np.arange(-0.99, 1, 0.01)
+plt.plot(r, Z_score(r))
+plt.show()
+# %%
