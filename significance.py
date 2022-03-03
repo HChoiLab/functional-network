@@ -1,4 +1,5 @@
 # %%
+from email import iterators
 import numpy as np
 from scipy import sparse
 import pandas as pd
@@ -477,14 +478,16 @@ def Z_score(r):
 #         cnt += 1
 #     print(cnt / total_len)
 # %%
-def save_adj_larger(directory, measure, alpha):
-  path = directory.replace(measure, measure+'_larger')
+def save_adj_larger(directory, sign, measure, alpha):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
-  adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
-  N = adj_temp.shape[2]
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_bl_temp.shape[2] # number of shuffles
   k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
   for file in files:
     if '_bl' not in file:
@@ -494,20 +497,37 @@ def save_adj_larger(directory, measure, alpha):
       adj_mat_ds = load_npz_3d(os.path.join(directory, file))
       adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       adj_mat = np.zeros_like(adj_mat_ds)
-      total_len = len(list(itertools.combinations(range(adj_mat_ds.shape[0]), 2)))
-      for row_a, row_b in tqdm(itertools.combinations(range(adj_mat_ds.shape[0]), 2), total=total_len):
-        for n in range(N):
-          if adj_mat_ds[row_a, row_b, n] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0): # only keep positive edges:
-          # if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
-            adj_mat[row_a, row_b, n] = adj_mat_ds[row_a, row_b, n]
+      if measure == 'xcorr':
+        iterator = itertools.permutations(range(adj_mat_ds.shape[0]), 2)
+      else:
+        iterator = itertools.combinations(range(adj_mat_ds.shape[0]), 2)
+      total_len = len(list(iterator))
+      for row_a, row_b in tqdm(iterator, total=total_len):
+        # if adj_mat_ds[row_a, row_b, r] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0): # only keep positive edges:
+        # if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
+          # adj_mat[row_a, row_b, r] = adj_mat_ds[row_a, row_b, r]
+        if sign == 'pos':
+          indx = adj_mat_ds[row_a, row_b] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0)
+        elif sign == 'neg':
+          indx = adj_mat_ds[row_a, row_b] < min(np.partition(adj_mat_bl[row_a, row_b, :], k-1)[k-1], 0)
+        elif sign == 'all':
+          pos = adj_mat_ds[row_a, row_b] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0)
+          neg = adj_mat_ds[row_a, row_b] < min(np.partition(adj_mat_bl[row_a, row_b, :], k-1)[k-1], 0)
+          indx = np.logical_or(pos, neg)
+        if np.sum(indx):
+          adj_mat[row_a, row_b, indx] = adj_mat_ds[row_a, row_b, indx]
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
 
 start_time = time.time()
-measure = 'pearson'
+# measure = 'pearson'
+measure = 'xcorr'
 alpha = 0.01
+# sign = 'pos'
+# sign = 'neg'
+sign = 'all'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
-save_adj_larger(directory, measure, alpha)
+save_adj_larger(directory, sign, measure, alpha)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 # for file in files:
