@@ -19,10 +19,12 @@ from sklearn.metrics.cluster import normalized_mutual_info_score
 import itertools
 import sys
 from scipy import signal
-from numpy.lib.stride_tricks import as_strided
 import pycorrelate as pyc
 from scipy import sparse
 from tqdm import tqdm
+from numpy.lib.stride_tricks import as_strided
+from scipy.ndimage.filters import uniform_filter1d
+import faulthandler
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
@@ -117,6 +119,47 @@ def n_cross_correlation4(matrix, maxlag): ### fastest
     xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
   return xcorr
 
+def n_cross_correlation5(matrix, maxlag): ### fastest, subtract sliding mean
+  N, M =matrix.shape
+  xcorr=np.zeros((N,N))
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*M))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)))
+  #### padding
+  norm_mata = np.concatenate((np.zeros((N, maxlag)), norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, 2*maxlag)), norm_matb.conj(), np.zeros((N, 2*maxlag))), axis=1)
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len):
+  # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[2*maxlag:], shape=(2*maxlag+1, M + 2*maxlag),
+                   strides=(-py.strides[0], py.strides[0]))
+    # corr = T.dot(px)
+    corr = T @ px
+    corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
+    xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
+  return xcorr
+
+def n_cross_correlation6(matrix, maxlag): ### fastest, only causal correlation (A>B, only positive time lag on B)
+  N, M =matrix.shape
+  xcorr=np.zeros((N,N))
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*M))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)))
+  #### padding
+  norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, maxlag)), norm_matb.conj(), np.zeros((N, maxlag))), axis=1) # must concat zeros to the left, why???????????
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100)): # , miniters=int(total_len/100)
+  # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[maxlag:], shape=(maxlag+1, M + maxlag),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[maxlag:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
+    corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
+    xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
+  return xcorr
+
 # def n_cross_correlation4(matrix, maxlag): ### fastest
 #   N, M =matrix.shape
 #   xcorr=np.zeros((N,N))
@@ -133,7 +176,7 @@ def n_cross_correlation4(matrix, maxlag): ### fastest
 #     xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
 #   return xcorr
 
-def n_cross_correlation5(matrix, maxlag): ## always 0
+def n_cross_correlation7(matrix, maxlag): ## always 0
   N, M =matrix.shape
   xcorr=np.zeros((N,N))
   norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*M))
@@ -188,7 +231,7 @@ def granger_causality(matrix):
 
 #     return TE_from_j_to_i
 
-def corr_mat(sequences, measure):
+def corr_mat(sequences, measure, maxlag=12):
   if measure == 'pearson':
     adj_mat = np.corrcoef(sequences)
   elif measure == 'cosine':
@@ -198,7 +241,7 @@ def corr_mat(sequences, measure):
   elif measure == 'MI':
     adj_mat = MI(sequences)
   elif measure == 'xcorr':
-    adj_mat = n_cross_correlation4(sequences, maxlag=1)
+    adj_mat = n_cross_correlation6(sequences, maxlag=maxlag)
   elif measure == 'causality':
     adj_mat = granger_causality(sequences)
   else:
@@ -259,10 +302,12 @@ for file in files:
     all_adj_mat = np.zeros((num_nodes, num_nodes, num_sample))
     for i in range(num_sample):
       print('Sample {} out of {}'.format(i+1, num_sample))
+      # if i == 1 :
+      #   import pdb;pdb.set_trace()
       sample_seq = down_sample(sequences, min_len, min_num)
       # mask out neurons with firing rate under 2 Hz
       mask = np.where((sample_seq != 0).sum(axis=1) < min_spikes)[0]
-      adj_mat = corr_mat(sample_seq, measure)
+      adj_mat = corr_mat(sample_seq, measure, maxlag=12)
       adj_mat[mask[:, None], :] = 0
       adj_mat[:, mask] = 0
       all_adj_mat[:, :, i] = adj_mat
@@ -284,3 +329,37 @@ for file in files:
     # sparse.save_npz(os.path.join(path, file.replace('.npz', '_bl.npz')), sparse.csr_matrix(adj_mat_bl))
     print("--- %s minutes for %s %s" % ((time.time() - start_time_mouse)/60, mouseID, stimulus))
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
+
+# %%
+############ test run time
+# min_len, min_num = (10000, 29)
+# min_spikes = min_len * 0.002 # 2 Hz
+# # measure = 'pearson'
+# # measure = 'cosine'
+# # measure = 'correlation'
+# # measure = 'MI'
+# measure = 'xcorr'
+# # measure = 'causality'
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# files = os.listdir(directory)
+# files.sort(key=lambda x:int(x[:9]))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
+# if not os.path.exists(path):
+#   os.makedirs(path)
+# for file in files:
+#   if file.endswith(".npz"):
+#     start_time_mouse = time.time()
+#     print(file)
+#     break
+# mouseID = file.replace('.npz', '').split('_')[0]
+# stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
+# sequences = load_npz(os.path.join(directory, file))
+# sample_seq = down_sample(sequences, min_len, min_num)
+# %%
+# start_time = time.time()
+# adj_mat = n_cross_correlation5(sample_seq, 12)
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# # %%
+# def running_mean_uniform_filter1d(x, N):
+#     return uniform_filter1d(x, N, mode='constant', origin=-(N//2))[:-(N-1)]
+# %%
