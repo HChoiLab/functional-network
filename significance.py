@@ -498,10 +498,10 @@ def save_adj_larger(directory, sign, measure, alpha):
       adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       adj_mat = np.zeros_like(adj_mat_ds)
       if measure == 'xcorr':
-        iterator = itertools.permutations(range(adj_mat_ds.shape[0]), 2)
+        iterator = list(itertools.permutations(range(adj_mat_ds.shape[0]), 2))
       else:
-        iterator = itertools.combinations(range(adj_mat_ds.shape[0]), 2)
-      total_len = len(list(iterator))
+        iterator = list(itertools.combinations(range(adj_mat_ds.shape[0]), 2))
+      total_len = len(iterator)
       for row_a, row_b in tqdm(iterator, total=total_len):
         # if adj_mat_ds[row_a, row_b, r] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0): # only keep positive edges:
         # if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
@@ -522,7 +522,7 @@ def save_adj_larger(directory, sign, measure, alpha):
 start_time = time.time()
 # measure = 'pearson'
 measure = 'xcorr'
-alpha = 0.01
+alpha = 0.05
 # sign = 'pos'
 # sign = 'neg'
 sign = 'all'
