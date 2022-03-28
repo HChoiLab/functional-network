@@ -1,17 +1,31 @@
 #%%
-from lib2to3.pgen2.grammar import Grammar
 import numpy as np
 import matplotlib.pyplot as plt
-
-from ClosedSynchrony import *
-# from PatternJitter import *
-from TransitMatrix import *
-from Data import *
+# from Data import *
 from tqdm import tqdm
+
+def getSpikeData(T, fireRate):
+    spikeData = np.zeros(T)
+    binprob = (1./T)*fireRate
+    rands = np.random.uniform(size=T)
+    spikeData[rands <= binprob] = 1
+    return spikeData
 
 def getSpikeTrain(spikeData):
     spikeTrain = np.squeeze(np.where(spikeData>0))
     return spikeTrain
+
+def getInitDist(L):
+    initDist = np.random.rand(L)
+    return initDist/initDist.sum()
+
+def getTransitionMatrices(L, N):
+    tDistMatrices = np.zeros((N - 1, L, L))
+    for i in range(tDistMatrices.shape[0]):
+        matrix = np.random.rand(L, L)
+        stochMatrix = matrix/matrix.sum(axis=1)[:,None]
+        tDistMatrices[i, :, :] = stochMatrix.astype('f')
+    return tDistMatrices
 
 def getX1(initDist, L, R, spikeTrain):
     # Omega = getOmega(L, obsTar)
@@ -24,7 +38,6 @@ def initializeX(initX, Prob):
     return initX + np.sum(Prob == 0)
 
 def getGamma(L, R, spikeTrain):
-
     Gamma = []
     ks = [] # list of k_d
     ks.append(0)
@@ -38,11 +51,7 @@ def getGamma(L, R, spikeTrain):
         Gamma.append(np.arange(temp, temp + L, 1))
     return Gamma
 
-# getSpikeTrain(ObsTar, L, R, initD, tDistMat)
-
 def getSurrogate(spikeTrain, L, R, initDist, tDistMatrices):
-
-    chain = 1
     surrogate = []
     # Omega = getOmega(L, spikeTrain)
     Gamma = getGamma(L, R, spikeTrain)
@@ -54,7 +63,7 @@ def getSurrogate(spikeTrain, L, R, initDist, tDistMatrices):
         else:
             index = np.where(np.array(Gamma[i]) == givenX)[0]
             p_i = np.squeeze(np.array(row[index]))
-            initX = initializeX(Gamma[chain][0], p_i)
+            initX = initializeX(Gamma[i + 1][0], p_i)
             randX = np.random.random()
             # safe way to find the ind
             larger = np.where(randX <= np.cumsum(p_i))[0]
@@ -64,68 +73,33 @@ def getSurrogate(spikeTrain, L, R, initDist, tDistMatrices):
                 ind = len(p_i) - 1
             givenX = initX + np.sum(p_i[:ind]!=0)
         surrogate.append(givenX)
-        chain += 1
     return surrogate
 
-def getSpikeTrainMat(L, R, spikeTrain, initDist, tDistMatrices, N):
-
-    spikeTrainMat = []
-    for i in tqdm(range(N)):
+def sample_spiketrain(L, R, spikeTrain, initDist, tDistMatrices, sample_size):
+    spikeTrainMat = np.zeros((sample_size, len(spikeTrain)))
+    for i in tqdm(range(sample_size)):
         surrogate = getSurrogate(spikeTrain, L, R, initDist, tDistMatrices)
-        spikeTrainMat.append(surrogate)
-    Tmat = np.array(spikeTrainMat)
-    return Tmat
+        spikeTrainMat[i, :] = surrogate
+    return spikeTrainMat
 
-def getAmountSync(Reference, Target):
-    s = 0
-    S = []
-    Ref = []
-    Tmat = []
-    ref = Reference
-    Tmat = Target
-    for j, Tj in enumerate(Tmat):
-        # Check how many elements are equal in two arrays (R, T)
-        # print('Tj: ', Tj)
-        s = np.sum(ref == np.array(Tj))
-        # print('Coincidence: ', s)
-        S.append(s)
-        # print('# Sync: ', s)
-    return S
-
+#%%
 L = 50
 R = 10
 fRate = 10#40
 Size = 1000#100
 spikeData = getSpikeData(Size, fRate)
 spikeTrain = getSpikeTrain(spikeData)
-
-# print('Spike Data: ')
-# print(spikeData)
-
 N = len(spikeTrain)
 initDist = getInitDist(L)
 tDistMatrices = getTransitionMatrices(L, N)
-ref = getReference(Size, L, N)
-
-# print('Initial Distribution: ')
-# print(initDist)
-# print('Transition Matrices: ')
-# print(tDistMatrices)
-
-################################################################
-# Compute the Synchrony Distribution by Monte Carlo resamples
-################################################################
-Tmat = getSpikeTrainMat(L, R, spikeTrain, initDist, tDistMatrices, 1000)
-# print('Spike Trains: ')
-# print(Tmat)
-
+sampled_spiketrain = sample_spiketrain(L, R, spikeTrain, initDist, tDistMatrices, 1000)
 # %%
 ################ raster plot
 num = 50
 colors = ['r'] + [u'#1f77b4'] * num
 fig = plt.figure(figsize=(6, 4))
 # plt.eventplot(spikeTrain, colors='b', lineoffsets=1, linewidths=1, linelengths=1)
-plt.eventplot(np.concatenate((spikeTrain[None, :], Tmat[:num, :]), axis=0), colors=colors, lineoffsets=1, linewidths=1, linelengths=1)
+plt.eventplot(np.concatenate((spikeTrain[None, :], sampled_spiketrain[:num, :]), axis=0), colors=colors, lineoffsets=1, linewidths=1, linelengths=1)
 plt.axis('off')
 plt.gca().invert_yaxis()
 Gamma = getGamma(L, R, spikeTrain)
@@ -147,8 +121,8 @@ colors = np.concatenate((np.array(['r']), np.repeat(Palette[:len(R_list)], num))
 all_spiketrain = spikeTrain[None, :]
 for R in R_list:
     print(R)
-    Tmat = getSpikeTrainMat(L, R, spikeTrain, initDist, tDistMatrices, 1000)
-    all_spiketrain = np.concatenate((all_spiketrain, Tmat[:num, :]), axis=0)
+    sampled_spiketrain = sample_spiketrain(L, R, spikeTrain, initDist, tDistMatrices, 1000)
+    all_spiketrain = np.concatenate((all_spiketrain, sampled_spiketrain[:num, :]), axis=0)
 ################ raster plot
 #%%
 text_pos = np.arange(8, 68, 10)
@@ -209,4 +183,10 @@ sequences = load_npz(os.path.join(directory, file))
 sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
 num_nodes = sequences.shape[0]
 
+# %%
+spikeTrain = getSpikeTrain(sequences[0, :])
+N = len(spikeTrain)
+initDist = getInitDist(L)
+tDistMatrices = getTransitionMatrices(L, N)
+sample = sample_spiketrain(L, R, spikeTrain, initDist, tDistMatrices, sample_size=1000)
 # %%
