@@ -101,7 +101,7 @@ def sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, sample_size)
         spikeTrainMat[i, :] = surrogate
     return spikeTrainMat
 
-def n_cross_correlation6(matrix, maxlag): ### fastest, only causal correlation (A>B, only positive time lag on B)
+def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B)
   N, M =matrix.shape
   xcorr=np.zeros((N,N))
   norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*M))
@@ -110,7 +110,7 @@ def n_cross_correlation6(matrix, maxlag): ### fastest, only causal correlation (
   norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
   norm_matb = np.concatenate((np.zeros((N, maxlag)), norm_matb.conj(), np.zeros((N, maxlag))), axis=1) # must concat zeros to the left, why???????????
   total_len = len(list(itertools.permutations(range(N), 2)))
-  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=True): # , miniters=int(total_len/100)
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
   # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
     # faulthandler.enable()
     px, py = norm_mata[row_a, :], norm_matb[row_b, :]
@@ -122,7 +122,7 @@ def n_cross_correlation6(matrix, maxlag): ### fastest, only causal correlation (
     xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
   return xcorr
 
-def corr_mat(sequences, measure, maxlag=12):
+def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   if measure == 'pearson':
     adj_mat = np.corrcoef(sequences)
   elif measure == 'cosine':
@@ -132,7 +132,7 @@ def corr_mat(sequences, measure, maxlag=12):
   elif measure == 'MI':
     adj_mat = MI(sequences)
   elif measure == 'xcorr':
-    adj_mat = n_cross_correlation6(sequences, maxlag=maxlag)
+    adj_mat = n_cross_correlation6(sequences, maxlag=maxlag, disable=noprogressbar)
   elif measure == 'causality':
     adj_mat = granger_causality(sequences)
   else:
@@ -176,10 +176,8 @@ if not os.path.exists(path):
   os.makedirs(path)
 num_sample = 100
 num_baseline = 100
-Ls = [2, 10, 20, 50, 100, 200] # L should be larger than 1
-Rs = [1, 10, 50, 100, 500, 1000, 2000]
-# %%
-start_time = time.time()
+Ls = [2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200] # L should be larger than 1
+Rs = [1, 100, 200, 300, 400, 500, 1000, 2000, 5000]
 for file in files:
   if file.endswith(".npz"):
     start_time_mouse = time.time()
@@ -188,8 +186,10 @@ for file in files:
     stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
     break
 sequences = load_npz(os.path.join(directory, file))
-sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
-active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
+sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+# sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
+# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
+active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
 num_nodes = 2
 ############## Effect of pattern jitter on cross correlation
 origin_adj_mat = np.zeros((2, 2))
@@ -210,6 +210,7 @@ for b in range(num_baseline):
   adj_mat = corr_mat(seq, measure)
   origin_adj_mat_bl[:, :, b] = adj_mat
 #%%
+start_time = time.time()
 print('Sampling neuron A...')
 for L_ind, L in enumerate(Ls):
   for R_ind, R in enumerate(Rs):
@@ -226,10 +227,7 @@ for L_ind, L in enumerate(Ls):
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
-      mask = np.where((sample_seq != 0).sum(axis=1) < min_spikes)[0]
       adj_mat = corr_mat(sample_seq, measure)
-      adj_mat[mask[:, None], :] = 0
-      adj_mat[:, mask] = 0
       adj_mat_bl_A[:, :, b, L_ind, R_ind] = adj_mat
 print('Sampling neuron B...')
 for L_ind, L in enumerate(Ls):
@@ -247,10 +245,7 @@ for L_ind, L in enumerate(Ls):
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
-      mask = np.where((sample_seq != 0).sum(axis=1) < min_spikes)[0]
       adj_mat = corr_mat(sample_seq, measure)
-      adj_mat[mask[:, None], :] = 0
-      adj_mat[:, mask] = 0
       adj_mat_bl_B[:, :, b, L_ind, R_ind] = adj_mat
 print('Sampling neuron A and B...')
 for L_ind, L in enumerate(Ls):
@@ -273,10 +268,7 @@ for L_ind, L in enumerate(Ls):
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
-      mask = np.where((sample_seq != 0).sum(axis=1) < min_spikes)[0]
       adj_mat = corr_mat(sample_seq, measure)
-      adj_mat[mask[:, None], :] = 0
-      adj_mat[:, mask] = 0
       adj_mat_bl[:, :, b, L_ind, R_ind] = adj_mat
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
@@ -297,17 +289,117 @@ def plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls,
     plt.fill_between(Ls, (mean - std), (mean + std), alpha=0.2)
     plt.plot(Ls, len(Ls) * [origin_adj_mat[0, 1]], 'b--', alpha=0.6, label='original A->B')
     plt.plot(Ls, len(Ls) * [origin_adj_mat[1, 0]], 'r--', alpha=0.6, label='original B->A')
-    plt.gca().set_title(titles[i], fontsize=20, rotation=0)
+    plt.gca().set_title(titles[i] + ', R={}'.format(R), fontsize=20, rotation=0)
+    plt.xscale('log')
     plt.xticks(rotation=90)
     plt.xlabel('Bin size L', fontsize=15)
     plt.ylabel('cross correlation', fontsize=15)
     plt.legend()
   plt.tight_layout()
   # plt.show()
-  figname = './plots/xcorr_vs_L_R_{}_active_{}.jpg'.format(R, measure)
+  figname = './plots/xcorr_vs_L_R_{}_inactive_{}.jpg'.format(R, measure)
   plt.savefig(figname)
 
-Rs = [1, 10, 50, 100, 500, 1000, 2000]
-R = 1
-plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs)
+for R in Rs:
+  plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs)
+# %%
+################ is cross correlation affected by firing rate?
+adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
+np.fill_diagonal(adj_mat, np.nan)
+# adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
+firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+#%%
+# source_FR = np.repeat(firing_rates[:, None], len(firing_rates), axis=1)
+# source_FR_flat = source_FR[~np.eye(source_FR.shape[0],dtype=bool)]
+# np.fill_diagonal(source_FR, np.nan)
+# plt.figure()
+# plt.scatter(source_FR_flat, adj_mat_flat, alpha=0.1)
+# plt.scatter(np.nanmean(source_FR, axis=1), np.nanmean(adj_mat, axis=1), color='b', alpha = 0.5)
+# plt.xlabel('FR of source neuron')
+# plt.ylabel('cross correlation')
+# plt.tight_layout()
+# plt.savefig('./plots/xcorr_FR_source.jpg')
+# # plt.show()
+# # %%
+# target_FR = np.repeat(firing_rates[None, :], len(firing_rates), axis=0)
+# target_FR_flat = target_FR[~np.eye(target_FR.shape[0],dtype=bool)]
+# np.fill_diagonal(target_FR, np.nan)
+# plt.figure()
+# plt.scatter(target_FR_flat, adj_mat_flat, alpha=0.1)
+# plt.scatter(np.nanmean(target_FR, axis=0), np.nanmean(adj_mat, axis=0), color='b', alpha = 0.5)
+# plt.xlabel('FR of target neuron')
+# plt.ylabel('cross correlation')
+# plt.tight_layout()
+# plt.savefig('./plots/xcorr_FR_target.jpg')
+# # plt.show()
+# # %%
+# avg_FR = ((firing_rates[None, :] + firing_rates[:, None]) / 2)
+# avg_FR = avg_FR[~np.eye(avg_FR.shape[0],dtype=bool)]
+# plt.figure()
+# plt.scatter(avg_FR, adj_mat_flat, alpha=0.1)
+# uniq_FR = np.unique(avg_FR)
+# corr = np.zeros_like(uniq_FR)
+# for i in range(len(uniq_FR)):
+#   corr[i] = np.mean(adj_mat_flat[np.where(avg_FR==uniq_FR[i])])
+# plt.scatter(uniq_FR, corr, color='b', alpha = 0.5)
+# plt.xlabel('average FR of source and target neurons')
+# plt.ylabel('cross correlation')
+# plt.tight_layout()
+# plt.savefig('./plots/xcorr_FR_avg.jpg')
+#%%
+bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
+bin_num = np.digitize(firing_rates, bins)
+# %%
+corr = np.zeros((len(bins), len(bins)))
+for i in range(1, len(bins)):
+  for j in range(1, len(bins)):
+    corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+# %%
+heatmap_plot = sns.heatmap(corr, xticklabels=bins, yticklabels=bins, center=0, cmap="RdBu_r")
+plt.ticklabel_format(axis="x", style="sci", scilimits=(0,0))
+# ticks = heatmap_plot.set_yticklabels([f'{x:.0%}' for x in bins],
+#                            va='center')
+# ticks = heatmap_plot.set_yticklabels([f'{x:.0%}' for x in bins],
+#                            va='center')
+for index, label in enumerate(heatmap_plot.get_xticklabels()):
+   if index % 10 == 0:
+      label.set_visible(True)
+   else:
+      label.set_visible(False)
+for index, label in enumerate(heatmap_plot.get_yticklabels()):
+   if index % 10 == 0:
+      label.set_visible(True)
+   else:
+      label.set_visible(False)
+# plt.xscale('log')
+# %%
+import matplotlib as mpl
+from matplotlib import colors
+divnorm=colors.TwoSlopeNorm(vcenter=0.)
+# pcolormesh(your_data, cmap="coolwarm", norm=divnorm)
+fig, ax = plt.subplots(figsize=(7, 6))
+im = ax.imshow(corr, norm=divnorm, cmap="RdBu_r")
+ax.set_xticks(ticks=np.arange(len(bins)))
+ax.set_xticklabels(bins)
+ax.set_yticks(ticks=np.arange(len(bins)))
+ax.set_yticklabels(bins)
+fmt = lambda x, position: '{:.1f}e-3'.format(bins[x]*1e3)
+ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(fmt))
+ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(fmt))
+for index, label in enumerate(ax.get_xticklabels()):
+   if index % 15 == 0:
+      label.set_visible(True)
+   else:
+      label.set_visible(False)
+for index, label in enumerate(ax.get_yticklabels()):
+   if index % 15 == 0:
+      label.set_visible(True)
+   else:
+      label.set_visible(False)
+fig.colorbar(im, ax=ax)
+plt.xlabel('firing rate of source neuron', size=15)
+plt.ylabel('firing rate of target neuron', size=15)
+plt.title('cross correlation VS firing rate', size=15)
+plt.savefig('./plots/xcrorr_FR.jpg')
+# plt.show()
 # %%
