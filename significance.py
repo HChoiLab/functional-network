@@ -479,7 +479,7 @@ def Z_score(r):
 #     print(cnt / total_len)
 # %%
 def save_adj_larger(directory, sign, measure, alpha):
-  path = directory.replace(measure, '_'+sign+'_'+measure+'_larger')
+  path = directory.replace(measure, +sign+'_'+measure+'_larger')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
