@@ -479,7 +479,7 @@ def Z_score(r):
 #     print(cnt / total_len)
 # %%
 def save_adj_larger(directory, sign, measure, alpha):
-  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  path = directory.replace(measure, '_'+sign+'_'+measure+'_larger')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
@@ -526,7 +526,7 @@ alpha = 0.05
 # sign = 'pos'
 # sign = 'neg'
 sign = 'all'
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}/'.format(measure)
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_nods/'.format(measure)
 save_adj_larger(directory, sign, measure, alpha)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
