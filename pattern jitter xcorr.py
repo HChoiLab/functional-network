@@ -22,6 +22,26 @@ from plfit import plfit
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
+def get_rowcol(G_dict, measure):
+  rows = list(G_dict.keys())
+  cols = []
+  for row in rows:
+    cols += list(G_dict[row].keys())
+  cols = list(set(cols))
+  if 'drifting_gratings_contrast' in cols:
+    cols.remove('drifting_gratings_contrast')
+  # sort stimulus
+  if measure == 'ccg':
+    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
+  else:
+    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+  cols = list(stimulus_rank_dict.keys())
+  return rows, cols
+
 def getSpikeTrain(spikeData):
     spikeTrain = np.squeeze(np.where(spikeData>0))
     return spikeTrain
@@ -493,4 +513,84 @@ for session_id in session_ids:
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #%%
 plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict)
+#%%
+min_len, min_num = (10000, 29)
+min_spikes = min_len * 0.002 # 2 Hz
+# measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+measure = 'xcorr'
+# measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+FR_dict = {}
+for session_id in session_ids:
+  print(session_id)
+  FR_dict[session_id] = {}
+  for stimulus_name in stimulus_names:
+    print(stimulus_name)
+    sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
+    sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+    firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+    FR_dict[session_id][stimulus_name] = firing_rates
+# %%
+def func_powerlaw(x, m, c):
+  return x**m * c
+def plot_firing_rate_distributions(FR_dict, measure):
+  alphas = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  xmins = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  loglikelihoods = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  proportions = pd.DataFrame(index=session_ids, columns=stimulus_names)
+  ind = 1
+  rows, cols = get_rowcol(FR_dict, measure)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      firing_rates = FR_dict[row][col].tolist()
+      hist, bin_edges = np.histogram(firing_rates, bins=50)
+      bins = (bin_edges[:-1] + bin_edges[1:]) / 2
+      plt.plot(bins, np.array(hist) / sum(hist),'go-')
+      [alpha, xmin, L] = plfit(firing_rates, 'finite')
+      proportion = np.sum(np.array(firing_rates)>=xmin)/len(firing_rates)
+      alphas.loc[int(row)][col], xmins.loc[int(row)][col], loglikelihoods.loc[int(row)][col], proportions.loc[int(row)][col] = alpha, xmin, L, proportion
+      C = (np.array(hist) / sum(hist))[bins>=xmin].sum() / np.power(bins[bins>=xmin], -alpha).sum()
+      plt.scatter([],[], label='alpha={:.1f}'.format(alpha), s=20)
+      plt.scatter([],[], label='xmin={}'.format(xmin), s=20)
+      plt.scatter([],[], label='loglikelihood={:.1f}'.format(L), s=20)
+      plt.plot(bins[bins>=xmin], func_powerlaw(bins[bins>=xmin], *np.array([-alpha, C])), linestyle='--', linewidth=2, color='black')
+      
+      plt.legend(loc='upper right', fontsize=7)
+      plt.xlabel('firing rate')
+      plt.ylabel('Frequency')
+      plt.xscale('log')
+      plt.yscale('log')
+      
+  plt.tight_layout()
+  image_name = './plots/FR_distribution.jpg'
+  # plt.show()
+  plt.savefig(image_name)
+
+plot_firing_rate_distributions(FR_dict, measure)
+# %%
+
 # %%
