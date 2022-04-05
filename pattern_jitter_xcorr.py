@@ -47,8 +47,12 @@ def getSpikeTrain(spikeData):
     return spikeTrain
 
 def spike_timing2train(T, spikeTrain):
-    spikeData = np.zeros(T)
-    spikeData[spikeTrain.astype(int)] = 1
+    if len(spikeTrain.shape) == 1:
+      spikeData = np.zeros(T)
+      spikeData[spikeTrain.astype(int)] = 1
+    else:
+      spikeData = np.zeros((spikeTrain.shape[0], T))
+      spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
     return spikeData
 
 def getInitDist(L):
@@ -126,8 +130,8 @@ def sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, sample_size)
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B)
   N, M =matrix.shape
   xcorr=np.zeros((N,N))
-  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*M))
-  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)))
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
   #### padding
   norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
   norm_matb = np.concatenate((np.zeros((N, maxlag)), norm_matb.conj(), np.zeros((N, maxlag))), axis=1) # must concat zeros to the left, why???????????
@@ -142,6 +146,40 @@ def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal corr
     corr = T @ px
     corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
     xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
+  return xcorr
+
+def n_cross_correlation_2mat(matrix_a, matrix_b, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B)
+  if len(matrix_a.shape) >= 2:
+    N, M = matrix_a.shape
+    if len(matrix_b.shape) < 2:
+      matrix_b = np.tile(matrix_b, (N, 1))
+  else:
+    N, M = matrix_b.shape
+    matrix_a = np.tile(matrix_a, (N, 1))
+  xcorr=np.zeros((2,2,N))
+  norm_mata = np.nan_to_num((matrix_a-np.mean(matrix_a, axis=1).reshape(-1, 1))/(np.std(matrix_a, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  norm_matb = np.nan_to_num((matrix_b-np.mean(matrix_b, axis=1).reshape(-1, 1))/(np.std(matrix_b, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  #### padding
+  norm_mata_0 = np.concatenate((norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_mata_1 = np.concatenate((np.zeros((N, maxlag)), norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_matb_0 = np.concatenate((norm_matb.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_matb_1 = np.concatenate((np.zeros((N, maxlag)), norm_matb.conj(), np.zeros((N, maxlag))), axis=1) # must concat zeros to the left, why???????????
+  for row in tqdm(range(N), total=N, miniters=int(N/100), disable=disable): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = norm_mata_0[row, :], norm_matb_1[row, :]
+    T = as_strided(py[maxlag:], shape=(maxlag+1, M + maxlag),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[maxlag:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
+    corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
+    xcorr[0, 1, row] = corr[np.argmax(np.abs(corr))]
+    px, py = norm_matb_0[row, :], norm_mata_1[row, :]
+    T = as_strided(py[maxlag:], shape=(maxlag+1, M + maxlag),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[maxlag:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
+    corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
+    xcorr[1, 0, row] = corr[np.argmax(np.abs(corr))]
   return xcorr
 
 def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
@@ -272,26 +310,26 @@ measure = 'xcorr'
 # measure = 'causality'
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
 files.sort(key=lambda x:int(x[:9]))
 path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
 if not os.path.exists(path):
   os.makedirs(path)
-num_sample = 100
-num_baseline = 100
-Ls = [2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 50, 100, 200] # L should be larger than 1
-Rs = [1, 100, 200, 300, 400, 500, 1000, 2000, 5000]
-for file in files:
-  if file.endswith(".npz"):
-    start_time_mouse = time.time()
-    print(file)
-    mouseID = file.replace('.npz', '').split('_')[0]
-    stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
-    break
+num_sample = 1000
+num_baseline = 2
+Ls = list(np.arange(2, 101))
+# Ls = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 40, 50, 60, 70, 80, 90, 100] # L should be larger than 1
+Rs = [1, 100, 200, 300, 400, 500, 1000]
+file = files[7]
+start_time_mouse = time.time()
+print(file)
+mouseID = file.replace('.npz', '').split('_')[0]
+stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
 sequences = load_npz(os.path.join(directory, file))
 sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
 # sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
-# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
-active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
+active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
+# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
 num_nodes = 2
 ############## Effect of pattern jitter on cross correlation
 origin_adj_mat = np.zeros((2, 2))
@@ -313,6 +351,7 @@ for b in range(num_baseline):
   origin_adj_mat_bl[:, :, b] = adj_mat
 #%%
 start_time = time.time()
+start_time_A = start_time
 print('Sampling neuron A...')
 for L_ind, L in enumerate(Ls):
   for R_ind, R in enumerate(Rs):
@@ -321,16 +360,20 @@ for L_ind, L in enumerate(Ls):
     initDist = getInitDist(L)
     tDistMatrices = getTransitionMatrices(L, N)
     sampled_spiketrain = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-    for i in range(num_sample):
-      sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
-      adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-      all_adj_mat_A[:, :, i, L_ind, R_ind] = adj_mat
+    all_adj_mat_A[:, :, :, L_ind, R_ind] = n_cross_correlation_2mat(spike_timing2train(min_len, sampled_spiketrain), sequences[active_inds[1], :], maxlag=12, disable=True)
+    # for i in range(num_sample):
+    #   sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
+    #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
+    #   all_adj_mat_A[:, :, i, L_ind, R_ind] = adj_mat
     for b in range(num_baseline):
+      sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[b, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
       adj_mat = corr_mat(sample_seq, measure)
       adj_mat_bl_A[:, :, b, L_ind, R_ind] = adj_mat
+print("--- %s minutes" % ((time.time() - start_time_A)/60))
+start_time_B = time.time()
 print('Sampling neuron B...')
 for L_ind, L in enumerate(Ls):
   for R_ind, R in enumerate(Rs):
@@ -339,17 +382,21 @@ for L_ind, L in enumerate(Ls):
     initDist = getInitDist(L)
     tDistMatrices = getTransitionMatrices(L, N)
     sampled_spiketrain = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-    for i in range(num_sample):
-      sample_seq = np.concatenate((sequences[active_inds[0], :][None, :], spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :]) ,axis=0)
-      adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-      all_adj_mat_B[:, :, i, L_ind, R_ind] = adj_mat
+    all_adj_mat_B[:, :, :, L_ind, R_ind] = n_cross_correlation_2mat(sequences[active_inds[0], :], spike_timing2train(min_len, sampled_spiketrain), maxlag=12, disable=True)
+    # for i in range(num_sample):
+    #   sample_seq = np.concatenate((sequences[active_inds[0], :][None, :], spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :]) ,axis=0)
+    #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
+    #   all_adj_mat_B[:, :, i, L_ind, R_ind] = adj_mat
     for b in range(num_baseline):
+      sample_seq = np.concatenate((sequences[active_inds[0], :][None, :], spike_timing2train(min_len, sampled_spiketrain[b, :])[None, :]) ,axis=0)
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
       adj_mat = corr_mat(sample_seq, measure)
       adj_mat_bl_B[:, :, b, L_ind, R_ind] = adj_mat
-print('Sampling neuron A and B...')
+print("--- %s minutes" % ((time.time() - start_time_B)/60))
+start_time_all = time.time()
+print('Sampling neurons A and B...')
 for L_ind, L in enumerate(Ls):
   for R_ind, R in enumerate(Rs):
     spikeTrain = getSpikeTrain(sequences[active_inds[0], :])
@@ -362,20 +409,23 @@ for L_ind, L in enumerate(Ls):
     initDist = getInitDist(L)
     tDistMatrices = getTransitionMatrices(L, N)
     sampled_spiketrain2 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-    for i in range(num_sample):
-      sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain1[i, :])[None, :], spike_timing2train(min_len, sampled_spiketrain2[i, :])[None, :]), axis=0)
-      adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-      all_adj_mat[:, :, i, L_ind, R_ind] = adj_mat
+    all_adj_mat[:, :, :, L_ind, R_ind] = n_cross_correlation_2mat(spike_timing2train(min_len, sampled_spiketrain1), spike_timing2train(min_len, sampled_spiketrain2), maxlag=12, disable=True)
+    # for i in range(num_sample):
+    #   sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain1[i, :])[None, :], spike_timing2train(min_len, sampled_spiketrain2[i, :])[None, :]), axis=0)
+    #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
+    #   all_adj_mat[:, :, i, L_ind, R_ind] = adj_mat
     for b in range(num_baseline):
+      sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain1[b, :])[None, :], spike_timing2train(min_len, sampled_spiketrain2[b, :])[None, :]), axis=0)
       # print('Baseline {} out of {}'.format(b+1, num_baseline))
       for n in range(num_nodes):
         np.random.shuffle(sample_seq[n,:])
       adj_mat = corr_mat(sample_seq, measure)
       adj_mat_bl[:, :, b, L_ind, R_ind] = adj_mat
+print("--- %s minutes" % ((time.time() - start_time_all)/60))
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 ############## one pair of neurons, significant xcorr vs L and R
-def plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs):
+def plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs, edge_type='active'):
   plt.figure(figsize=(20, 6))
   all_mat = [all_adj_mat_A, all_adj_mat_B, all_adj_mat]
   titles = ['Pattern jittering neuron A', 'Pattern jittering neuron B', 'Pattern jittering neuron A and B']
@@ -399,17 +449,17 @@ def plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls,
     plt.legend()
   plt.tight_layout()
   # plt.show()
-  figname = './plots/xcorr_vs_L_R_{}_inactive_{}.jpg'.format(R, measure)
+  figname = './plots/xcorr_vs_L_R_{}_{}_{}.jpg'.format(R, edge_type, measure)
   plt.savefig(figname)
 
 for R in Rs:
-  plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs)
+  plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs, 'active')
 # %%
 ################ is cross correlation affected by firing rate?
-adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
-np.fill_diagonal(adj_mat, np.nan)
-# adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
-firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+# adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
+# np.fill_diagonal(adj_mat, np.nan)
+# # adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
+# firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
 #%%
 # source_FR = np.repeat(firing_rates[:, None], len(firing_rates), axis=1)
 # source_FR_flat = source_FR[~np.eye(source_FR.shape[0],dtype=bool)]
@@ -449,94 +499,77 @@ firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
 # plt.tight_layout()
 # plt.savefig('./plots/xcorr_FR_avg.jpg')
 #%%
-bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
-bin_num = np.digitize(firing_rates, bins)
-# %%
-corr = np.zeros((len(bins), len(bins)))
-for i in range(1, len(bins)):
-  for j in range(1, len(bins)):
-    corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
-# %%
-heatmap_plot = sns.heatmap(corr, xticklabels=bins, yticklabels=bins, center=0, cmap="RdBu_r")
-plt.ticklabel_format(axis="x", style="sci", scilimits=(0,0))
-# ticks = heatmap_plot.set_yticklabels([f'{x:.0%}' for x in bins],
-#                            va='center')
-# ticks = heatmap_plot.set_yticklabels([f'{x:.0%}' for x in bins],
-#                            va='center')
-for index, label in enumerate(heatmap_plot.get_xticklabels()):
-   if index % 10 == 0:
-      label.set_visible(True)
-   else:
-      label.set_visible(False)
-for index, label in enumerate(heatmap_plot.get_yticklabels()):
-   if index % 10 == 0:
-      label.set_visible(True)
-   else:
-      label.set_visible(False)
+# bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
+# bin_num = np.digitize(firing_rates, bins)
+# # %%
+# corr = np.zeros((len(bins), len(bins)))
+# for i in range(1, len(bins)):
+#   for j in range(1, len(bins)):
+#     corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
 # plt.xscale('log')
 # %%
 ################### heatmap of xcrorr vs FR
-start_time = time.time()
-min_len, min_num = (10000, 29)
-min_spikes = min_len * 0.002 # 2 Hz
-# measure = 'pearson'
-# measure = 'cosine'
-# measure = 'correlation'
-# measure = 'MI'
-measure = 'xcorr'
-# measure = 'causality'
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-xcorr_dict, bin_dict = {}, {}
-for session_id in session_ids:
-  print(session_id)
-  xcorr_dict[session_id], bin_dict[session_id] = {}, {}
-  for stimulus_name in stimulus_names:
-    print(stimulus_name)
-    sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
-    sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
-    adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
-    np.fill_diagonal(adj_mat, np.nan)
-    # adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
-    firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
-    bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
-    bin_num = np.digitize(firing_rates, bins)
-    corr = np.zeros((len(bins), len(bins)))
-    for i in range(1, len(bins)):
-      for j in range(1, len(bins)):
-        corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
-    xcorr_dict[session_id][stimulus_name] = corr
-    bin_dict[session_id][stimulus_name] = bins
-print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# start_time = time.time()
+# min_len, min_num = (10000, 29)
+# min_spikes = min_len * 0.002 # 2 Hz
+# # measure = 'pearson'
+# # measure = 'cosine'
+# # measure = 'correlation'
+# # measure = 'MI'
+# measure = 'xcorr'
+# # measure = 'causality'
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# xcorr_dict, bin_dict = {}, {}
+# for session_id in session_ids:
+#   print(session_id)
+#   xcorr_dict[session_id], bin_dict[session_id] = {}, {}
+#   for stimulus_name in stimulus_names:
+#     print(stimulus_name)
+#     sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
+#     sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+#     adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
+#     np.fill_diagonal(adj_mat, np.nan)
+#     # adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
+#     firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+#     bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
+#     bin_num = np.digitize(firing_rates, bins)
+#     corr = np.zeros((len(bins), len(bins)))
+#     for i in range(1, len(bins)):
+#       for j in range(1, len(bins)):
+#         corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+#     xcorr_dict[session_id][stimulus_name] = corr
+#     bin_dict[session_id][stimulus_name] = bins
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #%%
-plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict)
+# plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict)
 #%%
-min_len, min_num = (10000, 29)
-min_spikes = min_len * 0.002 # 2 Hz
-# measure = 'pearson'
-# measure = 'cosine'
-# measure = 'correlation'
-# measure = 'MI'
-measure = 'xcorr'
-# measure = 'causality'
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-FR_dict = {}
-for session_id in session_ids:
-  print(session_id)
-  FR_dict[session_id] = {}
-  for stimulus_name in stimulus_names:
-    print(stimulus_name)
-    sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
-    sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
-    firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
-    FR_dict[session_id][stimulus_name] = firing_rates
+# min_len, min_num = (10000, 29)
+# min_spikes = min_len * 0.002 # 2 Hz
+# # measure = 'pearson'
+# # measure = 'cosine'
+# # measure = 'correlation'
+# # measure = 'MI'
+# measure = 'xcorr'
+# # measure = 'causality'
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+# FR_dict = {}
+# for session_id in session_ids:
+#   print(session_id)
+#   FR_dict[session_id] = {}
+#   for stimulus_name in stimulus_names:
+#     print(stimulus_name)
+#     sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
+#     sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+#     firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+#     FR_dict[session_id][stimulus_name] = firing_rates
 # %%
 def func_powerlaw(x, m, c):
   return x**m * c
@@ -590,7 +623,69 @@ def plot_firing_rate_distributions(FR_dict, measure):
   # plt.show()
   plt.savefig(image_name)
 
-plot_firing_rate_distributions(FR_dict, measure)
+# plot_firing_rate_distributions(FR_dict, measure)
 # %%
+np.seterr(divide='ignore', invalid='ignore')
+############# save correlation matrices #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_spikes = min_len * 0.002 # 2 Hz
+# measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+measure = 'xcorr'
+# measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
+if not os.path.exists(path):
+  os.makedirs(path)
+num_sample = 1000
+num_baseline = 2
+num = 10
+L = 10
+R_list = [1, 20, 50, 100, 500, 1000]
+T = min_len
+file = files[0]
+start_time_mouse = time.time()
+print(file)
+mouseID = file.replace('.npz', '').split('_')[0]
+stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
+sequences = load_npz(os.path.join(directory, file))
+sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+# sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
+# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -1)[-1:] # top 1 most active neurons
+active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 1)[:1] # top 1 most inactive neurons
+spikeTrain = getSpikeTrain(sequences[active_inds, :].squeeze())
+N = len(spikeTrain)
+initDist = getInitDist(L)
+tDistMatrices = getTransitionMatrices(L, N)
+Palette = np.array(['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
 
+colors = np.concatenate((np.array(['r']), np.repeat(Palette[:len(R_list)], num)))
+all_spiketrain = spikeTrain[None, :]
+for R in R_list:
+    print(R)
+    sampled_spiketrain = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num)
+    all_spiketrain = np.concatenate((all_spiketrain, sampled_spiketrain[:num, :]), axis=0)
+################ raster plot
+#%%
+text_pos = np.arange(8, 68, 10)
+fig = plt.figure(figsize=(10, 7))
+# plt.eventplot(spikeTrain, colors='b', lineoffsets=1, linewidths=1, linelengths=1)
+plt.eventplot(all_spiketrain, colors=colors, lineoffsets=1, linewidths=0.5, linelengths=0.4)
+for ind, t_pos in enumerate(text_pos):
+  plt.text(-700, t_pos, 'R={}'.format(R_list[ind]), size=10, color=Palette[ind], weight='bold')
+plt.axis('off')
+plt.gca().invert_yaxis()
+Gamma = getGamma(L, R, T, spikeTrain)
+# plt.vlines(np.concatenate((np.min(Gamma, axis=1), np.max(Gamma, axis=1))), ymin=0, ymax=num+1, colors='k', linewidth=0.2, linestyles='dashed')
+plt.tight_layout()
+plt.show()
+# plt.savefig('../plots/sampled_spiketrain_L{}.jpg'.format(L))
+
+#%%
 # %%
