@@ -1,5 +1,6 @@
 # %%
 import numpy as np
+import numpy.ma as ma
 import pandas as pd
 import os
 import itertools
@@ -241,7 +242,7 @@ def plot_heatmap_xcorr_FR(corr, bins):
   plt.xlabel('firing rate of source neuron', size=15)
   plt.ylabel('firing rate of target neuron', size=15)
   plt.title('cross correlation VS firing rate', size=15)
-  plt.savefig('./plots/xcrorr_FR.jpg')
+  plt.savefig('./plots/xcorr_FR_heatmap.jpg')
 
 def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict):
   ind = 1
@@ -293,7 +294,7 @@ def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dic
       # plt.title('cross correlation VS firing rate', size=15)
   plt.suptitle('cross correlation VS firing rate', size=40)
   plt.tight_layout()
-  plt.savefig('./plots/xcrorr_FR_multi.jpg')
+  plt.savefig('./plots/xcorr_FR_multi_heatmap.jpg')
 #%%
 ################### effect of pattern jitter on cross correlation
 ####### turn off warnings
@@ -328,8 +329,8 @@ stimulus = file.replace('.npz', '').replace(mouseID + '_', '')
 sequences = load_npz(os.path.join(directory, file))
 sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
 # sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
-# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
-active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
+active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
+# active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
 num_nodes = 2
 ############## Effect of pattern jitter on cross correlation
 origin_adj_mat = np.zeros((2, 2))
@@ -453,7 +454,7 @@ def plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls,
   plt.savefig(figname)
 
 for R in Rs:
-  plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs, 'inactive')
+  plot_xcorr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs, 'active')
 # %%
 ################ is cross correlation affected by firing rate?
 # adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
@@ -537,11 +538,11 @@ for R in Rs:
 #     firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
 #     bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
 #     bin_num = np.digitize(firing_rates, bins)
-#     corr = np.zeros((len(bins), len(bins)))
+#     xcorr = np.zeros((len(bins), len(bins)))
 #     for i in range(1, len(bins)):
 #       for j in range(1, len(bins)):
-#         corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
-#     xcorr_dict[session_id][stimulus_name] = corr
+#         xcorr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+#     xcorr_dict[session_id][stimulus_name] = xcorr
 #     bin_dict[session_id][stimulus_name] = bins
 # print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #%%
@@ -714,136 +715,288 @@ def plot_firing_rate_distributions(FR_dict, measure):
 # adj.mean(-1)
 # %%
 ################# normal test for xcorrs with adjacent Ls
-np.seterr(divide='ignore', invalid='ignore')
-min_len, min_num = (10000, 29)
-min_spikes = min_len * 0.002 # 2 Hz
-measure = 'xcorr'
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-files = os.listdir(directory)
-files = [f for f in files if f.endswith('.npz')]
-files.sort(key=lambda x:int(x[:9]))
-path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
-if not os.path.exists(path):
-  os.makedirs(path)
-num_sample = 1000
-file = files[2] # 0, 2, 7
-print(file)
-sequences = load_npz(os.path.join(directory, file))
-sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
-# sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
-active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
+# np.seterr(divide='ignore', invalid='ignore')
+# min_len, min_num = (10000, 29)
+# min_spikes = min_len * 0.002 # 2 Hz
+# measure = 'xcorr'
+# directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+# files = os.listdir(directory)
+# files = [f for f in files if f.endswith('.npz')]
+# files.sort(key=lambda x:int(x[:9]))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_{}'.format(measure)))
+# if not os.path.exists(path):
+#   os.makedirs(path)
+# num_sample = 1000
+# file = files[0] # 0, 2, 7
+# print(file)
+# sequences = load_npz(os.path.join(directory, file))
+# sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+# # sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > 80, :min_len]
+# # active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), -2)[-2:] # top 2 most active neurons
 # active_inds = np.argpartition(np.count_nonzero(sequences, axis=1), 2)[:2] # top 2 most inactive neurons
-print('Sampling neurons A and B...')
-start_time = time.time()
-all_xcorr = np.zeros((2, len(Ls), num_sample))
-R = 300
-for L_ind, L in enumerate(Ls):
-  spikeTrain = getSpikeTrain(sequences[active_inds[0], :])
-  N = len(spikeTrain)
-  initDist = getInitDist(L)
-  tDistMatrices = getTransitionMatrices(L, N)
-  sampled_spiketrain1 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-  spikeTrain = getSpikeTrain(sequences[active_inds[1], :])
-  N = len(spikeTrain)
-  initDist = getInitDist(L)
-  tDistMatrices = getTransitionMatrices(L, N)
-  sampled_spiketrain2 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-  adj = n_cross_correlation_2mat(spike_timing2train(min_len, sampled_spiketrain1), spike_timing2train(min_len, sampled_spiketrain2), maxlag=12, disable=True)
-  all_xcorr[0, L_ind, :] = adj[0, 1, :]
-  all_xcorr[1, L_ind, :] = adj[1, 0, :]
-alpha = 0.05
-SW_p_A = []
-DA_p_A = []
-SW_p_B = []
-DA_p_B = []
-print('Shapiro-Wilk Test and D’Agostino’s K^2 Test for xcorr A->B...')
-for L_ind in range(len(Ls)):
-    _, p = shapiro(all_xcorr[0, L_ind, :])
-    SW_p_A.append(p)
-    _, p = normaltest(all_xcorr[0, L_ind, :])
-    DA_p_A.append(p)
-print('Shapiro-Wilk Test and D’Agostino’s K^2 Test for xcorr B->A...')
-for L_ind in range(len(Ls)):
-    _, p = shapiro(all_xcorr[1, L_ind, :])
-    SW_p_B.append(p)
-    _, p = normaltest(all_xcorr[1, L_ind, :])
-    DA_p_B.append(p)
-print("--- %s minutes in total" % ((time.time() - start_time)/60))
-# %%
-##################### plot percentage of links that follow normal distribution
-# %%
+# print('Sampling neurons A and B...')
+# start_time = time.time()
+# all_xcorr = np.zeros((2, len(Ls), num_sample))
+# R = 200
+# for L_ind, L in enumerate(Ls):
+#   spikeTrain = getSpikeTrain(sequences[active_inds[0], :])
+#   N = len(spikeTrain)
+#   initDist = getInitDist(L)
+#   tDistMatrices = getTransitionMatrices(L, N)
+#   sampled_spiketrain1 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
+#   spikeTrain = getSpikeTrain(sequences[active_inds[1], :])
+#   N = len(spikeTrain)
+#   initDist = getInitDist(L)
+#   tDistMatrices = getTransitionMatrices(L, N)
+#   sampled_spiketrain2 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
+#   adj = n_cross_correlation_2mat(spike_timing2train(min_len, sampled_spiketrain1), spike_timing2train(min_len, sampled_spiketrain2), maxlag=12, disable=True)
+#   all_xcorr[0, L_ind, :] = adj[0, 1, :]
+#   all_xcorr[1, L_ind, :] = adj[1, 0, :]
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # alpha = 0.05
-# SW = np.zeros(len(Ls))
-# DA = np.zeros(len(Ls))
+# SW_p_A = []
+# DA_p_A = []
+# SW_p_B = []
+# DA_p_B = []
+# print('Shapiro-Wilk Test and D’Agostino’s K^2 Test for xcorr A->B...')
 # for L_ind in range(len(Ls)):
-#   SW.loc[int(mouseID)][stimulus] = (np.array(SW_p_A) > alpha).sum() / len(SW_p)
-#   SW_bl.loc[int(mouseID)][stimulus] = (np.array(SW_p_bl) > alpha).sum() / len(SW_p_bl)
-#   DA.loc[int(mouseID)][stimulus] = (np.array(DA_p) > alpha).sum() / len(DA_p)
-#   DA_bl.loc[int(mouseID)][stimulus] = (np.array(DA_p_bl) > alpha).sum() / len(DA_p_bl)
-# %%
-plt.figure(figsize=(7, 6))
-plt.plot(Ls, SW_p_A, label='A->B', alpha=0.5)
-plt.plot(Ls, SW_p_B, label='B->A', alpha=0.5)
-plt.gca().set_title('p value of Shapiro-Wilk Test', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# plt.savefig('./plots/SW_p.jpg')
-plt.figure(figsize=(7, 6))
-plt.plot(Ls, DA_p_A, label='A->B', alpha=0.5)
-plt.plot(Ls, DA_p_B, label='B->A', alpha=0.5)
-plt.gca().set_title('p value of D’Agostino’s K^2 Test', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.legend()
-plt.tight_layout()
-plt.show()
-# plt.savefig('./plots/DA_p.jpg')
+#     _, p = shapiro(all_xcorr[0, L_ind, :])
+#     SW_p_A.append(p)
+#     _, p = normaltest(all_xcorr[0, L_ind, :])
+#     DA_p_A.append(p)
+# print('Shapiro-Wilk Test and D’Agostino’s K^2 Test for xcorr B->A...')
+# for L_ind in range(len(Ls)):
+#     _, p = shapiro(all_xcorr[1, L_ind, :])
+#     SW_p_B.append(p)
+#     _, p = normaltest(all_xcorr[1, L_ind, :])
+#     DA_p_B.append(p)
+
+# # %%
+# ##################### plot percentage of links that follow normal distribution
+# # %%
+# # alpha = 0.05
+# # SW = np.zeros(len(Ls))
+# # DA = np.zeros(len(Ls))
+# # for L_ind in range(len(Ls)):
+# #   SW.loc[int(mouseID)][stimulus] = (np.array(SW_p_A) > alpha).sum() / len(SW_p)
+# #   SW_bl.loc[int(mouseID)][stimulus] = (np.array(SW_p_bl) > alpha).sum() / len(SW_p_bl)
+# #   DA.loc[int(mouseID)][stimulus] = (np.array(DA_p) > alpha).sum() / len(DA_p)
+# #   DA_bl.loc[int(mouseID)][stimulus] = (np.array(DA_p_bl) > alpha).sum() / len(DA_p_bl)
+# # %%
+# plt.figure(figsize=(7, 6))
+# plt.plot(Ls, SW_p_A, label='A->B', alpha=0.5)
+# plt.plot(Ls, SW_p_B, label='B->A', alpha=0.5)
+# plt.gca().set_title('p value of Shapiro-Wilk Test', fontsize=20, rotation=0)
+# plt.xticks(rotation=90)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # plt.savefig('./plots/SW_p.jpg')
+# plt.figure(figsize=(7, 6))
+# plt.plot(Ls, DA_p_A, label='A->B', alpha=0.5)
+# plt.plot(Ls, DA_p_B, label='B->A', alpha=0.5)
+# plt.gca().set_title('p value of D’Agostino’s K^2 Test', fontsize=20, rotation=0)
+# plt.xticks(rotation=90)
+# plt.legend()
+# plt.tight_layout()
+# plt.show()
+# # plt.savefig('./plots/DA_p.jpg')
 
 #%%
-#################### z test between adjacent xcorr
-pvals_A = []
-pvals_B = []
-print('Z test...')
-for L_ind in range(len(Ls) - 1):
-  xcorr_0 = ws.DescrStatsW(all_xcorr[0, L_ind, :])
-  xcorr_1 = ws.DescrStatsW(all_xcorr[0, L_ind + 1, :])
-  cm_obj = ws.CompareMeans(xcorr_0, xcorr_1)
-  zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
-  pvals_A.append(z_pval)
-  xcorr_0 = ws.DescrStatsW(all_xcorr[1, L_ind, :])
-  xcorr_1 = ws.DescrStatsW(all_xcorr[1, L_ind + 1, :])
-  cm_obj = ws.CompareMeans(xcorr_0, xcorr_1)
-  zstat, z_pval = cm_obj.ztest_ind(alternative='larger', usevar='unequal', value=0)
-  pvals_B.append(z_pval)
-# %%
-plt.figure(figsize=(7, 6))
-plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, pvals_A, label='A->B', alpha=0.5)
-plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, pvals_B, label='B->A', alpha=0.5)
-plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, [alpha]*(len(Ls)-1), 'k--', label='95%confidence level', alpha=0.5)
-plt.gca().set_title('Z test of adjacent cross correlations', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.xscale('log')
-plt.yscale('log')
-plt.xlabel('Bin size L', size=15)
-plt.ylabel('p value', size=15)
-plt.legend()
-plt.tight_layout()
-# plt.show()
-plt.savefig('./plots/z_test_adjacent_xcorr_L.jpg')
-# %%
-
-plt.figure(figsize=(7, 6))
-plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, np.abs(all_xcorr[0, 1:, :].mean(-1)-all_xcorr[0, :-1, :].mean(-1)), label='A->B', alpha=0.5)
-plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, np.abs(all_xcorr[1, 1:, :].mean(-1)-all_xcorr[1, :-1, :].mean(-1)), label='B->A', alpha=0.5)
-plt.gca().set_title('difference between adjacent cross correlations', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.xscale('log')
+# #################### z test between adjacent xcorr
+# pvals_A = []
+# pvals_B = []
+# print('Z test...')
+# for L_ind in range(len(Ls) - 1):
+#   xcorr_0 = ws.DescrStatsW(all_xcorr[0, L_ind, :])
+#   xcorr_1 = ws.DescrStatsW(all_xcorr[0, L_ind + 1, :])
+#   cm_obj = ws.CompareMeans(xcorr_0, xcorr_1)
+#   zstat, z_pval = cm_obj.ztest_ind(alternative='two-sided', usevar='unequal', value=0)
+#   pvals_A.append(z_pval)
+#   xcorr_0 = ws.DescrStatsW(all_xcorr[1, L_ind, :])
+#   xcorr_1 = ws.DescrStatsW(all_xcorr[1, L_ind + 1, :])
+#   cm_obj = ws.CompareMeans(xcorr_0, xcorr_1)
+#   zstat, z_pval = cm_obj.ztest_ind(alternative='two-sided', usevar='unequal', value=0)
+#   pvals_B.append(z_pval)
+# # %%
+# alpha = 0.05
+# plt.figure(figsize=(7, 6))
+# plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, pvals_A, label='A->B', alpha=0.5)
+# plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, pvals_B, label='B->A', alpha=0.5)
+# plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, [alpha]*(len(Ls)-1), 'k--', label='95%confidence level', alpha=0.5)
+# plt.gca().set_title('Z test of adjacent cross correlations', fontsize=20, rotation=0)
+# plt.xticks(rotation=90)
+# plt.xscale('log')
 # plt.yscale('log')
-plt.xlabel('Bin size L', size=15)
-plt.ylabel('absolute difference', size=15)
-plt.legend()
-plt.tight_layout()
-# plt.show()
-plt.savefig('./plots/difference_adjacent_xcorr_L.jpg')
+# plt.xlabel('Bin size L', size=15)
+# plt.ylabel('p value', size=15)
+# plt.legend()
+# plt.tight_layout()
+# # plt.show()
+# plt.savefig('./plots/z_test_adjacent_xcorr_L.jpg')
+# # %%
+
+# plt.figure(figsize=(7, 6))
+# plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, np.abs(all_xcorr[0, 1:, :].mean(-1)-all_xcorr[0, :-1, :].mean(-1)), label='A->B', alpha=0.5)
+# plt.plot((np.array(Ls[1:]) + np.array(Ls[:-1])) / 2, np.abs(all_xcorr[1, 1:, :].mean(-1)-all_xcorr[1, :-1, :].mean(-1)), label='B->A', alpha=0.5)
+# plt.gca().set_title('difference between adjacent cross correlations', fontsize=20, rotation=0)
+# plt.xticks(rotation=90)
+# plt.xscale('log')
+# # plt.yscale('log')
+# plt.xlabel('Bin size L', size=15)
+# plt.ylabel('absolute difference', size=15)
+# plt.legend()
+# plt.tight_layout()
+# # plt.show()
+# plt.savefig('./plots/difference_adjacent_xcorr_L.jpg')
+# %%
+################ is cross correlation or correlation affected by firing rate?
+adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
+np.fill_diagonal(adj_mat, np.nan)
+# adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
+firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=50)
+bin_num = np.digitize(firing_rates, bins)
+# %%
+corr = np.zeros((len(bins), len(bins)))
+for i in range(1, len(bins)):
+  for j in range(1, len(bins)):
+    corr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+plt.xscale('log')
+#%%
+################## heatmap of xcorr and pcrorr vs FR
+start_time = time.time()
+min_len, min_num = (10000, 29)
+min_spikes = min_len * 0.002 # 2 Hz
+# measure = 'pearson'
+# measure = 'cosine'
+# measure = 'correlation'
+# measure = 'MI'
+measure = 'xcorr'
+# measure = 'causality'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+xcorr_dict, pcorr_dict, bin_dict = {}, {}, {}
+for session_id in session_ids:
+  print(session_id)
+  xcorr_dict[session_id], pcorr_dict[session_id], bin_dict[session_id] = {}, {}, {}
+  for stimulus_name in stimulus_names:
+    print(stimulus_name)
+    sequences = load_npz(os.path.join(directory, str(session_id) + '_' + stimulus_name + '.npz'))
+    sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+    adj_mat = corr_mat(sequences, measure, maxlag=12, noprogressbar=False)
+    np.fill_diagonal(adj_mat, np.nan)
+    p_adj_mat = corr_mat(sequences, measure='pearson', maxlag=12, noprogressbar=False)
+    np.fill_diagonal(p_adj_mat, np.nan)
+    # adj_mat_flat = adj_mat[~np.eye(adj_mat.shape[0],dtype=bool)]
+    firing_rates = np.count_nonzero(sequences, axis=1) / sequences.shape[1]
+    bins=np.logspace(start=np.log10(firing_rates.min()), stop=np.log10(firing_rates.max()+0.0001), num=20)
+    bin_num = np.digitize(firing_rates, bins)
+    xcorr = np.zeros((len(bins), len(bins)))
+    corr = np.zeros((len(bins), len(bins)))
+    for i in range(len(bins)):
+      for j in range(len(bins)):
+        xcorr[i, j] = np.nanmean(adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+        corr[i, j] = np.nanmean(p_adj_mat[np.where(bin_num==i)[0][:, None], np.where(bin_num==j)[0][None, :]])
+    xcorr_dict[session_id][stimulus_name] = xcorr
+    pcorr_dict[session_id][stimulus_name] = corr
+    bin_dict[session_id][stimulus_name] = bins
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
+#%%
+def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict):
+  ind = 1
+  rows, cols = session_ids, stimulus_names
+  divnorm=colors.TwoSlopeNorm(vcenter=0.)
+  fig = plt.figure(figsize=(5*len(cols), 5*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='right',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      corr, bins = xcorr_dict[row][col], bin_dict[row][col]
+      # pcolormesh(your_data, cmap="coolwarm", norm=divnorm)
+      im = ax.imshow(corr, norm=divnorm, cmap="RdBu_r")
+      ax.set_xticks(ticks=np.arange(len(bins)))
+      ax.set_xticklabels(bins)
+      ax.set_yticks(ticks=np.arange(len(bins)))
+      ax.set_yticklabels(bins)
+      fmt = lambda x, position: '{:.1f}e-3'.format(bins[x]*1e3)
+      ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(fmt))
+      ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(fmt))
+      for index, label in enumerate(ax.get_xticklabels()):
+        if index % 15 == 0:
+            label.set_visible(True)
+        else:
+            label.set_visible(False)
+      for index, label in enumerate(ax.get_yticklabels()):
+        if index % 15 == 0:
+            label.set_visible(True)
+        else:
+            label.set_visible(False)
+      if col_ind == 7:
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+      # plt.xlabel('firing rate of source neuron', size=15)
+      # plt.ylabel('firing rate of target neuron', size=15)
+      # plt.title('cross correlation VS firing rate', size=15)
+  plt.suptitle('pearson correlation VS firing rate', size=40)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/pcrorr_FR_multi.jpg')
+plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict)
+# %%
+def plot_multi_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
+  ind = 1
+  rows, cols = session_ids, stimulus_names
+  divnorm=colors.TwoSlopeNorm(vcenter=0.)
+  fig = plt.figure(figsize=(5*len(cols), 5*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='right',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      corr, bins = corr_dict[row][col], bin_dict[row][col]
+      gmean_FR = np.zeros(int(len(bins)/2))
+      close_corr = np.zeros(int(len(bins)/2))
+      for i in range(0, len(bins), 2):
+        close_corr[int(i/2)] = corr[i, i+1]
+        gmean_FR[int(i/2)] = np.sqrt(bins[i] * bins[i+1])
+      ax.plot(gmean_FR, close_corr, 'o-')
+      r = ma.corrcoef(ma.masked_invalid(gmean_FR), ma.masked_invalid(close_corr))
+      ax.text(0.1, 0.9, 'r={:.2f}'.format(r[0, 1]), fontsize=15, horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+      plt.xscale('log')
+  plt.suptitle('{} correlation VS firing rate'.format(name), size=40)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/{}_corr_FR_multi.jpg'.format(name))
+plot_multi_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
+plot_multi_corr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict, 'cross')
 # %%
