@@ -128,7 +128,7 @@ def sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, sample_size)
         spikeTrainMat[i, :] = surrogate
     return spikeTrainMat
 
-def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B)
+def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
   xcorr=np.zeros((N,N))
   norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
@@ -146,6 +146,26 @@ def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal corr
     # corr = np.dot(T, px)
     corr = T @ px
     corr = corr - uniform_filter1d(corr, maxlag, mode='mirror') # mirror for the boundary values
+    xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
+  return xcorr
+
+def n_cross_correlation7(matrix, maxlag, disable): ### original correlation
+  N, M =matrix.shape
+  xcorr=np.zeros((N,N))
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  #### padding
+  norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, maxlag))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, maxlag)), norm_matb.conj(), np.zeros((N, maxlag))), axis=1) # must concat zeros to the left, why???????????
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+  # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[maxlag:], shape=(maxlag+1, M + maxlag),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[maxlag:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
     xcorr[row_a, row_b] = corr[np.argmax(np.abs(corr))]
   return xcorr
 
@@ -193,7 +213,7 @@ def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   elif measure == 'MI':
     adj_mat = MI(sequences)
   elif measure == 'xcorr':
-    adj_mat = n_cross_correlation6(sequences, maxlag=maxlag, disable=noprogressbar)
+    adj_mat = n_cross_correlation7(sequences, maxlag=maxlag, disable=noprogressbar)
   elif measure == 'causality':
     adj_mat = granger_causality(sequences)
   else:
@@ -906,7 +926,7 @@ for session_id in session_ids:
     bin_dict[session_id][stimulus_name] = bins
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #%%
-def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict):
+def plot_multi_heatmap_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
   ind = 1
   rows, cols = session_ids, stimulus_names
   divnorm=colors.TwoSlopeNorm(vcenter=0.)
@@ -929,7 +949,7 @@ def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dic
         transform=plt.gca().transAxes, fontsize=30, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      corr, bins = xcorr_dict[row][col], bin_dict[row][col]
+      corr, bins = corr_dict[row][col], bin_dict[row][col]
       # pcolormesh(your_data, cmap="coolwarm", norm=divnorm)
       im = ax.imshow(corr, norm=divnorm, cmap="RdBu_r")
       ax.set_xticks(ticks=np.arange(len(bins)))
@@ -954,11 +974,12 @@ def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dic
       # plt.xlabel('firing rate of source neuron', size=15)
       # plt.ylabel('firing rate of target neuron', size=15)
       # plt.title('cross correlation VS firing rate', size=15)
-  plt.suptitle('pearson correlation VS firing rate', size=40)
+  plt.suptitle('{} correlation VS firing rate'.format(name), size=40)
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/pcrorr_FR_multi.jpg')
-plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict)
+  plt.savefig('./plots/{}_corr_FR_multi.jpg'.format(name))
+plot_multi_heatmap_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
+plot_multi_heatmap_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'cross')
 # %%
 def plot_multi_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
   ind = 1
@@ -999,4 +1020,12 @@ def plot_multi_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
   plt.savefig('./plots/{}_corr_FR_multi.jpg'.format(name))
 plot_multi_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
 plot_multi_corr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict, 'cross')
+# %%
+a = np.random.random((5, 10))
+pcorr = np.corrcoef(a)
+dxcorr = n_cross_correlation6(a, 2, disable=True)
+xcorr = n_cross_correlation7(a, 0, disable=True)
+print(pcorr)
+print(xcorr)
+print(dxcorr)
 # %%
