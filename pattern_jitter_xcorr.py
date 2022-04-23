@@ -1540,7 +1540,7 @@ def all_xcorr(matrix, window=100, disable=True): ### fastest, only causal correl
     px, py = norm_mata[row_a, :], norm_matb[row_b, :]
     T = as_strided(py[window:], shape=(window+1, M + window),
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
-    xcorr[row_a, row_b, :] = (T @ px) / (np.arange(window+1)[::-1] * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+    xcorr[row_a, row_b, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
   return xcorr
 
 def pattern_jitter(sequences, L, R, num_sample):
@@ -1630,4 +1630,51 @@ start_time = time.time()
 significant_ccg, peak_offset = xcorr_7_fold(sequences, num_jitter=2, L=25, R=1, maxlag=12, window=100, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
+np.sum(~np.isnan(significant_adj_mat))
 np.sum(~np.isnan(significant_ccg))
+
+#%%
+###################### do we need \theta(\tau) ?
+matrix = sequences
+maxlag = 12
+window = 100
+N, M =matrix.shape
+# xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
+xcorr, peak_offset=np.empty((N,N)), np.empty((N,N))
+xcorr[:] = np.nan
+peak_offset[:] = np.nan
+norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+#### padding
+norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, window))), axis=1)
+norm_matb = np.concatenate((np.zeros((N, window)), norm_matb.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
+#%%
+row_a, row_b = 0, 1
+#%%
+px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+T = as_strided(py[window:], shape=(window+1, M + window),
+                strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+# corr = np.dot(T, px)
+corr = T @ px
+#%%
+fig = plt.figure()
+plt.plot(np.arange(window+1), corr)
+plt.xlabel('time lag (ms)')
+plt.ylabel('normalized cross correlation')
+plt.show()
+#%%
+theta = (M-np.arange(window+1))/1000
+fig = plt.figure()
+plt.plot(np.arange(window+1), corr/theta)
+plt.xlabel('time lag (ms)')
+plt.ylabel('normalized cross correlation')
+plt.show()
+#%%
+corr = (corr - corr.mean())[:maxlag]
+max_offset = np.argmax(np.abs(corr))
+xcorr[row_a, row_b] = corr[max_offset]
+peak_offset[row_a, row_b] = max_offset
+# %%
+firing_rates = np.count_nonzero(matrix, axis=1) / matrix.shape[1]
+((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+# %%
