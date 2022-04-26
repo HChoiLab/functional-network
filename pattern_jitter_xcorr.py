@@ -1505,9 +1505,10 @@ def significant_xcorr(sequences, num_baseline, alpha=0.05, sign='all'):
   for b in range(num_baseline):
     print(b)
     sample_seq = sequences.copy()
-    for n in range(sample_seq.shape[0]):
-      np.random.shuffle(sample_seq[n,:])
-    adj_mat_bl, peaks_bl = n_cross_correlation8(sequences, disable=False)
+    np.random.shuffle(sample_seq) # rowwise for 2d array
+    # for n in range(sample_seq.shape[0]):
+    #   np.random.shuffle(sample_seq[n,:])
+    adj_mat_bl, peaks_bl = n_cross_correlation8(sample_seq, disable=False)
     xcorr_bl[:, :, b] = adj_mat_bl
   k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
   significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(peaks)
@@ -1567,7 +1568,7 @@ def pattern_jitter(sequences, L, R, num_sample):
     jittered_seq = spike_timing2train(T, sampled_spiketrain).T
   return jittered_seq
 
-def xcorr_7_fold(matrix, num_jitter=10, L=25, R=1, maxlag=12, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+def xcorr_n_fold(matrix, n=7, num_jitter=10, L=25, R=1, maxlag=12, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
   xcorr = all_xcorr(matrix, window, disable=disable) # N x N x window
   N = matrix.shape[0]
   significant_ccg, peak_offset=np.empty((N,N)), np.empty((N,N))
@@ -1582,7 +1583,7 @@ def xcorr_7_fold(matrix, num_jitter=10, L=25, R=1, maxlag=12, window=100, disabl
   total_len = len(list(itertools.permutations(range(N), 2)))
   for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
     ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
-    if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + 7 * ccg_corrected.std():
+    if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
     # if np.max(np.abs(corr))
       max_offset = np.argmax(ccg_corrected[:maxlag])
       significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
@@ -1627,54 +1628,45 @@ significant_adj_mat, significant_peaks = significant_xcorr(sequences, num_baseli
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 start_time = time.time()
-significant_ccg, peak_offset = xcorr_7_fold(sequences, num_jitter=2, L=25, R=1, maxlag=12, window=100, disable=False)
+significant_ccg, peak_offset = xcorr_n_fold(sequences, n=3, num_jitter=2, L=25, R=1, maxlag=12, window=100, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
 np.sum(~np.isnan(significant_adj_mat))
 np.sum(~np.isnan(significant_ccg))
 
 #%%
-###################### do we need \theta(\tau) ?
-matrix = sequences
-maxlag = 12
-window = 100
-N, M =matrix.shape
-# xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
-xcorr, peak_offset=np.empty((N,N)), np.empty((N,N))
-xcorr[:] = np.nan
-peak_offset[:] = np.nan
-norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
-norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
-#### padding
-norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, window))), axis=1)
-norm_matb = np.concatenate((np.zeros((N, window)), norm_matb.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
-#%%
-row_a, row_b = 0, 1
-#%%
-px, py = norm_mata[row_a, :], norm_matb[row_b, :]
-T = as_strided(py[window:], shape=(window+1, M + window),
-                strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
-# corr = np.dot(T, px)
-corr = T @ px
-#%%
-fig = plt.figure()
-plt.plot(np.arange(window+1), corr)
-plt.xlabel('time lag (ms)')
-plt.ylabel('normalized cross correlation')
-plt.show()
-#%%
-theta = (M-np.arange(window+1))/1000
-fig = plt.figure()
-plt.plot(np.arange(window+1), corr/theta)
-plt.xlabel('time lag (ms)')
-plt.ylabel('normalized cross correlation')
-plt.show()
-#%%
-corr = (corr - corr.mean())[:maxlag]
-max_offset = np.argmax(np.abs(corr))
-xcorr[row_a, row_b] = corr[max_offset]
-peak_offset[row_a, row_b] = max_offset
 # %%
-firing_rates = np.count_nonzero(matrix, axis=1) / matrix.shape[1]
-((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+######### plot significant sharp peaks
+matrix = sequences
+L=25; R=1; maxlag=12
+window = 100
+num_jitter = 2
+disable = False
+xcorr = all_xcorr(matrix, window, disable=disable) # N x N x window
+N = matrix.shape[0]
+significant_ccg, peak_offset=np.empty((N,N)), np.empty((N,N))
+significant_ccg[:] = np.nan
+peak_offset[:] = np.nan
+# jitter
+xcorr_jittered = np.zeros((N, N, window+1, num_jitter))
+sampled_matrix = pattern_jitter(matrix, L, R, num_jitter) # N, T, num_jitter
+for i in range(num_jitter):
+  print(i)
+  xcorr_jittered[:, :, :, i] = all_xcorr(sampled_matrix[:, :, i], window, disable=disable)
+total_len = len(list(itertools.permutations(range(N), 2)))
+for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+  ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
+  if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + 3 * ccg_corrected.std():
+  # if np.max(np.abs(corr))
+    max_offset = np.argmax(ccg_corrected[:maxlag])
+    significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+    peak_offset[row_a, row_b] = max_offset
+#%%
+for row_a, row_b in list(zip(*np.where(~np.isnan(significant_ccg))))[:10]:
+  ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
+  fig = plt.figure()
+  plt.plot(np.arange(window+1), ccg_corrected)
+  plt.xlabel('time lag (ms)')
+  plt.ylabel('signigicant CCG corrected')
+  plt.show()
 # %%
