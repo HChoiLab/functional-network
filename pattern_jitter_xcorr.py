@@ -42,6 +42,12 @@ def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   np.fill_diagonal(adj_mat, 0)
   return adj_mat
 
+def save_npz(matrix, filename):
+    matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
+    sparse_matrix = sparse.csc_matrix(matrix_2d)
+    np.savez(filename, [sparse_matrix, matrix.shape])
+    return 'npz file saved'
+
 def load_npz(filename):
     """
     load npz files with sparse matrix and dimension
@@ -1495,6 +1501,36 @@ plt.ylabel('probability')
 # plt.show()
 plt.savefig('./plots/peakoffset_dist.jpg')
 # %%
+#################### save correlation matrices
+def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  xcorr = all_xcorr(sequences, window, disable=disable) # N x N x window
+  save_npz(xcorr, fname)
+  N = sequences.shape[0]
+  # jitter
+  xcorr_jittered = np.zeros((N, N, window+1, num_jitter))
+  pj = pattern_jitter(num_sample=num_jitter, sequences=sequences, L=L, memory=False)
+  sampled_matrix = pj.jitter() # num_sample x N x T
+  for i in range(num_jitter):
+    print(i)
+    xcorr_jittered[:, :, :, i] = all_xcorr(sampled_matrix[i, :, :], window, disable=disable)
+  save_npz(xcorr_jittered, fname.replace('.npz', '_bl.npz'))
+
+def save_xcorr_shuffled(sequences, fname, num_baseline=10, disable=True):
+  N = sequences.shape[0]
+  xcorr = np.zeros((N, N))
+  xcorr_bl = np.zeros((N, N, num_baseline))
+  adj_mat, peaks = n_cross_correlation8(sequences, disable=disable)
+  xcorr = adj_mat
+  save_npz(xcorr, fname)
+  save_npz(peaks, fname.replace('.npz', '_peak.npz'))
+  for b in range(num_baseline):
+    print(b)
+    sample_seq = sequences.copy()
+    np.random.shuffle(sample_seq) # rowwise for 2d array
+    adj_mat_bl, peaks_bl = n_cross_correlation8(sample_seq, disable=disable)
+    xcorr_bl[:, :, b] = adj_mat_bl
+  save_npz(xcorr_bl, fname.replace('.npz', '_bl.npz'))
+#%%
 #################### significant correlation
 def significant_xcorr(sequences, num_baseline, alpha=0.05, sign='all'):
   N = sequences.shape[0]
@@ -1628,7 +1664,7 @@ significant_adj_mat, significant_peaks = significant_xcorr(sequences, num_baseli
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 start_time = time.time()
-significant_ccg, peak_offset = xcorr_n_fold(sequences, n=3, num_jitter=2, L=25, R=1, maxlag=12, window=100, disable=False)
+significant_ccg, peak_offset = xcorr_n_fold(sequences, n=7, num_jitter=2, L=25, R=1, maxlag=12, window=100, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
 np.sum(~np.isnan(significant_adj_mat))
@@ -1670,3 +1706,34 @@ for row_a, row_b in list(zip(*np.where(~np.isnan(significant_ccg))))[:10]:
   plt.ylabel('signigicant CCG corrected')
   plt.show()
 # %%
+#################### save correlation matrices
+#%%
+np.seterr(divide='ignore', invalid='ignore')
+############# save correlation matrices #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_spikes = min_len * 0.002 # 2 Hz
+measure = 'xcorr'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+num_baseline = 100
+file_order = int(sys.argv[1])
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+if not os.path.exists(path):
+  os.makedirs(path)
+file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+print(file)
+sequences = load_npz(os.path.join(directory, file))
+sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+fname = os.path.join(path, file)
+#%%
+# start_time = time.time()
+# save_ccg_corrected(sequences=sequences, fname=fname, num_jitter=num_baseline, L=25, window=100, disable=False)
+# print("--- %s minutes" % ((time.time() - start_time)/60))
+# %%
+start_time = time.time()
+save_xcorr_shuffled(sequences, fname, num_baseline=num_baseline, disable=False)
+print("--- %s minutes" % ((time.time() - start_time)/60))
