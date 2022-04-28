@@ -494,26 +494,27 @@ def save_adj_larger_2d(directory, sign, measure, alpha):
       print(file)
       # adj_mat_ds = np.load(os.path.join(directory, file))
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
-      adj_mat_ds = load_npz_3d(os.path.join(directory, file))
-      adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      peaks_all = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
-      adj_mat = np.zeros_like(adj_mat_ds)
-      peaks = np.zeros_like(peaks_all)
-      peaks[:] = np.nan
+      xcorr = load_npz_3d(os.path.join(directory, file))
+      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      peaks = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
+      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(peaks)
+      significant_adj_mat[:] = np.nan
+      significant_peaks[:] = np.nan
       if sign == 'pos':
-        indx = adj_mat_ds > np.clip(np.partition(adj_mat_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
       elif sign == 'neg':
-        indx = adj_mat_ds < np.clip(np.partition(adj_mat_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
       elif sign == 'all':
-        pos = adj_mat_ds > np.clip(np.partition(adj_mat_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        neg = adj_mat_ds < np.clip(np.partition(adj_mat_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
         indx = np.logical_or(pos, neg)
       if np.sum(indx):
-        adj_mat[indx] = adj_mat_ds[indx]
-        peaks[indx] = peaks_all[indx]
+        significant_adj_mat[indx] = xcorr[indx]
+        significant_peaks[indx] = peaks[indx]
+      
       # np.save(os.path.join(path, file), adj_mat)
-      save_npz(adj_mat, os.path.join(path, file))
-      save_npz(peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+      save_npz(significant_adj_mat, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
 
 def save_adj_larger_3d(directory, sign, measure, alpha):
   path = directory.replace(measure, sign+'_'+measure+'_larger')
