@@ -478,8 +478,45 @@ def Z_score(r):
 #         cnt += 1
 #     print(cnt / total_len)
 # %%
-def save_adj_larger(directory, sign, measure, alpha):
-  path = directory.replace(measure, +sign+'_'+measure+'_larger')
+def save_adj_larger_2d(directory, sign, measure, alpha):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_bl_temp.shape[2] # number of shuffles
+  k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if ('_bl' not in file) and ('_peak' not in file):
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      adj_mat_ds = load_npz_3d(os.path.join(directory, file))
+      adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      peaks_all = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
+      adj_mat = np.zeros_like(adj_mat_ds)
+      peaks = np.zeros_like(peaks_all)
+      peaks[:] = np.nan
+      if sign == 'pos':
+        indx = adj_mat_ds > np.clip(np.partition(adj_mat_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+      elif sign == 'neg':
+        indx = adj_mat_ds < np.clip(np.partition(adj_mat_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+      elif sign == 'all':
+        pos = adj_mat_ds > np.clip(np.partition(adj_mat_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = adj_mat_ds < np.clip(np.partition(adj_mat_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = np.logical_or(pos, neg)
+      if np.sum(indx):
+        adj_mat[indx] = adj_mat_ds[indx]
+        peaks[indx] = peaks_all[indx]
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(adj_mat, os.path.join(path, file))
+      save_npz(peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
+def save_adj_larger_3d(directory, sign, measure, alpha):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
@@ -522,12 +559,12 @@ def save_adj_larger(directory, sign, measure, alpha):
 start_time = time.time()
 # measure = 'pearson'
 measure = 'xcorr'
-alpha = 0.05
+alpha = 0.01
 # sign = 'pos'
 # sign = 'neg'
 sign = 'all'
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_nods/'.format(measure)
-save_adj_larger(directory, sign, measure, alpha)
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
+save_adj_larger_2d(directory, sign, measure, alpha)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 # for file in files:
