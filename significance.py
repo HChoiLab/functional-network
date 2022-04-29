@@ -33,6 +33,18 @@ def load_npz_3d(filename):
     new_matrix = new_matrix_2d.reshape(ndim)
     return new_matrix
 
+def save_sparse_npz(matrix, filename):
+  matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
+  sparse_matrix = sparse.csc_matrix(matrix_2d)
+  with open(filename, 'wb') as outfile:
+    pickle.dump([sparse_matrix, matrix.shape], outfile, pickle.HIGHEST_PROTOCOL)
+
+def load_sparse_npz(filename):
+  with open(filename, 'rb') as infile:
+    [sparse_matrix, shape] = pickle.load(infile)
+    matrix_2d = sparse_matrix.toarray()
+  return matrix_2d.reshape(shape)
+
 def Z_score(r):
   return np.log((1+r)/(1-r)) / 2
 # %%
@@ -557,15 +569,62 @@ def save_adj_larger_3d(directory, sign, measure, alpha):
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
 
+def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False):
+  path = directory.replace(measure, measure+'_significant')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_bl_temp.shape[2] # number of shuffles
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      try: 
+        xcorr = load_npz_3d(os.path.join(directory, file))
+      except:
+        xcorr = load_sparse_npz(os.path.join(directory, file))
+      try:
+        xcorr_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        xcorr_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      significant_ccg, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
+      significant_ccg[:] = np.nan
+      significant_peaks[:] = np.nan
+      total_len = len(list(itertools.permutations(range(N), 2)))
+      for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+        ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
+        if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+        # if np.max(np.abs(corr))
+          max_offset = np.argmax(ccg_corrected[:maxlag])
+          significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+          significant_peaks[row_a, row_b] = max_offset
+      
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(significant_ccg, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
+# start_time = time.time()
+# # measure = 'pearson'
+# measure = 'xcorr'
+# alpha = 0.01
+# # sign = 'pos'
+# # sign = 'neg'
+# sign = 'all'
+# directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
+# save_adj_larger_2d(directory, sign, measure, alpha)
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
+
+#%%
 start_time = time.time()
-# measure = 'pearson'
-measure = 'xcorr'
-alpha = 0.01
-# sign = 'pos'
-# sign = 'neg'
-sign = 'all'
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
-save_adj_larger_2d(directory, sign, measure, alpha)
+measure = 'ccg'
+n = 7
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 # for file in files:
@@ -589,4 +648,3 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #     G_dict[mouseID][stimulus_name] = []
 #     for i in range(adj_mat.shape[2]):
 #       G_dict[mouseID][stimulus_name].append(generate_graph(adj_mat=adj_mat[:, :, i], cc=False, weight=weight))
-# %%
