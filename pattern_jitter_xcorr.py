@@ -1,4 +1,5 @@
 # %%
+from turtle import window_height
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
@@ -8,6 +9,7 @@ from scipy.stats import shapiro
 from scipy.stats import normaltest
 from tqdm import tqdm
 import pickle
+from scipy import sparse
 import time
 import sys
 import matplotlib.pyplot as plt
@@ -22,6 +24,79 @@ from scipy.ndimage.filters import uniform_filter1d
 from plfit import plfit
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+
+class CommunityLayout():
+  def __init__(self):
+    super(CommunityLayout,self).__init__()
+  def get_community_layout(self, g, partition):
+    """
+    Compute the layout for a modular graph.
+    Arguments:
+    ----------
+    g -- networkx.Graph or networkx.DiGraph instance
+        graph to plot
+
+    partition -- dict mapping int node -> int community
+        graph partitions
+    Returns:
+    --------
+    pos -- dict mapping int node -> (float x, float y)
+        node positions
+    """
+    pos_communities = self._position_communities(g, partition, scale=3.)
+    pos_nodes = self._position_nodes(g, partition, scale=1.)
+    # combine positions
+    pos = dict()
+    for node in g.nodes():
+        pos[node] = pos_communities[node] + pos_nodes[node]
+    return pos
+
+  def _position_communities(self, g, partition, **kwargs):
+      # create a weighted graph, in which each node corresponds to a community,
+      # and each edge weight to the number of edges between communities
+      between_community_edges = self._find_between_community_edges(g, partition)
+      communities = set(partition.values())
+      hypergraph = nx.DiGraph()
+      hypergraph.add_nodes_from(communities)
+      for (ci, cj), edges in between_community_edges.items():
+          hypergraph.add_edge(ci, cj, weight=len(edges))
+      # find layout for communities
+      pos_communities = nx.spring_layout(hypergraph, **kwargs)
+      # set node positions to position of community
+      pos = dict()
+      for node, community in partition.items():
+          pos[node] = pos_communities[community]
+      return pos
+
+  def _find_between_community_edges(self, g, partition):
+      edges = dict()
+      for (ni, nj) in g.edges():
+          ci = partition[ni]
+          cj = partition[nj]
+
+          if ci != cj:
+              try:
+                  edges[(ci, cj)] += [(ni, nj)]
+              except KeyError:
+                  edges[(ci, cj)] = [(ni, nj)]
+      return edges
+
+  def _position_nodes(self, g, partition, **kwargs):
+      """
+      Positions nodes within communities.
+      """
+      communities = dict()
+      for node, community in partition.items():
+          try:
+              communities[community] += [node]
+          except KeyError:
+              communities[community] = [node]
+      pos = dict()
+      for ci, nodes in communities.items():
+          subgraph = g.subgraph(nodes)
+          pos_subgraph = nx.spring_layout(subgraph, **kwargs)
+          pos.update(pos_subgraph)
+      return pos
 
 def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   if measure == 'pearson':
@@ -41,6 +116,18 @@ def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   adj_mat = np.nan_to_num(adj_mat)
   np.fill_diagonal(adj_mat, 0)
   return adj_mat
+
+def save_sparse_npz(matrix, filename):
+  matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
+  sparse_matrix = sparse.csc_matrix(matrix_2d)
+  with open(filename, 'wb') as outfile:
+    pickle.dump([sparse_matrix, matrix.shape], outfile, pickle.HIGHEST_PROTOCOL)
+
+def load_sparse_npz(filename):
+  with open(filename, 'rb') as infile:
+    [sparse_matrix, shape] = pickle.load(infile)
+    matrix_2d = sparse_matrix.toarray()
+  return matrix_2d.reshape(shape)
 
 def save_npz(matrix, filename):
     matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
@@ -62,7 +149,20 @@ def load_npz(filename):
     # new_matrix = new_matrix_2d.reshape(ndim)
     return new_matrix
 
-def get_rowcol(G_dict, measure):
+def load_npz_3d(filename):
+    """
+    load npz files with sparse matrix and dimension
+    output dense matrix with the correct dim
+    """
+    npzfile = np.load(filename, allow_pickle=True) 
+    sparse_matrix = npzfile['arr_0'][0]
+    ndim=npzfile['arr_0'][1]
+
+    new_matrix_2d = np.array(sparse_matrix.todense())
+    new_matrix = new_matrix_2d.reshape(ndim)
+    return new_matrix
+
+def get_rowcol(G_dict):
   rows = list(G_dict.keys())
   cols = []
   for row in rows:
@@ -71,12 +171,9 @@ def get_rowcol(G_dict, measure):
   if 'drifting_gratings_contrast' in cols:
     cols.remove('drifting_gratings_contrast')
   # sort stimulus
-  if measure == 'ccg':
-    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
-  else:
-    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+      'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
+        'natural_scenes', 'natural_movie_one', 'natural_movie_three']
   stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
   stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
   cols = list(stimulus_rank_dict.keys())
@@ -419,6 +516,406 @@ def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dic
   plt.suptitle('cross correlation VS firing rate', size=40)
   plt.tight_layout()
   plt.savefig('./plots/xcorr_FR_multi_heatmap.jpg')
+
+def split_pos_neg(G_dict, measure):
+  pos_G_dict, neg_G_dict = {}, {}
+  rows, cols = get_rowcol(G_dict)
+  if isinstance(G_dict[rows[0]][cols[0]], list):
+    num_sample = len(G_dict[rows[0]][cols[0]])
+    no_sample = False
+  else:
+    no_sample = True
+  for row in rows:
+    pos_G_dict[row] = {}
+    neg_G_dict[row] = {}
+    print(row)
+    for col in cols:
+      print(col)
+      if not no_sample:
+        pos_G_dict[row][col] = []
+        neg_G_dict[row][col] = []
+        for s in range(num_sample):
+          G = G_dict[row][col][s] if col in G_dict[row] else nx.Graph()
+          pos_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']>0]
+          neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
+          Gpos = nx.DiGraph()
+          Gneg = nx.DiGraph()
+          Gpos.add_edges_from(pos_edges)
+          Gneg.add_edges_from(neg_edges)
+          pos_G_dict[row][col].append(Gpos)
+          neg_G_dict[row][col].append(Gneg)
+      else:
+        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+        pos_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']>0]
+        neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
+        Gpos = nx.DiGraph()
+        Gneg = nx.DiGraph()
+        Gpos.add_edges_from(pos_edges)
+        Gneg.add_edges_from(neg_edges)
+        pos_G_dict[row][col] = Gpos
+        neg_G_dict[row][col] = Gneg
+  return pos_G_dict, neg_G_dict
+
+def get_lcc(G_dict):
+  for row in G_dict:
+    for col in G_dict[row]:
+      G = G_dict[row][col]
+      if nx.is_directed(G):
+        if not nx.is_weakly_connected(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G_dict[row][col] = G.subgraph(Gcc[0])
+      else:
+        if not nx.is_connected(G):
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G_dict[row][col] = G.subgraph(Gcc[0])
+
+          # largest_cc = max(nx.connected_components(G), key=len)
+          # G_dict[row][col][i] = nx.subgraph(G, largest_cc)
+      print(G.number_of_nodes(), G_dict[row][col].number_of_nodes())
+  return G_dict
+
+def print_stat(G_dict):
+  for row in G_dict:
+      for col in G_dict[row]:
+          nodes = nx.number_of_nodes(G_dict[row][col])
+          edges = nx.number_of_edges(G_dict[row][col])
+          print('Number of nodes for {} {} {}'.format(row, col, nodes))
+          print('Number of edges for {} {} {}'.format(row, col, edges))
+          print('Density for {} {} {}'.format(row, col, nx.density(G_dict[row][col])))
+
+def plot_stat(pos_G_dict, neg_G_dict=None, measure='xcorr'):
+  rows, cols = get_rowcol(pos_G_dict)
+  pos_num_nodes, neg_num_nodes, pos_num_edges, neg_num_edges, pos_densities, neg_densities, pos_total_weight, neg_total_weight, pos_mean_weight, neg_mean_weight = [np.full([len(rows), len(cols)], np.nan) for _ in range(10)]
+  num_col = 2 if neg_G_dict is not None else 1
+  fig = plt.figure(figsize=(5*num_col, 25))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      pos_G = pos_G_dict[row][col] if col in pos_G_dict[row] else nx.DiGraph()
+      pos_densities[row_ind, col_ind] = nx.density(pos_G)
+      pos_num_nodes[row_ind, col_ind] = nx.number_of_nodes(pos_G)
+      pos_num_edges[row_ind, col_ind] = nx.number_of_edges(pos_G)
+      pos_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(pos_G, "weight").values()))
+      pos_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(pos_G, "weight").values()))
+      if neg_G_dict is not None:
+        neg_G = neg_G_dict[row][col] if col in neg_G_dict[row] else nx.DiGraph()
+        neg_densities[row_ind, col_ind] = nx.density(neg_G)
+        neg_num_nodes[row_ind, col_ind] = nx.number_of_nodes(neg_G)
+        neg_num_edges[row_ind, col_ind] = nx.number_of_edges(neg_G)
+        neg_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(neg_G, "weight").values()))
+        neg_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(neg_G, "weight").values()))
+  metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
+  'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
+  'positive density':pos_densities, 'negative density':neg_densities,
+  'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
+  'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
+  if neg_G_dict is not None:
+    metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
+    'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
+    'positive density':pos_densities, 'negative density':neg_densities,
+    'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
+    'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
+  else:
+    metrics = {'positive number of nodes':pos_num_nodes, 'positive number of edges':pos_num_edges,
+    'positive density':pos_densities, 'positive total weights':pos_total_weight,
+    'positive average weights':pos_mean_weight}
+  # distris = {'positive weight distribution':pos_weight_distri, 'negative weight distribution':neg_weight_distri}
+  
+  for i, k in enumerate(metrics):
+    plt.subplot(5, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=20, rotation=0)
+    plt.xticks(rotation=90)
+    plt.legend()
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/stats_{}.jpg'.format(measure)
+  plt.savefig(figname)
+
+def region_connection_heatmap(G_dict, sign, area_dict, regions, measure):
+  rows, cols = get_rowcol(G_dict)
+  scale = np.zeros(len(rows))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+        # active_areas = [i for i in regions if i in active_areas]
+        A = nx.adjacency_matrix(G)
+        A = A.todense()
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          if region_i in active_areas:
+            for region_ind_j, region_j in enumerate(regions):
+              if region_j in active_areas:
+                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
+    scale[row_ind] = region_connection[row_ind, :, :, :].max()
+  ind = 1
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r")# cmap="YlGnBu"
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+      sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      sns_plot.set_xticklabels(regions, rotation=90)
+      sns_plot.set_yticks(np.arange(len(regions))+0.5)
+      sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(sign, measure))
+
+def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, weight):
+  rows, cols = get_rowcol(G_dict)
+  cols.remove('spontaneous')
+  scale_min = np.zeros(len(rows))
+  scale_max = np.zeros(len(rows))
+  region_connection_bl = np.zeros((len(rows), len(regions), len(regions)))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    G = G_dict[row]['spontaneous']
+    if G.number_of_nodes() > 100 and G.number_of_edges() > 100:
+      nodes = list(G.nodes())
+      active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+      A = nx.adjacency_matrix(G)
+      A = A.todense()
+      if not weight:
+        A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        if region_i in active_areas:
+          for region_ind_j, region_j in enumerate(regions):
+            if region_j in active_areas:
+              region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+              region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+              region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+              region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+              region_connection_bl[row_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if G.number_of_nodes() > 100 and G.number_of_edges() > 100:
+        nodes = list(G.nodes())
+        active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+        A = nx.adjacency_matrix(G)
+        A = A.todense()
+        if not weight:
+          A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          if region_i in active_areas:
+            for region_ind_j, region_j in enumerate(regions):
+              if region_j in active_areas:
+                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+    scale_min[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).min()
+    scale_max[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).max()
+  ind = 1
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap((region_connection[row_ind, col_ind, :, :]-region_connection_bl[row_ind])/region_connection_bl[row_ind].sum(), vmin=scale_min[row_ind], vmax=scale_max[row_ind],center=0,cmap="RdBu_r") #  cmap="YlGnBu"
+      # sns_plot = sns.heatmap((region_connection-region_connection_bl)/region_connection_bl.sum(), cmap="YlGnBu")
+      sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      sns_plot.set_xticklabels(regions, rotation=90)
+      sns_plot.set_yticks(np.arange(len(regions))+0.5)
+      sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+  plt.tight_layout()
+  figname = './plots/region_connection_delta_scale_weighted_{}_{}.jpg'.format(sign, measure) if weight else './plots/region_connection_delta_scale_{}_{}.jpg'.format(sign, measure)
+  plt.savefig(figname)
+  # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
+
+def plot_multi_graphs_color(G_dict, sign, area_dict, measure, cc=False):
+  com = CommunityLayout()
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  G_sample = G_dict[rows[0]][cols[0]]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      nx.set_node_attributes(G, area_dict[row], "area")
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+        try:
+          edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
+          weights = np.abs(weights)
+        except:
+          edges = nx.edges(G)
+          weights = np.ones(len(edges))
+        degrees = dict(G.degree)
+        try:
+          partition = community.best_partition(G)
+          pos = com.get_community_layout(G, partition)
+        except:
+          print('Community detection unsuccessful!')
+          pos = nx.spring_layout(G)
+        areas = [G.nodes[n]['area'] for n in G.nodes()]
+        areas_uniq = list(set(areas))
+        colors = [customPalette[areas_uniq.index(area)] for area in areas]
+        # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
+        # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
+        node_color=colors, alpha=0.4)
+      if row_ind == col_ind == 0:
+        areas = [G.nodes[n]['area'] for n in G.nodes()]
+        areas_uniq = list(set(areas))
+        for index, a in enumerate(areas_uniq):
+          plt.scatter([],[], c=customPalette[index], label=a, s=30)
+        legend = plt.legend(loc='upper center', fontsize=20)
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/graphs_region_color_cc_{}_{}.jpg'.format(sign, measure) if cc else './plots/graphs_region_color_{}_{}.jpg'.format(sign, measure)
+  plt.savefig(image_name)
+  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+  # plt.show()
+
+def func_powerlaw(x, m, c):
+  return x**m * c
+
+def degree_histogram_directed(G, type='in_degree', weight=None):
+    nodes = G.nodes()
+    if type == 'in_degree':
+        in_degree = dict(G.in_degree(weight=weight))
+        degseq=[in_degree.get(k,0) for k in nodes]
+    elif type == 'out_degree':
+        out_degree = dict(G.out_degree(weight=weight))
+        degseq=[out_degree.get(k,0) for k in nodes]
+    else:
+        degseq=[v for k, v in G.degree()]
+    if weight == None:
+      dmax=max(degseq)+1
+      deg_seq = np.arange(0, dmax)
+      freq= [ 0 for d in range(dmax) ]
+      for d in degseq:
+          freq[d] += 1
+    else:
+      freq, bin_edges = np.histogram(degseq, density=True)
+      deg_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
+    return deg_seq, freq
+
+def plot_directed_multi_degree_distributions(G_dict, sign, measure, weight=None, cc=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+        in_degrees, in_degree_freq = degree_histogram_directed(G, type='in_degree', weight=weight)
+        out_degrees, out_degree_freq = degree_histogram_directed(G, type='out_degree', weight=weight)
+        if weight == None:
+          in_degrees, in_degree_freq = in_degrees[1:], in_degree_freq[1:]
+          out_degrees, out_degree_freq = out_degrees[1:], out_degree_freq[1:]
+        plt.plot(in_degrees, np.array(in_degree_freq) / sum(in_degree_freq),'go-', label='in-degree', alpha=0.4)
+        plt.plot(out_degrees, np.array(out_degree_freq) / sum(out_degree_freq),'bo-', label='out-degree', alpha=0.4)
+        plt.legend(loc='upper right', fontsize=7)
+        xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+        plt.xlabel(xlabel)
+        plt.ylabel('Frequency')
+        plt.xscale('symlog')
+        plt.yscale('log')
+      
+  plt.tight_layout()
+  image_name = './plots/directed_degree_distribution_weighted_{}_{}.jpg'.format(sign, measure) if weight is not None else './plots/directed_degree_distribution_unweighted_{}_{}.jpg'.format(sign, measure)
+  # plt.show()
+  plt.savefig(image_name, dpi=300)
+  # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
 #%%
 ################### effect of pattern jitter on cross correlation
 ####### turn off warnings
@@ -713,7 +1210,7 @@ def plot_firing_rate_distributions(FR_dict, measure):
   loglikelihoods = pd.DataFrame(index=session_ids, columns=stimulus_names)
   proportions = pd.DataFrame(index=session_ids, columns=stimulus_names)
   ind = 1
-  rows, cols = get_rowcol(FR_dict, measure)
+  rows, cols = get_rowcol(FR_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -1142,7 +1639,7 @@ plot_multi_corr_FR(session_ids, stimulus_names, peak_dict, bin_dict, 'peakoffset
 # %%
 def plot_multi_peak_dist(peak_dict, measure):
   ind = 1
-  rows, cols = get_rowcol(peak_dict, measure)
+  rows, cols = get_rowcol(peak_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -1503,7 +2000,7 @@ plt.savefig('./plots/peakoffset_dist.jpg')
 # %%
 #################### save correlation matrices
 def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
-  xcorr = all_xcorr(sequences, window, disable=disable) # N x N x window
+  xcorr = all_xcorr_ccg(sequences, window, disable=disable) # N x N x window
   save_npz(xcorr, fname)
   N = sequences.shape[0]
   # jitter
@@ -1512,7 +2009,7 @@ def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disabl
   sampled_matrix = pj.jitter() # num_sample x N x T
   for i in range(num_jitter):
     print(i)
-    xcorr_jittered[:, :, :, i] = all_xcorr(sampled_matrix[i, :, :], window, disable=disable)
+    xcorr_jittered[:, :, :, i] = all_xcorr_ccg(sampled_matrix[i, :, :], window, disable=disable)
   save_npz(xcorr_jittered, fname.replace('.npz', '_bl.npz'))
 
 def save_xcorr_shuffled(sequences, fname, num_baseline=10, disable=True):
@@ -1563,7 +2060,7 @@ def significant_xcorr(sequences, num_baseline, alpha=0.05, sign='all'):
     significant_peaks[indx] = peaks[indx]
   return significant_adj_mat, significant_peaks
 
-def all_xcorr(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+def all_xcorr_ccg(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
   N, M =matrix.shape
   # xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
   xcorr=np.empty((N,N,window+1))
@@ -1578,6 +2075,28 @@ def all_xcorr(matrix, window=100, disable=True): ### fastest, only causal correl
     T = as_strided(py[window:], shape=(window+1, M + window),
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
     xcorr[row_a, row_b, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+  return xcorr
+
+def all_xcorr_xcorr(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  N, M =matrix.shape
+  # xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
+  xcorr=np.empty((N,N,window+1))
+  xcorr[:] = np.nan
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  #### padding
+  norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, window))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, window)), norm_matb.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+  # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[window:], shape=(window+1, M + window),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
+    xcorr[row_a, row_b, :] = corr = corr - corr.mean()
   return xcorr
 
 def pattern_jitter(sequences, L, R, num_sample):
@@ -1605,7 +2124,7 @@ def pattern_jitter(sequences, L, R, num_sample):
   return jittered_seq
 
 def xcorr_n_fold(matrix, n=7, num_jitter=10, L=25, R=1, maxlag=12, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
-  xcorr = all_xcorr(matrix, window, disable=disable) # N x N x window
+  xcorr = all_xcorr_ccg(matrix, window, disable=disable) # N x N x window
   N = matrix.shape[0]
   significant_ccg, peak_offset=np.empty((N,N)), np.empty((N,N))
   significant_ccg[:] = np.nan
@@ -1615,7 +2134,7 @@ def xcorr_n_fold(matrix, n=7, num_jitter=10, L=25, R=1, maxlag=12, window=100, d
   sampled_matrix = pattern_jitter(matrix, L, R, num_jitter) # N, T, num_jitter
   for i in range(num_jitter):
     print(i)
-    xcorr_jittered[:, :, :, i] = all_xcorr(sampled_matrix[:, :, i], window, disable=disable)
+    xcorr_jittered[:, :, :, i] = all_xcorr_ccg(sampled_matrix[:, :, i], window, disable=disable)
   total_len = len(list(itertools.permutations(range(N), 2)))
   for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
     ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
@@ -1626,7 +2145,6 @@ def xcorr_n_fold(matrix, n=7, num_jitter=10, L=25, R=1, maxlag=12, window=100, d
       peak_offset[row_a, row_b] = max_offset
   return significant_ccg, peak_offset
 
-#%%
 np.seterr(divide='ignore', invalid='ignore')
 ############# save correlation matrices #################
 # min_len, min_num = (260000, 739)
@@ -1660,7 +2178,7 @@ sequences = load_npz(os.path.join(directory, file))
 sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
 #%%
 start_time = time.time()
-significant_adj_mat, significant_peaks = significant_xcorr(sequences, num_baseline=2, alpha=0.05, sign='all')
+significant_adj_mat, significant_peaks = significant_xcorr(sequences, num_baseline=2, alpha=0.01, sign='all')
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 start_time = time.time()
@@ -1672,13 +2190,13 @@ np.sum(~np.isnan(significant_ccg))
 
 #%%
 # %%
-######### plot significant sharp peaks
+######### plot example significant sharp peaks
 matrix = sequences
 L=25; R=1; maxlag=12
 window = 100
-num_jitter = 2
+num_jitter = 10
 disable = False
-xcorr = all_xcorr(matrix, window, disable=disable) # N x N x window
+xcorr = all_xcorr_ccg(matrix, window, disable=disable) # N x N x window
 N = matrix.shape[0]
 significant_ccg, peak_offset=np.empty((N,N)), np.empty((N,N))
 significant_ccg[:] = np.nan
@@ -1688,23 +2206,58 @@ xcorr_jittered = np.zeros((N, N, window+1, num_jitter))
 sampled_matrix = pattern_jitter(matrix, L, R, num_jitter) # N, T, num_jitter
 for i in range(num_jitter):
   print(i)
-  xcorr_jittered[:, :, :, i] = all_xcorr(sampled_matrix[:, :, i], window, disable=disable)
+  xcorr_jittered[:, :, :, i] = all_xcorr_ccg(sampled_matrix[:, :, i], window, disable=disable)
 total_len = len(list(itertools.permutations(range(N), 2)))
 for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
   ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
-  if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + 3 * ccg_corrected.std():
+  if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + 7 * ccg_corrected.std():
   # if np.max(np.abs(corr))
     max_offset = np.argmax(ccg_corrected[:maxlag])
     significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
     peak_offset[row_a, row_b] = max_offset
 #%%
-for row_a, row_b in list(zip(*np.where(~np.isnan(significant_ccg))))[:10]:
+cnt = 0
+for row_a, row_b in list(zip(*np.where(~np.isnan(significant_ccg))))[:5]:
   ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
   fig = plt.figure()
   plt.plot(np.arange(window+1), ccg_corrected)
   plt.xlabel('time lag (ms)')
   plt.ylabel('signigicant CCG corrected')
-  plt.show()
+  plt.savefig('./plots/sample_significant_ccg_{}.jpg'.format(cnt))
+  # plt.show()
+  cnt += 1
+#%%
+xcorr = all_xcorr_xcorr(matrix, window=100, disable=False)
+#%%
+row = '719161530'
+col = 'spontaneous'
+pos_G, neg_G, peak = pos_G_dict[row][col], neg_G_dict[row][col], peak_dict[row][col]
+pos_A = nx.adjacency_matrix(pos_G)
+neg_A = nx.adjacency_matrix(neg_G)
+print(pos_A.todense())
+#%%
+cnt = 0
+for row_a, row_b in list(zip(*np.where(pos_A.todense())))[:5]:
+  print(row_a, row_b)
+  fig = plt.figure()
+  plt.plot(np.arange(window+1), xcorr[row_a, row_b])
+  plt.axvline(x=peak[row_a, row_b], color='r', alpha=0.2)
+  plt.xlabel('time lag (ms)')
+  plt.ylabel('signigicant cross correlation')
+  plt.savefig('./plots/sample_pos_significant_xcorr_{}.jpg'.format(cnt))
+  # plt.show()
+  cnt += 1
+#%%
+cnt = 0
+for row_a, row_b in list(zip(*np.where(~np.isnan(significant_ccg))))[:5]:
+  ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
+  fig = plt.figure()
+  plt.plot(np.arange(window+1), ccg_corrected)
+  plt.xlabel('time lag (ms)')
+  plt.ylabel('signigicant CCG corrected')
+  plt.savefig('./plots/sample_significant_ccg_{}.jpg'.format(cnt))
+  # plt.show()
+  cnt += 1
 # %%
 #################### save correlation matrices
 #%%
@@ -1737,3 +2290,125 @@ fname = os.path.join(path, file)
 start_time = time.time()
 save_xcorr_shuffled(sequences, fname, num_baseline=num_baseline, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+#################### load significant ccg_corrected
+def generate_graph(adj_mat, cc=False, weight=False):
+  if not weight:
+    adj_mat[adj_mat.nonzero()] = 1
+  G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
+  if cc: # extract the largest (strongly) connected components
+    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
+      largest_cc = max(nx.connected_components(G), key=len)
+    else:
+      largest_cc = max(nx.strongly_connected_components(G), key=len)
+    G = nx.subgraph(G, largest_cc)
+  return G
+
+def load_significant_xcorr(directory, weight):
+  G_dict, peak_dict = {}, {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('_peak' not in file) and ('_bl' not in file):
+      print(file)
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID], peak_dict[mouseID] = {}, {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
+      peak_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
+  return G_dict, peak_dict
+
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_all_xcorr_larger_shuffled')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_shuffle_dict, peak_dict = load_significant_xcorr(path, weight=True)
+measure = 'xcorr'
+#%%
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_significant_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict, peak_dict = load_significant_xcorr(path, weight=True)
+measure = 'ccg'
+#%%
+############# load area_dict and average speed dataframe #################
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# session_ids = [719161530, 750749662, 755434585, 756029989]
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+# %%
+######### split G_dict into pos and neg
+pos_G_dict, neg_G_dict = split_pos_neg(G_shuffle_dict, measure=measure)
+# %%
+############# keep largest connected components for pos and neg G_dict
+pos_G_dict = get_lcc(pos_G_dict)
+neg_G_dict = get_lcc(neg_G_dict)
+# %%
+print_stat(pos_G_dict)
+print_stat(neg_G_dict)
+# %%
+plot_stat(pos_G_dict, neg_G_dict, measure=measure)
+# %%
+region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure)
+region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure)
+# %%
+weight = False
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+# %%
+weight = True
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, cc=cc)
+plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, cc=cc)
+# cc = True
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight=None, cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight=None, cc=False)
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight='weight', cc=False)
+# %%
+G_ccg_dict = get_lcc(G_ccg_dict)
+# %%
+print_stat(G_ccg_dict)
+# %%
+plot_stat(G_ccg_dict, measure=measure)
+# %%
+region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure)
+# %%
+weight = False
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+# %%
+weight = True
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, cc=cc)
+plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, cc=cc)
+# cc = True
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight=None, cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight=None, cc=False)
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight='weight', cc=False)
