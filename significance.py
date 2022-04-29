@@ -592,7 +592,8 @@ def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False)
         xcorr_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       except:
         xcorr_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      significant_ccg, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
+      num_nodes = xcorr.shape[0]
+      significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
       significant_ccg[:] = np.nan
       significant_peaks[:] = np.nan
       total_len = len(list(itertools.permutations(range(N), 2)))
