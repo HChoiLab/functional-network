@@ -490,6 +490,53 @@ def Z_score(r):
 #         cnt += 1
 #     print(cnt / total_len)
 # %%
+def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  num_baseline = adj_bl_temp.shape[2] # number of shuffles
+  k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if ('_bl' not in file) and ('_peak' not in file) and ('719161530' in file):
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      all_xcorr = load_npz_3d(os.path.join(directory, file))
+      # import pdb;pdb.set_trace()
+      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
+      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
+      significant_adj_mat[:] = np.nan
+      significant_peaks[:] = np.nan
+      if sign == 'pos':
+        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+      elif sign == 'neg':
+        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+      elif sign == 'all':
+        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = np.logical_or(pos, neg)
+        pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+        neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+        fold = np.logical_or(pos_fold, neg_fold)
+      indx = np.logical_and(indx, fold)
+      if np.sum(indx):
+        significant_adj_mat[indx] = xcorr[indx]
+        significant_peaks[indx] = max_offset[indx]
+      
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(significant_adj_mat, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
 def save_adj_larger_2d(directory, sign, measure, alpha):
   path = directory.replace(measure, sign+'_'+measure+'_larger')
   if not os.path.exists(path):
@@ -502,7 +549,7 @@ def save_adj_larger_2d(directory, sign, measure, alpha):
   N = adj_bl_temp.shape[2] # number of shuffles
   k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
   for file in files:
-    if ('_bl' not in file) and ('_peak' not in file):
+    if ('_bl' not in file) and ('_peak' not in file) and ('719161530' in file):
       print(file)
       # adj_mat_ds = np.load(os.path.join(directory, file))
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
@@ -575,58 +622,56 @@ def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False)
     os.makedirs(path)
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
-  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
-  # R = adj_temp.shape[2] # number of downsamples
-  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
-  N = adj_bl_temp.shape[2] # number of shuffles
   for file in files:
-    if '_bl' not in file:
+    if '_bl' not in file and '719161530' in file:
       print(file)
       # adj_mat_ds = np.load(os.path.join(directory, file))
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
       try: 
-        xcorr = load_npz_3d(os.path.join(directory, file))
+        ccg = load_npz_3d(os.path.join(directory, file))
       except:
-        xcorr = load_sparse_npz(os.path.join(directory, file))
+        ccg = load_sparse_npz(os.path.join(directory, file))
       try:
-        xcorr_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       except:
-        xcorr_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      num_nodes = xcorr.shape[0]
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
       significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
       significant_ccg[:] = np.nan
       significant_peaks[:] = np.nan
-      total_len = len(list(itertools.permutations(range(N), 2)))
-      for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
-        ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
+      total_len = len(list(itertools.permutations(range(num_nodes), 2)))
+      for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
         if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
         # if np.max(np.abs(corr))
           max_offset = np.argmax(ccg_corrected[:maxlag])
           significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
           significant_peaks[row_a, row_b] = max_offset
-      
+      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(significant_ccg, os.path.join(path, file))
       save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
 
-# start_time = time.time()
-# # measure = 'pearson'
-# measure = 'xcorr'
-# alpha = 0.01
-# # sign = 'pos'
-# # sign = 'neg'
-# sign = 'all'
-# directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
-# save_adj_larger_2d(directory, sign, measure, alpha)
-# print("--- %s minutes in total" % ((time.time() - start_time)/60))
+start_time = time.time()
+# measure = 'pearson'
+measure = 'xcorr'
+maxlag = 12
+alpha = 0.01
+n = 3
+# sign = 'pos'
+# sign = 'neg'
+sign = 'all'
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
+save_adj_larger_fold(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
 
 #%%
-start_time = time.time()
-measure = 'ccg'
-n = 7
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
-print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# start_time = time.time()
+# measure = 'ccg'
+# n = 5
+# directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+# save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
+# print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 # for file in files:
 #   if '_bl' not in file and '719161530' in file:
