@@ -583,7 +583,7 @@ def print_stat(G_dict):
           print('Number of edges for {} {} {}'.format(row, col, edges))
           print('Density for {} {} {}'.format(row, col, nx.density(G_dict[row][col])))
 
-def plot_stat(pos_G_dict, neg_G_dict=None, measure='xcorr'):
+def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   rows, cols = get_rowcol(pos_G_dict)
   pos_num_nodes, neg_num_nodes, pos_num_edges, neg_num_edges, pos_densities, neg_densities, pos_total_weight, neg_total_weight, pos_mean_weight, neg_mean_weight = [np.full([len(rows), len(cols)], np.nan) for _ in range(10)]
   num_col = 2 if neg_G_dict is not None else 1
@@ -632,7 +632,7 @@ def plot_stat(pos_G_dict, neg_G_dict=None, measure='xcorr'):
     plt.legend()
     plt.tight_layout()
   # plt.show()
-  figname = './plots/stats_{}.jpg'.format(measure)
+  figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname)
 
 def region_connection_heatmap(G_dict, sign, area_dict, regions, measure):
@@ -703,7 +703,7 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, w
   for row_ind, row in enumerate(rows):
     print(row)
     G = G_dict[row]['spontaneous']
-    if G.number_of_nodes() > 100 and G.number_of_edges() > 100:
+    if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
       nodes = list(G.nodes())
       active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
       A = nx.adjacency_matrix(G)
@@ -768,7 +768,7 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, w
       sns_plot.set_yticklabels(regions, rotation=0)
       sns_plot.invert_yaxis()
   plt.tight_layout()
-  figname = './plots/region_connection_delta_scale_weighted_{}_{}.jpg'.format(sign, measure) if weight else './plots/region_connection_delta_scale_{}_{}.jpg'.format(sign, measure)
+  figname = './plots/region_connection_delta_weighted_{}_{}.jpg'.format(sign, measure) if weight else './plots/region_connection_delta_{}_{}.jpg'.format(sign, measure)
   plt.savefig(figname)
   # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
@@ -916,6 +916,120 @@ def plot_directed_multi_degree_distributions(G_dict, sign, measure, weight=None,
   # plt.show()
   plt.savefig(image_name, dpi=300)
   # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
+
+#################### load significant ccg_corrected
+def generate_graph(adj_mat, cc=False, weight=False):
+  if not weight:
+    adj_mat[adj_mat.nonzero()] = 1
+  G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
+  if cc: # extract the largest (strongly) connected components
+    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
+      largest_cc = max(nx.connected_components(G), key=len)
+    else:
+      largest_cc = max(nx.strongly_connected_components(G), key=len)
+    G = nx.subgraph(G, largest_cc)
+  return G
+
+def load_significant_xcorr(directory, weight):
+  G_dict, peak_dict = {}, {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('_peak' not in file) and ('_bl' not in file):
+      print(file)
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID], peak_dict[mouseID] = {}, {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
+      peak_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
+  return G_dict, peak_dict
+
+def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False):
+  path = directory.replace(measure, measure+'_significant')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file and '719161530' in file:
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      significant_peaks[:] = np.nan
+      total_len = len(list(itertools.permutations(range(num_nodes), 2)))
+      for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
+        if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+        # if np.max(np.abs(corr))
+          max_offset = np.argmax(ccg_corrected[:maxlag])
+          significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+          significant_peaks[row_a, row_b] = max_offset
+      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(significant_ccg, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
+def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  num_baseline = adj_bl_temp.shape[2] # number of shuffles
+  k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if ('_bl' not in file) and ('_peak' not in file) and ('719161530' in file):
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      all_xcorr = load_npz_3d(os.path.join(directory, file))
+      # import pdb;pdb.set_trace()
+      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
+      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
+      significant_adj_mat[:] = np.nan
+      significant_peaks[:] = np.nan
+      if sign == 'pos':
+        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+      elif sign == 'neg':
+        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+      elif sign == 'all':
+        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = np.logical_or(pos, neg)
+        pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+        neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+        fold = np.logical_or(pos_fold, neg_fold)
+      indx = np.logical_and(indx, fold)
+      if np.sum(indx):
+        significant_adj_mat[indx] = xcorr[indx]
+        significant_peaks[indx] = max_offset[indx]
+      
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(significant_adj_mat, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
 #%%
 ################### effect of pattern jitter on cross correlation
 ####### turn off warnings
@@ -2291,49 +2405,22 @@ start_time = time.time()
 save_xcorr_shuffled(sequences, fname, num_baseline=num_baseline, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-#################### load significant ccg_corrected
-def generate_graph(adj_mat, cc=False, weight=False):
-  if not weight:
-    adj_mat[adj_mat.nonzero()] = 1
-  G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
-  if cc: # extract the largest (strongly) connected components
-    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
-      largest_cc = max(nx.connected_components(G), key=len)
-    else:
-      largest_cc = max(nx.strongly_connected_components(G), key=len)
-    G = nx.subgraph(G, largest_cc)
-  return G
-
-def load_significant_xcorr(directory, weight):
-  G_dict, peak_dict = {}, {}
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if file.endswith(".npz") and ('_peak' not in file) and ('_bl' not in file):
-      print(file)
-      adj_mat = load_npz_3d(os.path.join(directory, file))
-      # adj_mat = np.load(os.path.join(directory, file))
-      mouseID = file.split('_')[0]
-      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      if not mouseID in G_dict:
-        G_dict[mouseID], peak_dict[mouseID] = {}, {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
-      peak_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
-  return G_dict, peak_dict
-
+measure = 'xcorr'
+maxlag = 12
+alpha = 0.01
+n = 3
+# sign = 'pos'
+# sign = 'neg'
+sign = 'all'
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
+save_adj_larger_fold(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
+#%%
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_all_xcorr_larger_shuffled')
 if not os.path.exists(path):
   os.makedirs(path)
 G_shuffle_dict, peak_dict = load_significant_xcorr(path, weight=True)
 measure = 'xcorr'
-#%%
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-path = directory.replace('spiking_sequence', 'adj_mat_ccg_significant_corrected')
-if not os.path.exists(path):
-  os.makedirs(path)
-G_ccg_dict, peak_dict = load_significant_xcorr(path, weight=True)
-measure = 'ccg'
 #%%
 ############# load area_dict and average speed dataframe #################
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -2360,7 +2447,7 @@ neg_G_dict = get_lcc(neg_G_dict)
 print_stat(pos_G_dict)
 print_stat(neg_G_dict)
 # %%
-plot_stat(pos_G_dict, neg_G_dict, measure=measure)
+plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
 # %%
 region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure)
 region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure)
@@ -2384,31 +2471,162 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight=None
 # %%
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight='weight', cc=False)
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight='weight', cc=False)
+#%%
+measure = 'ccg'
+n = 3
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
+#%%
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_significant_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict, peak_dict = load_significant_xcorr(path, weight=True)
+measure = 'ccg'
 # %%
 G_ccg_dict = get_lcc(G_ccg_dict)
 # %%
 print_stat(G_ccg_dict)
 # %%
-plot_stat(G_ccg_dict, measure=measure)
+plot_stat(G_ccg_dict, n=n, measure=measure)
 # %%
 region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure)
 # %%
 weight = False
-region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, weight)
 # %%
 weight = True
-region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, weight)
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = False
+plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, cc=cc)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, cc=cc)
-plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, cc=cc)
-# cc = True
+plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, cc=cc)
 # %%
-plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight=None, cc=False)
-plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight=None, cc=False)
+plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, weight=None, cc=False)
 # %%
-plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight='weight', cc=False)
-plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, weight='weight', cc=False)
+#%%
+################ plot example significant ccg
+def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disable=False):
+  path = directory.replace(measure, measure+'_significant')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file and '719161530' in file:
+      print(file)
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      significant_peaks[:] = np.nan
+      total_len = len(list(itertools.permutations(range(num_nodes), 2)))
+      for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
+        if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+        # if np.max(np.abs(corr))
+          max_offset = np.argmax(ccg_corrected[:maxlag])
+          significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+          significant_peaks[row_a, row_b] = max_offset
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      np.random.shuffle(significant_inds)
+      fig = plt.figure(figsize=(5*3, 5*3))
+      for ind, (row_a, row_b) in enumerate(significant_inds[:9]):
+        ax = plt.subplot(3, 3, ind+1)
+        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
+        plt.axvline(x=significant_peaks[row_a, row_b], color='r', linestyle='--', alpha=0.9)
+        plt.plot(np.arange(window+1), ccg_corrected)
+        if ind % 3 == 0:
+          plt.ylabel('signigicant CCG corrected', size=20)
+        if ind // 3 == 3 - 1:
+          plt.xlabel('time lag (ms)', size=20)
+      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+      plt.savefig('./plots/sample_significant_ccg_{}fold_{}_{}.jpg'.format(n, mouseID, stimulus_name))
+
+measure = 'ccg'
+maxlag = 12
+n = 3
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+plot_example_ccg_n_fold(directory, measure, maxlag=maxlag, n=n, disable=True)
+# %%
+################ plot example significant xcorr
+def plot_example_xcorr_n_fold(directory, measure, maxlag=12, alpha=0.01, sign='all', n=7, window=100):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  num_baseline = adj_bl_temp.shape[2] # number of shuffles
+  k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if '_bl' not in file and '719161530' in file:
+      print(file)
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      all_xcorr = load_npz_3d(os.path.join(directory, file))
+      # import pdb;pdb.set_trace()
+      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
+      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
+      significant_adj_mat[:] = np.nan
+      significant_peaks[:] = np.nan
+      if sign == 'pos':
+        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+      elif sign == 'neg':
+        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+      elif sign == 'all':
+        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = np.logical_or(pos, neg)
+        pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+        neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+        fold = np.logical_or(pos_fold, neg_fold)
+      indx = np.logical_and(indx, fold)
+      if np.sum(indx):
+        significant_adj_mat[indx] = xcorr[indx]
+        significant_peaks[indx] = max_offset[indx]
+      significant_inds = list(zip(*np.where(~np.isnan(significant_adj_mat))))
+      np.random.shuffle(significant_inds)
+      fig = plt.figure(figsize=(5*3, 5*3))
+      for ind, (row_a, row_b) in enumerate(significant_inds[:9]):
+        ax = plt.subplot(3, 3, ind+1)
+        plt.axvline(x=significant_peaks[row_a, row_b], color='r', linestyle='--', alpha=0.9)
+        plt.plot(np.arange(window+1), all_xcorr[row_a, row_b, :])
+        if ind % 3 == 0:
+          plt.ylabel('signigicant xcorr', size=20)
+        if ind // 3 == 3 - 1:
+          plt.xlabel('time lag (ms)', size=20)
+      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+      plt.savefig('./plots/sample_significant_{}_{}_{}fold_{}_{}.jpg'.format(measure, sign, n, mouseID, stimulus_name))
+
+measure = 'xcorr'
+maxlag = 12
+alpha=0.01
+n = 0
+# sign = 'pos'
+sign = 'neg'
+# sign = 'all'
+window=100
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
+plot_example_xcorr_n_fold(directory, measure, maxlag=maxlag, alpha=alpha, sign=sign, n=n, window=window)
+# %%
