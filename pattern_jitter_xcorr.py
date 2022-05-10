@@ -25,6 +25,165 @@ from plfit import plfit
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
+class pattern_jitter():
+    def __init__(self, num_sample, sequences, L, R=None, memory=True):
+        super(pattern_jitter,self).__init__()
+        self.num_sample = num_sample
+        self.sequences = np.array(sequences)
+        if len(self.sequences.shape) > 1:
+            self.N, self.T = self.sequences.shape
+        else:
+            self.T = len(self.sequences)
+            self.N = None
+        self.L = L
+        self.memory = memory
+        if self.memory:
+            assert R is not None, 'R needs to be given if memory is True!'
+            self.R = R
+        else:
+            self.R = None
+
+    def spike_timing2train(self, spikeTrain):
+        if len(spikeTrain.shape) == 1:
+            spikeData = np.zeros(self.T)
+            spikeData[spikeTrain.astype(int)] = 1
+        else:
+            spikeData = np.zeros((spikeTrain.shape[0], self.T))
+            spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
+        return spikeData
+
+    def getSpikeTrain(self, spikeData):
+        if len(spikeData.shape) == 1:
+            spikeTrain = np.squeeze(np.where(spikeData>0)).ravel()
+        else:
+            spikeTrain = np.zeros((spikeData.shape[0], len(np.where(spikeData[0, :]>0)[0])))
+            for i in range(spikeData.shape[0]):
+                spikeTrain[i, :] = np.squeeze(np.where(spikeData[i, :]>0)).ravel()
+        return spikeTrain
+
+    def getInitDist(self):
+        initDist = np.random.rand(self.L)
+        return initDist/initDist.sum()
+
+    def getTransitionMatrices(self, num_spike):
+        tDistMatrices = np.zeros((num_spike - 1, self.L, self.L))
+        for i in range(tDistMatrices.shape[0]):
+            matrix = np.random.rand(self.L, self.L)
+            stochMatrix = matrix/matrix.sum(axis=1)[:,None]
+            tDistMatrices[i, :, :] = stochMatrix.astype('f')
+        return tDistMatrices
+
+    def getX1(self, jitter_window, initDist):
+        
+        randX = np.random.random()
+        ind = np.where(randX <= np.cumsum(initDist))[0][0]
+        return jitter_window[0][ind]
+
+    def initializeX(self, initX, Prob):
+        return initX + np.sum(Prob == 0)
+
+    def getOmega(self, spikeTrain):
+        Omega = []
+        n = spikeTrain.size
+        for i in range(n):
+            temp = spikeTrain[i] - np.ceil(self.L/2) + 1
+            temp = max(0, temp)
+            temp = min(temp, self.T - self.L)
+            Omega.append(np.arange(temp, temp + self.L, 1))
+        return Omega
+
+    def getGamma(self, spikeTrain):
+        Gamma = []
+        ks = [] # list of k_d
+        ks.append(0)
+        n = spikeTrain.size
+        temp = int(spikeTrain[ks[-1]]/self.L)*self.L
+        temp = max(0, temp)
+        temp = min(temp, self.T - self.L)
+        Gamma.append(np.arange(temp, temp + self.L, 1))
+        for i in range(1, n):
+            if spikeTrain[i] - spikeTrain[i-1] > self.R:
+                ks.append(i)
+            temp = int(spikeTrain[ks[-1]]/self.L)*self.L+spikeTrain[i]-spikeTrain[ks[-1]]
+            temp = max(0, temp)
+            temp = min(temp, self.T - self.L)
+            Gamma.append(np.arange(temp, temp + self.L, 1))
+        return Gamma
+
+    def getSurrogate(self, spikeTrain, initDist, tDistMatrices):
+        surrogate = []
+        if self.memory:
+            jitter_window = self.getGamma(spikeTrain)
+        else:
+            jitter_window = self.getOmega(spikeTrain)
+        givenX = self.getX1(jitter_window, initDist)
+        surrogate.append(givenX)
+        for i, row in enumerate(tDistMatrices):
+            if self.memory and spikeTrain[i+1] - spikeTrain[i] <= self.R:
+                givenX = surrogate[-1] + spikeTrain[i+1] - spikeTrain[i]
+            else:
+                index = np.where(np.array(jitter_window[i]) == givenX)[0]
+                p_i = np.squeeze(np.array(row[index]))
+                initX = self.initializeX(jitter_window[i + 1][0], p_i)
+                randX = np.random.random()
+                # safe way to find the ind
+                larger = np.where(randX <= np.cumsum(p_i))[0]
+                if larger.shape[0]:
+                    ind = larger[0]
+                else:
+                    ind = len(p_i) - 1
+                givenX = initX + np.sum(p_i[:ind]!=0)
+            givenX = min(self.T - 1, givenX) # possible same location
+            if givenX in surrogate:
+                locs = jitter_window[i + 1]
+                available_locs = [loc for loc in locs if loc not in surrogate]
+                givenX = np.random.choice(available_locs)
+            surrogate.append(givenX)
+        return surrogate
+
+    def sample_spiketrain(self, spikeTrain, initDist, tDistMatrices):
+        spikeTrainMat = np.zeros((self.num_sample, spikeTrain.size))
+        for i in tqdm(range(self.num_sample), disable=True):
+            surrogate = self.getSurrogate(spikeTrain, initDist, tDistMatrices)
+            spikeTrainMat[i, :] = surrogate
+        return spikeTrainMat
+
+    def jitter(self):
+        # num_sample x N x T
+        if self.N is not None:
+            jittered_seq = np.zeros((self.num_sample, self.N, self.T))
+            for n in range(self.N):
+                spikeTrain = self.getSpikeTrain(self.sequences[n, :])
+                num_spike = spikeTrain.size
+                if num_spike:
+                    initDist = self.getInitDist()
+                    tDistMatrices = self.getTransitionMatrices(num_spike)
+                    sampled_spiketrain = self.sample_spiketrain(spikeTrain, initDist, tDistMatrices)
+                    jittered_seq[:, n, :] = self.spike_timing2train(sampled_spiketrain)
+                else:
+                    jittered_seq[:, n, :] = np.zeros((self.T, self.num_sample))
+        else:
+            spikeTrain = self.getSpikeTrain(self.sequences)
+            num_spike = spikeTrain.size
+            initDist = self.getInitDist()
+            tDistMatrices = self.getTransitionMatrices(num_spike)
+            sampled_spiketrain = self.sample_spiketrain(spikeTrain, initDist, tDistMatrices)
+            jittered_seq = self.spike_timing2train(sampled_spiketrain).squeeze()
+        return jittered_seq
+
+def getSpikeTrain(spikeData):
+    spikeTrain = np.squeeze(np.where(spikeData>0))
+    return spikeTrain
+
+def spike_timing2train(T, spikeTrain):
+    if len(spikeTrain.shape) == 1:
+        spikeData = np.zeros(T)
+        spikeData[spikeTrain.astype(int)] = 1
+    else:
+        spikeData = np.zeros((spikeTrain.shape[0], T))
+        spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
+    return spikeData
+
 class CommunityLayout():
   def __init__(self):
     super(CommunityLayout,self).__init__()
@@ -331,6 +490,39 @@ def n_cross_correlation8(matrix, maxlag=12, window=100, disable=True): ### faste
     peak_offset[row_a, row_b] = max_offset
   return xcorr, peak_offset
 
+def ccg_2mat(matrix_a, matrix_b, maxlag=12, window=100, disable=True): ### CCG-mean of flank
+  if len(matrix_a.shape) >= 2:
+    N, M = matrix_a.shape
+    if len(matrix_b.shape) < 2:
+      matrix_b = np.tile(matrix_b, (N, 1))
+  else:
+    N, M = matrix_b.shape
+    matrix_a = np.tile(matrix_a, (N, 1))
+  firing_rates_a = np.count_nonzero(matrix_a, axis=1) / (matrix_a.shape[1]/1000) # Hz instead of kHz
+  firing_rates_b = np.count_nonzero(matrix_b, axis=1) / (matrix_b.shape[1]/1000)
+  ccg=np.zeros((2,2,N))
+  #### padding
+  mata_0 = np.concatenate((matrix_a.conj(), np.zeros((N, window))), axis=1)
+  mata_1 = np.concatenate((np.zeros((N, window)), matrix_a.conj(), np.zeros((N, window))), axis=1)
+  matb_0 = np.concatenate((matrix_b.conj(), np.zeros((N, window))), axis=1)
+  matb_1 = np.concatenate((np.zeros((N, window)), matrix_b.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
+  for row in tqdm(range(N), total=N, miniters=int(N/100), disable=disable): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = mata_0[row, :], matb_1[row, :]
+    T = as_strided(py[window:], shape=(window+1, M + window),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+    corr = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates_a[row] * firing_rates_b[row]))
+    corr = (corr - corr.mean())[:maxlag]
+    ccg[0, 1, row] = corr[np.argmax(np.abs(corr))]
+    px, py = matb_0[row, :], mata_1[row, :]
+    T = as_strided(py[window:], shape=(window+1, M + window),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+    # corr = np.dot(T, px)
+    corr = T @ px
+    corr = (corr - corr.mean())[:maxlag]
+    ccg[1, 0, row] = corr[np.argmax(np.abs(corr))]
+  return ccg
+
 def n_cross_correlation8_2mat(matrix_a, matrix_b, maxlag=12, window=100, disable=True): ### CCG-mean of flank
   if len(matrix_a.shape) >= 2:
     N, M = matrix_a.shape
@@ -635,7 +827,7 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname)
 
-def region_connection_heatmap(G_dict, sign, area_dict, regions, measure):
+def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
   rows, cols = get_rowcol(G_dict)
   scale = np.zeros(len(rows))
   region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
@@ -691,9 +883,9 @@ def region_connection_heatmap(G_dict, sign, area_dict, regions, measure):
       sns_plot.invert_yaxis()
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/region_connection_scale_{}_{}.jpg'.format(sign, measure))
+  plt.savefig('./plots/region_connection_scale_{}_{}_{}fold.jpg'.format(sign, measure, n))
 
-def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, weight):
+def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n, weight):
   rows, cols = get_rowcol(G_dict)
   cols.remove('spontaneous')
   scale_min = np.zeros(len(rows))
@@ -722,7 +914,7 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, w
               # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
     for col_ind, col in enumerate(cols):
       G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
-      if G.number_of_nodes() > 100 and G.number_of_edges() > 100:
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         nodes = list(G.nodes())
         active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
         A = nx.adjacency_matrix(G)
@@ -768,11 +960,11 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, w
       sns_plot.set_yticklabels(regions, rotation=0)
       sns_plot.invert_yaxis()
   plt.tight_layout()
-  figname = './plots/region_connection_delta_weighted_{}_{}.jpg'.format(sign, measure) if weight else './plots/region_connection_delta_{}_{}.jpg'.format(sign, measure)
+  figname = './plots/region_connection_delta_weighted_{}_{}_{}fold.jpg'.format(sign, measure, n) if weight else './plots/region_connection_delta_{}_{}_{}.jpg'.format(sign, measure, n)
   plt.savefig(figname)
   # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
-def plot_multi_graphs_color(G_dict, sign, area_dict, measure, cc=False):
+def plot_multi_graphs_color(G_dict, sign, area_dict, measure, n, cc=False):
   com = CommunityLayout()
   ind = 1
   rows, cols = get_rowcol(G_dict)
@@ -837,7 +1029,7 @@ def plot_multi_graphs_color(G_dict, sign, area_dict, measure, cc=False):
   for handle in legend.legendHandles:
     handle.set_sizes([60.0])
   plt.tight_layout()
-  image_name = './plots/graphs_region_color_cc_{}_{}.jpg'.format(sign, measure) if cc else './plots/graphs_region_color_{}_{}.jpg'.format(sign, measure)
+  image_name = './plots/graphs_region_color_cc_{}_{}_{}fold.jpg'.format(sign, measure, n) if cc else './plots/graphs_region_color_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
   # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
@@ -866,7 +1058,7 @@ def degree_histogram_directed(G, type='in_degree', weight=None):
       deg_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
     return deg_seq, freq
 
-def plot_directed_multi_degree_distributions(G_dict, sign, measure, weight=None, cc=False):
+def plot_directed_multi_degree_distributions(G_dict, sign, measure, n, weight=None, cc=False):
   ind = 1
   rows, cols = get_rowcol(G_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -912,7 +1104,7 @@ def plot_directed_multi_degree_distributions(G_dict, sign, measure, weight=None,
         plt.yscale('log')
       
   plt.tight_layout()
-  image_name = './plots/directed_degree_distribution_weighted_{}_{}.jpg'.format(sign, measure) if weight is not None else './plots/directed_degree_distribution_unweighted_{}_{}.jpg'.format(sign, measure)
+  image_name = './plots/directed_degree_distribution_weighted_{}_{}_{}fold.jpg'.format(sign, measure, n) if weight is not None else './plots/directed_degree_distribution_unweighted_{}_{}_{}fold.jpg'.format(sign, measure, n)
   # plt.show()
   plt.savefig(image_name, dpi=300)
   # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
@@ -954,7 +1146,7 @@ def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False)
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file and '719161530' in file:
+    if '_bl' not in file:
       print(file)
       # adj_mat_ds = np.load(os.path.join(directory, file))
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
@@ -995,7 +1187,7 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
   num_baseline = adj_bl_temp.shape[2] # number of shuffles
   k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
   for file in files:
-    if ('_bl' not in file) and ('_peak' not in file) and ('719161530' in file):
+    if ('_bl' not in file) and ('_peak' not in file):
       print(file)
       # adj_mat_ds = np.load(os.path.join(directory, file))
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
@@ -1005,23 +1197,25 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
       max_offset = np.argmax(np.abs(corr), -1)
       xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
       xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      all_xcorr = all_xcorr - xcorr_bl
       significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
       significant_adj_mat[:] = np.nan
       significant_peaks[:] = np.nan
       if sign == 'pos':
-        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        # indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
         fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
       elif sign == 'neg':
-        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        # indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
         fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
       elif sign == 'all':
-        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
-        indx = np.logical_or(pos, neg)
+        # pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        # neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        # indx = np.logical_or(pos, neg)
         pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
         neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
         fold = np.logical_or(pos_fold, neg_fold)
-      indx = np.logical_and(indx, fold)
+      # indx = np.logical_and(indx, fold)
+      indx = fold
       if np.sum(indx):
         significant_adj_mat[indx] = xcorr[indx]
         significant_peaks[indx] = max_offset[indx]
@@ -1091,6 +1285,33 @@ seq = sequences[active_inds].copy()
 #   adj_mat = corr_mat(seq, measure)
 #   origin_adj_mat_bl[:, :, b] = adj_mat
 #%%
+
+def corr_pattern_jitter(sequences, active_inds, Ls, Rs, num_sample, jitter_type='A'):
+  if jitter_type == 'A':
+    seq_2jitter = sequences[active_inds[0]]
+  elif jitter_type == 'B':
+    seq_2jitter = sequences[active_inds[1]]
+  else:
+    seq_2jitter = sequences[active_inds]
+  pj = pattern_jitter(num_sample=num_sample, sequences=seq_2jitter, L=1, R=1, memory=True)
+  for L_ind, L in enumerate(Ls):
+    pj.L = L
+    for R_ind, R in enumerate(Rs):
+      pj.R = R
+      jittered_seq = pj.jitter()
+      if jitter_type == 'A':
+        mat_a, mat_b = jittered_seq, sequences[active_inds[1]]
+      elif jitter_type == 'B':
+        mat_a, mat_b = sequences[active_inds[0]], jittered_seq
+      else:
+        mat_a, mat_b = sequences[active_inds[0]], jittered_seq
+      all_adj_mat_A[:, :, :, L_ind, R_ind] = ccg_2mat(mat_a, mat_b)
+      for i in range(num_sample):
+        sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
+        adj_mat, peak_offset = corr_mat(sample_seq, measure, maxlag=12)
+        all_adj_mat_A[:, :, i, L_ind, R_ind] = adj_mat
+        all_peak_off_A[:, :, i, L_ind, R_ind] = peak_offset
+
 start_time = time.time()
 start_time_A = start_time
 print('Sampling neuron A...')
@@ -1751,7 +1972,7 @@ def plot_multi_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
 plot_multi_corr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict, 'cross')
 plot_multi_corr_FR(session_ids, stimulus_names, peak_dict, bin_dict, 'peakoffset')
 # %%
-def plot_multi_peak_dist(peak_dict, measure):
+def plot_multi_peak_dist(peak_dict, n, measure):
   ind = 1
   rows, cols = get_rowcol(peak_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -1775,18 +1996,17 @@ def plot_multi_peak_dist(peak_dict, measure):
       ind += 1
       peaks = peak_dict[row][col]
       plt.hist(peaks.flatten(), bins=12, density=True)
-      plt.axvline(x=peaks.mean(), color='r', linestyle='--')
+      plt.axvline(x=np.nanmean(peaks), color='r', linestyle='--')
       # plt.text(peaks.mean(), peaks.max()/2, "mean={}".format(peaks.mean()), rotation=0, verticalalignment='center')
-      plt.plot()
       plt.xlabel('peak correlation offset (ms)')
-      plt.ylabel('Probabilit')
+      plt.ylabel('Probability')
       
   plt.tight_layout()
-  image_name = './plots/peak_distribution.jpg'
+  image_name = './plots/peak_distribution_{}_{}fold.jpg'.format(measure, n)
   # plt.show()
   plt.savefig(image_name)
 # plot_multi_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
-plot_multi_peak_dist(peak_dict, measure)
+# plot_multi_peak_dist(peak_dict, measure)
 #%%
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
@@ -2408,19 +2628,12 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 measure = 'xcorr'
 maxlag = 12
 alpha = 0.01
-n = 3
+n = 4
 # sign = 'pos'
 # sign = 'neg'
 sign = 'all'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
 save_adj_larger_fold(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
-#%%
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-path = directory.replace('spiking_sequence', 'adj_mat_all_xcorr_larger_shuffled')
-if not os.path.exists(path):
-  os.makedirs(path)
-G_shuffle_dict, peak_dict = load_significant_xcorr(path, weight=True)
-measure = 'xcorr'
 #%%
 ############# load area_dict and average speed dataframe #################
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
@@ -2436,6 +2649,13 @@ int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
 area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
 a_file.close()
 mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+#%%
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_{}_xcorr_larger_shuffled'.format(sign))
+if not os.path.exists(path):
+  os.makedirs(path)
+G_shuffle_dict, peak_dict = load_significant_xcorr(path, weight=True)
+measure = 'xcorr'
 # %%
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_shuffle_dict, measure=measure)
@@ -2449,28 +2669,28 @@ print_stat(neg_G_dict)
 # %%
 plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
 # %%
-region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure)
-region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure)
+region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
+region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
 # %%
 weight = False
-region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
 # %%
 weight = True
-region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, cc=cc)
-plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, cc=cc)
+plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, n, cc=cc)
 # cc = True
 # %%
-plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight=None, cc=False)
-plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight=None, cc=False)
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=None, cc=False)
 # %%
-plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, weight='weight', cc=False)
-plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 #%%
 measure = 'ccg'
 n = 3
@@ -2490,25 +2710,25 @@ print_stat(G_ccg_dict)
 # %%
 plot_stat(G_ccg_dict, n=n, measure=measure)
 # %%
-region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure)
+region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n)
 # %%
 weight = False
-region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
 # %%
 weight = True
-region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, weight)
+region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = False
-plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
 # %%
-plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, weight=None, cc=False)
+plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight=None, cc=False)
 # %%
-plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight='weight', cc=False)
 #%%
 ################ plot example significant ccg
 def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disable=False):
@@ -2518,7 +2738,7 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file and '719161530' in file:
+    if '_bl' not in file:
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
@@ -2573,35 +2793,35 @@ def plot_example_xcorr_n_fold(directory, measure, maxlag=12, alpha=0.01, sign='a
   num_baseline = adj_bl_temp.shape[2] # number of shuffles
   k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
   for file in files:
-    if '_bl' not in file and '719161530' in file:
+    if '_bl' not in file:
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      # adj_mat_ds = np.load(os.path.join(directory, file))
-      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
       all_xcorr = load_npz_3d(os.path.join(directory, file))
       # import pdb;pdb.set_trace()
       corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
       max_offset = np.argmax(np.abs(corr), -1)
       xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
       xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      all_xcorr = all_xcorr - xcorr_bl
       significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
       significant_adj_mat[:] = np.nan
       significant_peaks[:] = np.nan
       if sign == 'pos':
-        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        # indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
         fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
       elif sign == 'neg':
-        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        # indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
         fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
       elif sign == 'all':
-        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
-        indx = np.logical_or(pos, neg)
+        # pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        # neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        # indx = np.logical_or(pos, neg)
         pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
         neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
         fold = np.logical_or(pos_fold, neg_fold)
-      indx = np.logical_and(indx, fold)
+      # indx = np.logical_and(indx, fold)
+      indx = fold
       if np.sum(indx):
         significant_adj_mat[indx] = xcorr[indx]
         significant_peaks[indx] = max_offset[indx]
@@ -2622,11 +2842,33 @@ def plot_example_xcorr_n_fold(directory, measure, maxlag=12, alpha=0.01, sign='a
 measure = 'xcorr'
 maxlag = 12
 alpha=0.01
-n = 0
+n = 3
 # sign = 'pos'
 sign = 'neg'
 # sign = 'all'
 window=100
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
 plot_example_xcorr_n_fold(directory, measure, maxlag=maxlag, alpha=alpha, sign=sign, n=n, window=window)
+# %%
+plot_multi_peak_dist(peak_dict, n, measure)
+# %%
+def plot_multi_peak(peak_dict, n, measure):
+  ind = 1
+  rows, cols = get_rowcol(peak_dict)
+  fig = plt.figure(figsize=(6, 6))
+  
+  for row in rows:
+    peak_mean, peak_std = np.zeros(len(cols)), np.zeros(len(cols))
+    for col_ind, col in enumerate(cols):
+      peak_mean[col_ind] = np.nanmean(peak_dict[row][col])
+      peak_std[col_ind] = np.nanstd(peak_dict[row][col])
+    plt.plot(cols, peak_mean, alpha=0.6, label=row)
+    plt.fill_between(cols, peak_mean - peak_std, peak_mean + peak_std, alpha=0.2)
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  plt.savefig('./plots/peak_stimulus_{}_{}fold'.format(measure, n))
+  plt.show()
+
+plot_multi_peak(peak_dict, n, measure)
 # %%
