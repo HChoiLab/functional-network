@@ -1321,13 +1321,14 @@ directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 files = os.listdir(directory)
 files = [f for f in files if f.endswith('.npz')]
 files.sort(key=lambda x:int(x[:9]))
-num_sample = 10
+num_sample = 1000
 num_baseline = 1
 # Ls = list(np.arange(2, 101))
 Ls = list(np.arange(1, 51, 2)) # L should be larger than 1 and odd
 # Ls = list(np.arange(3, 101, 2)) # L should be larger than 1 and odd
 Rs = [1, 100, 200, 300, 400, 500]
-file = files[0] # 0, 2, 7
+file_order = int(sys.argv[1])
+file = files[file_order]
 start_time_mouse = time.time()
 print(file)
 mouseID = file.replace('.npz', '').split('_')[0]
@@ -1373,6 +1374,7 @@ def ccg_pattern_jitter(sequences, active_inds, Ls, Rs, num_sample, jitter_type='
     seq_2jitter = sequences[active_inds]
   pj = pattern_jitter(num_sample=num_sample, sequences=seq_2jitter, L=1, R=1, memory=True)
   for L_ind, L in enumerate(Ls):
+    print(L)
     pj.L = L
     for R_ind, R in enumerate(Rs):
       pj.R = R
@@ -1408,7 +1410,7 @@ print("--- %s minutes" % ((time.time() - start_time_both)/60))
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 #%%
 ############## one pair of neurons, significant xcorr vs L and R
-def plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, Rs, measure):
+def plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, Rs, measure, mouseID, stimulus):
   plt.figure(figsize=(20, 12))
   all_mat = [all_adj_mat_A, all_adj_mat_B, all_adj_mat]
   titles = ['Pattern jittering neuron A', 'Pattern jittering neuron B', 'Pattern jittering neurons A and B']
@@ -1427,12 +1429,13 @@ def plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R
     plt.xlabel('jitter window size L', fontsize=15)
     plt.ylabel(measure, fontsize=15)
     plt.legend()
+  plt.suptitle(mouseID + ', ' + stimulus, size=30)
   plt.tight_layout()
   # plt.show()
-  figname = './plots/{}_vs_LR_{}.jpg'.format(measure, measure)
+  figname = './plots/{}_vs_LR_{}_{}.jpg'.format(measure, mouseID, stimulus)
   plt.savefig(figname)
 
-plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, Rs, measure)
+plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, Rs, measure, mouseID, stimulus)
 #%%
 # start_time = time.time()
 # start_time_A = start_time
