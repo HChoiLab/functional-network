@@ -1305,6 +1305,7 @@ seq = sequences[active_inds].copy()
 #   adj_mat = corr_mat(seq, measure)
 #   origin_adj_mat_bl[:, :, b] = adj_mat
 #%%
+############################## effect of pattern jitter on CCG
 np.seterr(divide='ignore', invalid='ignore')
 ############# save correlation matrices #################
 # min_len, min_num = (260000, 739)
@@ -1356,7 +1357,7 @@ def ccg_significant_inds(directory, mouseID, stimulus, maxlag=12, n=7, disable=F
   return deviation_dict
 
 measure = 'ccg'
-n = 4
+n = 5
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 deviation_dict  =ccg_significant_inds(directory, mouseID, stimulus, maxlag=12, n=n, disable=True)
 active_inds = deviation_dict[0][1]
