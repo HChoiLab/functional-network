@@ -1244,6 +1244,77 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
       save_npz(significant_adj_mat, os.path.join(path, file))
       save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
 
+def all_xcorr(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  N, M =matrix.shape
+  # xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
+  xcorr=np.empty((N,N,window+1))
+  xcorr[:] = np.nan
+  firing_rates = np.count_nonzero(matrix, axis=1) / matrix.shape[1]
+  #### padding
+  norm_mata = np.concatenate((matrix.conj(), np.zeros((N, window))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, window)), matrix.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[window:], shape=(window+1, M + window),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+    xcorr[row_a, row_b, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+  return xcorr
+
+def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  xcorr = all_xcorr(sequences, window, disable=disable) # N x N x window
+  save_sparse_npz(xcorr, fname)
+  N = sequences.shape[0]
+  # jitter
+  xcorr_jittered = np.zeros((N, N, window+1)) # , num_jitter, to save memory
+  pj = pattern_jitter(num_sample=num_jitter, sequences=sequences, L=L, memory=False)
+  sampled_matrix = pj.jitter() # num_sample x N x T
+  for i in range(num_jitter):
+    print(i)
+    xcorr_jittered += all_xcorr(sampled_matrix[i, :, :], window, disable=disable)
+  xcorr_jittered = xcorr_jittered / num_jitter
+  save_sparse_npz(xcorr_jittered, fname.replace('.npz', '_bl.npz'))
+
+def all_n_cross_correlation8(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  N, M =matrix.shape
+  # xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
+  xcorr=np.empty((N,N,window+1))
+  xcorr[:] = np.nan
+  norm_mata = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  norm_matb = np.nan_to_num((matrix-np.mean(matrix, axis=1).reshape(-1, 1))/(np.std(matrix, axis=1).reshape(-1, 1)*np.sqrt(M)))
+  #### padding
+  norm_mata = np.concatenate((norm_mata.conj(), np.zeros((N, window))), axis=1)
+  norm_matb = np.concatenate((np.zeros((N, window)), norm_matb.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
+  total_len = len(list(itertools.permutations(range(N), 2)))
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+  # for ind, (row_a, row_b) in enumerate(itertools.permutations(range(N), 2)): # , miniters=int(total_len/100)
+    # faulthandler.enable()
+    px, py = norm_mata[row_a, :], norm_matb[row_b, :]
+    T = as_strided(py[window:], shape=(window+1, M + window),
+                    strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
+    xcorr[row_a, row_b, :] = T @ px
+  return xcorr
+
+def save_xcorr_shuffled(sequences, fname, window=100, num_baseline=10, disable=True):
+  N = sequences.shape[0]
+  xcorr_bl = np.zeros((N, N, window+1))
+  xcorr = all_n_cross_correlation8(sequences, disable=disable)
+  save_npz(xcorr, fname)
+  for b in range(num_baseline):
+    print(b)
+    sample_seq = sequences.copy()
+    np.random.shuffle(sample_seq) # rowwise for 2d array
+    xcorr_bl += all_n_cross_correlation8(sample_seq, disable=disable)
+  xcorr_bl = xcorr_bl / num_baseline
+  save_npz(xcorr_bl, fname.replace('.npz', '_bl.npz'))
+
+def concatenate_trial(sequences, min_duration=250, min_len=10000):
+  num_neuron, num_trial, T = sequences.shape
+  if num_trial < np.ceil(min_len / min_duration):
+    duration = int(np.ceil(min_len / num_trial)) # > min_duration
+  else:
+    duration = T # enough trials, <= min_duration
+  return sequences[:, :, :duration].reshape(num_neuron, -1)
 #%%
 ################### effect of pattern jitter on cross correlation
 ####### turn off warnings
@@ -2997,3 +3068,63 @@ def plot_multi_peak(peak_dict, n, measure):
 
 plot_multi_peak(peak_dict, n, measure)
 # %%
+############## calculate ccg and save
+np.seterr(divide='ignore', invalid='ignore')
+############# save correlation matrices #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_duration = 250
+min_fre = 0.002 # 2 Hz
+min_spikes = min_len * min_fre
+measure = 'ccg'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+num_baseline = 100
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+if not os.path.exists(path):
+  os.makedirs(path)
+file_order = int(sys.argv[1])
+file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+print(file)
+# sequences = load_npz(os.path.join(directory, file))
+sequences = load_npz_3d(os.path.join(directory, file))
+sequences = concatenate_trial(sequences, min_duration, min_len)
+sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+fname = os.path.join(path, file)
+start_time = time.time()
+save_ccg_corrected(sequences=sequences, fname=fname, num_jitter=num_baseline, L=25, window=100, disable=False)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+############## calculate xcorr and save
+start_time = time.time()
+np.seterr(divide='ignore', invalid='ignore')
+############# save correlation matrices #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_duration = 250
+min_fre = 0.002 # 2 Hz
+min_spikes = min_len * min_fre
+measure = 'xcorr'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+num_baseline = 100
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+if not os.path.exists(path):
+  os.makedirs(path)
+file_order = int(sys.argv[1])
+file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+print(file)
+# sequences = load_npz(os.path.join(directory, file))
+sequences = load_npz_3d(os.path.join(directory, file))
+sequences = concatenate_trial(sequences, min_duration, min_len)
+sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+fname = os.path.join(path, file)
+start_time = time.time()
+save_xcorr_shuffled(sequences=sequences, fname=fname, window=100, num_baseline=num_baseline, disable=False)
+print("--- %s minutes" % ((time.time() - start_time)/60))
