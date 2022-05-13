@@ -2889,7 +2889,7 @@ plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 #%%
 measure = 'ccg'
-n = 3
+n = 5
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
 #%%
@@ -2977,7 +2977,7 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
 
 measure = 'ccg'
 maxlag = 12
-n = 3
+n = 5
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 plot_example_ccg_n_fold(directory, measure, maxlag=maxlag, n=n, disable=True)
 # %%
@@ -3045,6 +3045,63 @@ sign = 'neg'
 window=100
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
 plot_example_xcorr_n_fold(directory, measure, maxlag=maxlag, alpha=alpha, sign=sign, n=n, window=window)
+#%%
+#%%
+################ plot whole connectivity matrix
+def plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure, maxlag=12):
+  ind = 1
+  fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, mouseID in enumerate(mouseIDs):
+    print(mouseID)
+    for col_ind, stimulus_name in enumerate(stimulus_names):
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
+      num_nodes = ccg.shape[0]
+      ccg_corrected = ccg - ccg_jittered
+      ccg_corrected = ccg_corrected[:, :, :maxlag].max(-1)
+      plt.subplot(len(mouseIDs), len(stimulus_names), ind)
+      if row_ind == 0:
+        plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap(ccg_corrected.astype(float),center=0,cmap="RdBu_r")# cmap="YlGnBu"
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+      # sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      # sns_plot.set_xticklabels(regions, rotation=90)
+      # sns_plot.set_yticks(np.arange(len(regions))+0.5)
+      # sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+  plt.tight_layout()
+  plt.show()
+
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662]
+measure = 'ccg'
+maxlag = 12
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure)
+
 # %%
 plot_multi_peak_dist(peak_dict, n, measure)
 # %%
@@ -3128,3 +3185,152 @@ fname = os.path.join(path, file)
 start_time = time.time()
 save_xcorr_shuffled(sequences=sequences, fname=fname, window=100, num_baseline=num_baseline, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+##################### plot spike trains
+min_len, min_num = (10000, 29)
+min_duration = 250
+min_fre = 0.002 # 2 Hz
+min_spikes = min_len * min_fre
+measure = 'ccg'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+num_baseline = 100
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+if not os.path.exists(path):
+  os.makedirs(path)
+file_order = 3
+file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+print(file)
+# sequences = load_npz(os.path.join(directory, file))
+sequences = load_npz_3d(os.path.join(directory, file))
+sequences = concatenate_trial(sequences, min_duration, min_len)
+sequences = sequences[:, :min_len]
+# %%
+def unique(l):
+  u, ind = np.unique(l, return_index=True)
+  return list(u[np.argsort(ind)])
+
+mouse_id, stimulus_id = 0, 3
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+areas = list(area_dict[str(session_ids[mouse_id])].values())
+areas_uniq = unique(areas)
+areas_num = [(np.array(areas)==a).sum() for a in areas_uniq]
+areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+sequence_by_area = {a:[name for name, age in area_dict[str(session_ids[mouse_id])].items() if age == a] for a in areas_uniq}
+# %%
+sorted_sample_seq = np.vstack([sequences[sequence_by_area[a], :8000] for a in areas_uniq])
+spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :8000]] # divided by 1000 cuz bin size is 1 ms
+colors1 = [customPalette[i] for i in sum([[areas_uniq.index(a)] * areas_num[areas_uniq.index(a)] for a in areas_uniq], [])]
+uniq_colors = unique(colors1)
+text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+colors2 = 'black'
+lineoffsets2 = 1
+linelengths2 = 2
+# create a horizontal plot
+fig = plt.figure(figsize=(10, 16))
+plt.eventplot(spike_pos, colors=colors1, lineoffsets=lineoffsets2,
+                    linewidths=2, linelengths=2)
+for ind, t_pos in enumerate(text_pos):
+  plt.text(-1.2, t_pos, areas_uniq[ind], size=20, color=uniq_colors[ind], weight='bold')
+plt.axis('off')
+plt.gca().invert_yaxis()
+plt.tight_layout()
+# plt.show()
+# plt.savefig('./plots/raster.jpg')
+# plt.show()
+plt.savefig('./plots/raster.jpg')
+# %%
+############### plot average response
+matrix = load_npz_3d(os.path.join(directory, file))
+mouseID = file.split('_')[0]
+stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+print(matrix.shape)
+mean_matrix = matrix.mean(axis=2)
+print(mean_matrix.shape)
+#%%
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+ind = 1
+for row_ind, mouseID in enumerate(mouseIDs):
+  print(mouseID)
+  for col_ind, stimulus_name in enumerate(stimulus_names):
+    # adj_mat_ds = np.load(os.path.join(directory, file))
+    # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+    matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+    matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+    # print(matrix.shape)
+    mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+    print(mean_matrix.shape)
+    plt.subplot(len(mouseIDs), len(stimulus_names), ind)
+    if row_ind == 0:
+      plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=20, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    plt.plot(mean_matrix[:150], alpha=1)
+    plt.xlabel('time after stimulus onset (ms)')
+    plt.ylabel('average number of spikes')
+plt.tight_layout()
+plt.savefig('./plots/average_response_shorter.jpg')
+# %%
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+ind = 1
+for row_ind, mouseID in enumerate(mouseIDs):
+  print(mouseID)
+  for col_ind, stimulus_name in enumerate(stimulus_names):
+    # adj_mat_ds = np.load(os.path.join(directory, file))
+    # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+    matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+    matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+    # print(matrix.shape)
+    mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+    print(mean_matrix.shape)
+    plt.subplot(len(mouseIDs), len(stimulus_names), ind)
+    if row_ind == 0:
+      plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=20, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    plt.plot(mean_matrix[:300], alpha=1)
+    plt.ylim(0.0015, 0.013)
+    plt.xlabel('time after stimulus onset (ms)')
+    plt.ylabel('average number of spikes')
+plt.tight_layout()
+plt.savefig('./plots/average_response_scale.jpg')
+# %%
