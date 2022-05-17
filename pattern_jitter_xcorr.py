@@ -1,427 +1,5 @@
 # %%
-from turtle import window_height
-import numpy as np
-import numpy.ma as ma
-import pandas as pd
-import os
-import itertools
-from scipy.stats import shapiro
-from scipy.stats import normaltest
-from tqdm import tqdm
-import pickle
-from scipy import sparse
-import time
-import sys
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from matplotlib import colors
-import statsmodels.stats.weightstats as ws
-import networkx as nx
-import community
-import seaborn as sns
-from numpy.lib.stride_tricks import as_strided
-from scipy.ndimage.filters import uniform_filter1d
-from plfit import plfit
-
-customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
-
-class pattern_jitter():
-    def __init__(self, num_sample, sequences, L, R=None, memory=True):
-        super(pattern_jitter,self).__init__()
-        self.num_sample = num_sample
-        self.sequences = np.array(sequences)
-        if len(self.sequences.shape) > 1:
-            self.N, self.T = self.sequences.shape
-        else:
-            self.T = len(self.sequences)
-            self.N = None
-        self.L = L
-        self.memory = memory
-        if self.memory:
-            assert R is not None, 'R needs to be given if memory is True!'
-            self.R = R
-        else:
-            self.R = None
-
-    def spike_timing2train(self, spikeTrain):
-        if len(spikeTrain.shape) == 1:
-            spikeData = np.zeros(self.T)
-            spikeData[spikeTrain.astype(int)] = 1
-        else:
-            spikeData = np.zeros((spikeTrain.shape[0], self.T))
-            spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
-        return spikeData
-
-    def getSpikeTrain(self, spikeData):
-        if len(spikeData.shape) == 1:
-            spikeTrain = np.squeeze(np.where(spikeData>0)).ravel()
-        else:
-            spikeTrain = np.zeros((spikeData.shape[0], len(np.where(spikeData[0, :]>0)[0])))
-            for i in range(spikeData.shape[0]):
-                spikeTrain[i, :] = np.squeeze(np.where(spikeData[i, :]>0)).ravel()
-        return spikeTrain
-
-    def getInitDist(self):
-        initDist = np.random.rand(self.L)
-        return initDist/initDist.sum()
-
-    def getTransitionMatrices(self, num_spike):
-        tDistMatrices = np.zeros((num_spike - 1, self.L, self.L))
-        for i in range(tDistMatrices.shape[0]):
-            matrix = np.random.rand(self.L, self.L)
-            stochMatrix = matrix/matrix.sum(axis=1)[:,None]
-            tDistMatrices[i, :, :] = stochMatrix.astype('f')
-        return tDistMatrices
-
-    def getX1(self, jitter_window, initDist):
-        
-        randX = np.random.random()
-        ind = np.where(randX <= np.cumsum(initDist))[0][0]
-        return jitter_window[0][ind]
-
-    def initializeX(self, initX, Prob):
-        return initX + np.sum(Prob == 0)
-
-    def getOmega(self, spikeTrain):
-        Omega = []
-        n = spikeTrain.size
-        for i in range(n):
-            temp = spikeTrain[i] - np.ceil(self.L/2) + 1
-            temp = max(0, temp)
-            temp = min(temp, self.T - self.L)
-            Omega.append(np.arange(temp, temp + self.L, 1))
-        return Omega
-
-    def getGamma(self, spikeTrain):
-        Gamma = []
-        ks = [] # list of k_d
-        ks.append(0)
-        n = spikeTrain.size
-        temp = int(spikeTrain[ks[-1]]/self.L)*self.L
-        temp = max(0, temp)
-        temp = min(temp, self.T - self.L)
-        Gamma.append(np.arange(temp, temp + self.L, 1))
-        for i in range(1, n):
-            if spikeTrain[i] - spikeTrain[i-1] > self.R:
-                ks.append(i)
-            temp = int(spikeTrain[ks[-1]]/self.L)*self.L+spikeTrain[i]-spikeTrain[ks[-1]]
-            temp = max(0, temp)
-            temp = min(temp, self.T - self.L)
-            Gamma.append(np.arange(temp, temp + self.L, 1))
-        return Gamma
-
-    def getSurrogate(self, spikeTrain, initDist, tDistMatrices):
-        surrogate = []
-        if self.memory:
-            jitter_window = self.getGamma(spikeTrain)
-        else:
-            jitter_window = self.getOmega(spikeTrain)
-        givenX = self.getX1(jitter_window, initDist)
-        surrogate.append(givenX)
-        for i, row in enumerate(tDistMatrices):
-            if self.memory and spikeTrain[i+1] - spikeTrain[i] <= self.R:
-                givenX = surrogate[-1] + spikeTrain[i+1] - spikeTrain[i]
-            else:
-                index = np.where(np.array(jitter_window[i]) == givenX)[0]
-                p_i = np.squeeze(np.array(row[index]))
-                initX = self.initializeX(jitter_window[i + 1][0], p_i)
-                randX = np.random.random()
-                # safe way to find the ind
-                larger = np.where(randX <= np.cumsum(p_i))[0]
-                if larger.shape[0]:
-                    ind = larger[0]
-                else:
-                    ind = len(p_i) - 1
-                givenX = initX + np.sum(p_i[:ind]!=0)
-            givenX = min(self.T - 1, givenX) # possible same location
-            if givenX in surrogate:
-                locs = jitter_window[i + 1]
-                available_locs = [loc for loc in locs if loc not in surrogate]
-                givenX = np.random.choice(available_locs)
-            surrogate.append(givenX)
-        return surrogate
-
-    def sample_spiketrain(self, spikeTrain, initDist, tDistMatrices):
-        spikeTrainMat = np.zeros((self.num_sample, spikeTrain.size))
-        for i in tqdm(range(self.num_sample), disable=True):
-            surrogate = self.getSurrogate(spikeTrain, initDist, tDistMatrices)
-            spikeTrainMat[i, :] = surrogate
-        return spikeTrainMat
-
-    def jitter(self):
-        # num_sample x N x T
-        if self.N is not None:
-            jittered_seq = np.zeros((self.num_sample, self.N, self.T))
-            for n in range(self.N):
-                spikeTrain = self.getSpikeTrain(self.sequences[n, :])
-                num_spike = spikeTrain.size
-                if num_spike:
-                    initDist = self.getInitDist()
-                    tDistMatrices = self.getTransitionMatrices(num_spike)
-                    sampled_spiketrain = self.sample_spiketrain(spikeTrain, initDist, tDistMatrices)
-                    jittered_seq[:, n, :] = self.spike_timing2train(sampled_spiketrain)
-                else:
-                    jittered_seq[:, n, :] = np.zeros((self.T, self.num_sample))
-        else:
-            spikeTrain = self.getSpikeTrain(self.sequences)
-            num_spike = spikeTrain.size
-            initDist = self.getInitDist()
-            tDistMatrices = self.getTransitionMatrices(num_spike)
-            sampled_spiketrain = self.sample_spiketrain(spikeTrain, initDist, tDistMatrices)
-            jittered_seq = self.spike_timing2train(sampled_spiketrain).squeeze()
-        return jittered_seq
-
-def getSpikeTrain(spikeData):
-    spikeTrain = np.squeeze(np.where(spikeData>0))
-    return spikeTrain
-
-def spike_timing2train(T, spikeTrain):
-    if len(spikeTrain.shape) == 1:
-        spikeData = np.zeros(T)
-        spikeData[spikeTrain.astype(int)] = 1
-    else:
-        spikeData = np.zeros((spikeTrain.shape[0], T))
-        spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
-    return spikeData
-
-class CommunityLayout():
-  def __init__(self):
-    super(CommunityLayout,self).__init__()
-  def get_community_layout(self, g, partition):
-    """
-    Compute the layout for a modular graph.
-    Arguments:
-    ----------
-    g -- networkx.Graph or networkx.DiGraph instance
-        graph to plot
-
-    partition -- dict mapping int node -> int community
-        graph partitions
-    Returns:
-    --------
-    pos -- dict mapping int node -> (float x, float y)
-        node positions
-    """
-    pos_communities = self._position_communities(g, partition, scale=3.)
-    pos_nodes = self._position_nodes(g, partition, scale=1.)
-    # combine positions
-    pos = dict()
-    for node in g.nodes():
-        pos[node] = pos_communities[node] + pos_nodes[node]
-    return pos
-
-  def _position_communities(self, g, partition, **kwargs):
-      # create a weighted graph, in which each node corresponds to a community,
-      # and each edge weight to the number of edges between communities
-      between_community_edges = self._find_between_community_edges(g, partition)
-      communities = set(partition.values())
-      hypergraph = nx.DiGraph()
-      hypergraph.add_nodes_from(communities)
-      for (ci, cj), edges in between_community_edges.items():
-          hypergraph.add_edge(ci, cj, weight=len(edges))
-      # find layout for communities
-      pos_communities = nx.spring_layout(hypergraph, **kwargs)
-      # set node positions to position of community
-      pos = dict()
-      for node, community in partition.items():
-          pos[node] = pos_communities[community]
-      return pos
-
-  def _find_between_community_edges(self, g, partition):
-      edges = dict()
-      for (ni, nj) in g.edges():
-          ci = partition[ni]
-          cj = partition[nj]
-
-          if ci != cj:
-              try:
-                  edges[(ci, cj)] += [(ni, nj)]
-              except KeyError:
-                  edges[(ci, cj)] = [(ni, nj)]
-      return edges
-
-  def _position_nodes(self, g, partition, **kwargs):
-      """
-      Positions nodes within communities.
-      """
-      communities = dict()
-      for node, community in partition.items():
-          try:
-              communities[community] += [node]
-          except KeyError:
-              communities[community] = [node]
-      pos = dict()
-      for ci, nodes in communities.items():
-          subgraph = g.subgraph(nodes)
-          pos_subgraph = nx.spring_layout(subgraph, **kwargs)
-          pos.update(pos_subgraph)
-      return pos
-
-def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
-  if measure == 'pearson':
-    adj_mat = np.corrcoef(sequences)
-  elif measure == 'cosine':
-    adj_mat = cosine_similarity(sequences)
-  elif measure == 'correlation':
-    adj_mat = squareform(pdist(sequences, 'correlation'))
-  elif measure == 'MI':
-    adj_mat = MI(sequences)
-  elif measure == 'xcorr':
-    adj_mat = n_cross_correlation6(sequences, maxlag=maxlag, disable=noprogressbar)
-  elif measure == 'causality':
-    adj_mat = granger_causality(sequences)
-  else:
-    sys.exit('Unrecognized measure value!!! Choices: pearson, cosin, correlation.')
-  adj_mat = np.nan_to_num(adj_mat)
-  np.fill_diagonal(adj_mat, 0)
-  return adj_mat
-
-def save_sparse_npz(matrix, filename):
-  matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
-  sparse_matrix = sparse.csc_matrix(matrix_2d)
-  with open(filename, 'wb') as outfile:
-    pickle.dump([sparse_matrix, matrix.shape], outfile, pickle.HIGHEST_PROTOCOL)
-
-def load_sparse_npz(filename):
-  with open(filename, 'rb') as infile:
-    [sparse_matrix, shape] = pickle.load(infile)
-    matrix_2d = sparse_matrix.toarray()
-  return matrix_2d.reshape(shape)
-
-def save_npz(matrix, filename):
-    matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
-    sparse_matrix = sparse.csc_matrix(matrix_2d)
-    np.savez(filename, [sparse_matrix, matrix.shape])
-    return 'npz file saved'
-
-def load_npz(filename):
-    """
-    load npz files with sparse matrix and dimension
-    output dense matrix with the correct dim
-    """
-    npzfile = np.load(filename, allow_pickle=True) 
-    sparse_matrix = npzfile['arr_0'][0]
-    ndim=npzfile['arr_0'][1]
-
-    new_matrix_2d = np.array(sparse_matrix.todense())
-    new_matrix = new_matrix_2d
-    # new_matrix = new_matrix_2d.reshape(ndim)
-    return new_matrix
-
-def load_npz_3d(filename):
-    """
-    load npz files with sparse matrix and dimension
-    output dense matrix with the correct dim
-    """
-    npzfile = np.load(filename, allow_pickle=True) 
-    sparse_matrix = npzfile['arr_0'][0]
-    ndim=npzfile['arr_0'][1]
-
-    new_matrix_2d = np.array(sparse_matrix.todense())
-    new_matrix = new_matrix_2d.reshape(ndim)
-    return new_matrix
-
-def get_rowcol(G_dict):
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  if 'drifting_gratings_contrast' in cols:
-    cols.remove('drifting_gratings_contrast')
-  # sort stimulus
-  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-      'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
-        'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
-  return rows, cols
-
-def getSpikeTrain(spikeData):
-    spikeTrain = np.squeeze(np.where(spikeData>0)).ravel()
-    return spikeTrain
-
-def spike_timing2train(T, spikeTrain):
-    if len(spikeTrain.shape) == 1:
-      spikeData = np.zeros(T)
-      spikeData[spikeTrain.astype(int)] = 1
-    else:
-      spikeData = np.zeros((spikeTrain.shape[0], T))
-      spikeData[np.repeat(np.arange(spikeTrain.shape[0]), spikeTrain.shape[1]), spikeTrain.ravel().astype(int)] = 1
-    return spikeData
-
-def getInitDist(L):
-    initDist = np.random.rand(L)
-    return initDist/initDist.sum()
-
-def getTransitionMatrices(L, N):
-    tDistMatrices = np.zeros((N - 1, L, L))
-    for i in range(tDistMatrices.shape[0]):
-        matrix = np.random.rand(L, L)
-        stochMatrix = matrix/matrix.sum(axis=1)[:,None]
-        tDistMatrices[i, :, :] = stochMatrix.astype('f')
-    return tDistMatrices
-
-def getX1(initDist, L, R, T, spikeTrain):
-    # Omega = getOmega(L, obsTar)
-    Gamma = getGamma(L, R, T, spikeTrain)
-    randX = np.random.random()
-    ind = np.where(randX <= np.cumsum(initDist))[0][0]
-    return Gamma[0][ind]
-
-def initializeX(initX, Prob):
-    return initX + np.sum(Prob == 0)
-
-def getGamma(L, R, T, spikeTrain):
-    Gamma = []
-    ks = [] # list of k_d
-    ks.append(0)
-    n = spikeTrain.size
-    temp = int(spikeTrain[ks[-1]]/L)*L
-    temp = max(0, temp)
-    temp = min(temp, T - L)
-    Gamma.append(np.arange(temp, temp + L, 1))
-    for i in range(1, n):
-        if spikeTrain[i] - spikeTrain[i-1] > R:
-            ks.append(i)
-        temp = int(spikeTrain[ks[-1]]/L)*L+spikeTrain[i]-spikeTrain[ks[-1]]
-        temp = max(0, temp)
-        temp = min(temp, T - L)
-        Gamma.append(np.arange(temp, temp + L, 1))
-    return Gamma
-
-def getSurrogate(spikeTrain, L, R, T, initDist, tDistMatrices):
-    surrogate = []
-    # Omega = getOmega(L, spikeTrain)
-    Gamma = getGamma(L, R, T, spikeTrain)
-    givenX = getX1(initDist, L, R, T, spikeTrain)
-    surrogate.append(givenX)
-    for i, row in enumerate(tDistMatrices):
-        if spikeTrain[i+1] - spikeTrain[i] <= R:
-            givenX = surrogate[-1] + spikeTrain[i+1] - spikeTrain[i]
-        else:
-            index = np.where(np.array(Gamma[i]) == givenX)[0]
-            p_i = np.squeeze(np.array(row[index]))
-            initX = initializeX(Gamma[i + 1][0], p_i)
-            randX = np.random.random()
-            # safe way to find the ind
-            larger = np.where(randX <= np.cumsum(p_i))[0]
-            if larger.shape[0]:
-                ind = larger[0]
-            else:
-                ind = len(p_i) - 1
-            givenX = initX + np.sum(p_i[:ind]!=0)
-        givenX = min(T - 1, givenX)
-        surrogate.append(givenX)
-    return surrogate
-
-def sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, sample_size):
-    spikeTrainMat = np.zeros((sample_size, spikeTrain.size))
-    for i in tqdm(range(sample_size), disable=True):
-        surrogate = getSurrogate(spikeTrain, L, R, T, initDist, tDistMatrices)
-        spikeTrainMat[i, :] = surrogate
-    return spikeTrainMat
+from library import *
 
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
@@ -729,521 +307,6 @@ def plot_multi_heatmap_xcorr_FR(session_ids, stimulus_names, xcorr_dict, bin_dic
   plt.tight_layout()
   plt.savefig('./plots/xcorr_FR_multi_heatmap.jpg')
 
-def split_pos_neg(G_dict, measure):
-  pos_G_dict, neg_G_dict = {}, {}
-  rows, cols = get_rowcol(G_dict)
-  if isinstance(G_dict[rows[0]][cols[0]], list):
-    num_sample = len(G_dict[rows[0]][cols[0]])
-    no_sample = False
-  else:
-    no_sample = True
-  for row in rows:
-    pos_G_dict[row] = {}
-    neg_G_dict[row] = {}
-    print(row)
-    for col in cols:
-      print(col)
-      if not no_sample:
-        pos_G_dict[row][col] = []
-        neg_G_dict[row][col] = []
-        for s in range(num_sample):
-          G = G_dict[row][col][s] if col in G_dict[row] else nx.Graph()
-          pos_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']>0]
-          neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
-          Gpos = nx.DiGraph()
-          Gneg = nx.DiGraph()
-          Gpos.add_edges_from(pos_edges)
-          Gneg.add_edges_from(neg_edges)
-          pos_G_dict[row][col].append(Gpos)
-          neg_G_dict[row][col].append(Gneg)
-      else:
-        G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-        pos_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']>0]
-        neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
-        Gpos = nx.DiGraph()
-        Gneg = nx.DiGraph()
-        Gpos.add_edges_from(pos_edges)
-        Gneg.add_edges_from(neg_edges)
-        pos_G_dict[row][col] = Gpos
-        neg_G_dict[row][col] = Gneg
-  return pos_G_dict, neg_G_dict
-
-def get_lcc(G_dict):
-  for row in G_dict:
-    for col in G_dict[row]:
-      G = G_dict[row][col]
-      if nx.is_directed(G):
-        if not nx.is_weakly_connected(G):
-          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
-          G_dict[row][col] = G.subgraph(Gcc[0])
-      else:
-        if not nx.is_connected(G):
-          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-          G_dict[row][col] = G.subgraph(Gcc[0])
-
-          # largest_cc = max(nx.connected_components(G), key=len)
-          # G_dict[row][col][i] = nx.subgraph(G, largest_cc)
-      print(G.number_of_nodes(), G_dict[row][col].number_of_nodes())
-  return G_dict
-
-def print_stat(G_dict):
-  for row in G_dict:
-      for col in G_dict[row]:
-          nodes = nx.number_of_nodes(G_dict[row][col])
-          edges = nx.number_of_edges(G_dict[row][col])
-          print('Number of nodes for {} {} {}'.format(row, col, nodes))
-          print('Number of edges for {} {} {}'.format(row, col, edges))
-          print('Density for {} {} {}'.format(row, col, nx.density(G_dict[row][col])))
-
-def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
-  rows, cols = get_rowcol(pos_G_dict)
-  pos_num_nodes, neg_num_nodes, pos_num_edges, neg_num_edges, pos_densities, neg_densities, pos_total_weight, neg_total_weight, pos_mean_weight, neg_mean_weight = [np.full([len(rows), len(cols)], np.nan) for _ in range(10)]
-  num_col = 2 if neg_G_dict is not None else 1
-  fig = plt.figure(figsize=(5*num_col, 25))
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      pos_G = pos_G_dict[row][col] if col in pos_G_dict[row] else nx.DiGraph()
-      pos_densities[row_ind, col_ind] = nx.density(pos_G)
-      pos_num_nodes[row_ind, col_ind] = nx.number_of_nodes(pos_G)
-      pos_num_edges[row_ind, col_ind] = nx.number_of_edges(pos_G)
-      pos_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(pos_G, "weight").values()))
-      pos_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(pos_G, "weight").values()))
-      if neg_G_dict is not None:
-        neg_G = neg_G_dict[row][col] if col in neg_G_dict[row] else nx.DiGraph()
-        neg_densities[row_ind, col_ind] = nx.density(neg_G)
-        neg_num_nodes[row_ind, col_ind] = nx.number_of_nodes(neg_G)
-        neg_num_edges[row_ind, col_ind] = nx.number_of_edges(neg_G)
-        neg_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(neg_G, "weight").values()))
-        neg_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(neg_G, "weight").values()))
-  metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
-  'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
-  'positive density':pos_densities, 'negative density':neg_densities,
-  'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
-  'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
-  if neg_G_dict is not None:
-    metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
-    'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
-    'positive density':pos_densities, 'negative density':neg_densities,
-    'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
-    'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
-  else:
-    metrics = {'positive number of nodes':pos_num_nodes, 'positive number of edges':pos_num_edges,
-    'positive density':pos_densities, 'positive total weights':pos_total_weight,
-    'positive average weights':pos_mean_weight}
-  # distris = {'positive weight distribution':pos_weight_distri, 'negative weight distribution':neg_weight_distri}
-  
-  for i, k in enumerate(metrics):
-    plt.subplot(5, num_col, i+1)
-    metric = metrics[k]
-    for row_ind, row in enumerate(rows):
-      mean = metric[row_ind, :]
-      plt.plot(cols, mean, label=row, alpha=0.6)
-    plt.gca().set_title(k, fontsize=20, rotation=0)
-    plt.xticks(rotation=90)
-    plt.legend()
-    plt.tight_layout()
-  # plt.show()
-  figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
-  plt.savefig(figname)
-
-def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
-  rows, cols = get_rowcol(G_dict)
-  scale = np.zeros(len(rows))
-  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        nodes = list(G.nodes())
-        active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
-        # active_areas = [i for i in regions if i in active_areas]
-        A = nx.adjacency_matrix(G)
-        A = A.todense()
-        A[A.nonzero()] = 1
-        for region_ind_i, region_i in enumerate(regions):
-          if region_i in active_areas:
-            for region_ind_j, region_j in enumerate(regions):
-              if region_j in active_areas:
-                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
-    scale[row_ind] = region_connection[row_ind, :, :, :].max()
-  ind = 1
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r")# cmap="YlGnBu"
-      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
-      sns_plot.set_xticks(np.arange(len(regions))+0.5)
-      sns_plot.set_xticklabels(regions, rotation=90)
-      sns_plot.set_yticks(np.arange(len(regions))+0.5)
-      sns_plot.set_yticklabels(regions, rotation=0)
-      sns_plot.invert_yaxis()
-  plt.tight_layout()
-  # plt.show()
-  plt.savefig('./plots/region_connection_scale_{}_{}_{}fold.jpg'.format(sign, measure, n))
-
-def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n, weight):
-  rows, cols = get_rowcol(G_dict)
-  cols.remove('spontaneous')
-  scale_min = np.zeros(len(rows))
-  scale_max = np.zeros(len(rows))
-  region_connection_bl = np.zeros((len(rows), len(regions), len(regions)))
-  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
-  for row_ind, row in enumerate(rows):
-    print(row)
-    G = G_dict[row]['spontaneous']
-    if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-      nodes = list(G.nodes())
-      active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
-      A = nx.adjacency_matrix(G)
-      A = A.todense()
-      if not weight:
-        A[A.nonzero()] = 1
-      for region_ind_i, region_i in enumerate(regions):
-        if region_i in active_areas:
-          for region_ind_j, region_j in enumerate(regions):
-            if region_j in active_areas:
-              region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-              region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-              region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-              region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-              region_connection_bl[row_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-              # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-    for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        nodes = list(G.nodes())
-        active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
-        A = nx.adjacency_matrix(G)
-        A = A.todense()
-        if not weight:
-          A[A.nonzero()] = 1
-        for region_ind_i, region_i in enumerate(regions):
-          if region_i in active_areas:
-            for region_ind_j, region_j in enumerate(regions):
-              if region_j in active_areas:
-                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-    scale_min[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).min()
-    scale_max[row_ind] = ((region_connection[row_ind, :, :, :]-region_connection_bl[row_ind][None, :, :])/region_connection_bl[row_ind].sum()).max()
-  ind = 1
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      sns_plot = sns.heatmap((region_connection[row_ind, col_ind, :, :]-region_connection_bl[row_ind])/region_connection_bl[row_ind].sum(), vmin=scale_min[row_ind], vmax=scale_max[row_ind],center=0,cmap="RdBu_r") #  cmap="YlGnBu"
-      # sns_plot = sns.heatmap((region_connection-region_connection_bl)/region_connection_bl.sum(), cmap="YlGnBu")
-      sns_plot.set_xticks(np.arange(len(regions))+0.5)
-      sns_plot.set_xticklabels(regions, rotation=90)
-      sns_plot.set_yticks(np.arange(len(regions))+0.5)
-      sns_plot.set_yticklabels(regions, rotation=0)
-      sns_plot.invert_yaxis()
-  plt.tight_layout()
-  figname = './plots/region_connection_delta_weighted_{}_{}_{}fold.jpg'.format(sign, measure, n) if weight else './plots/region_connection_delta_{}_{}_{}.jpg'.format(sign, measure, n)
-  plt.savefig(figname)
-  # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
-
-def plot_multi_graphs_color(G_dict, sign, area_dict, measure, n, cc=False):
-  com = CommunityLayout()
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  G_sample = G_dict[rows[0]][cols[0]]
-  dire = True if nx.is_directed(G_sample) else False
-  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=30, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
-      nx.set_node_attributes(G, area_dict[row], "area")
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        if cc:
-          if nx.is_directed(G):
-            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-          else:
-            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-        try:
-          edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
-          weights = np.abs(weights)
-        except:
-          edges = nx.edges(G)
-          weights = np.ones(len(edges))
-        degrees = dict(G.degree)
-        try:
-          partition = community.best_partition(G)
-          pos = com.get_community_layout(G, partition)
-        except:
-          print('Community detection unsuccessful!')
-          pos = nx.spring_layout(G)
-        areas = [G.nodes[n]['area'] for n in G.nodes()]
-        areas_uniq = list(set(areas))
-        colors = [customPalette[areas_uniq.index(area)] for area in areas]
-        # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
-        # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
-        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
-        node_color=colors, alpha=0.4)
-      if row_ind == col_ind == 0:
-        areas = [G.nodes[n]['area'] for n in G.nodes()]
-        areas_uniq = list(set(areas))
-        for index, a in enumerate(areas_uniq):
-          plt.scatter([],[], c=customPalette[index], label=a, s=30)
-        legend = plt.legend(loc='upper center', fontsize=20)
-  for handle in legend.legendHandles:
-    handle.set_sizes([60.0])
-  plt.tight_layout()
-  image_name = './plots/graphs_region_color_cc_{}_{}_{}fold.jpg'.format(sign, measure, n) if cc else './plots/graphs_region_color_{}_{}_{}fold.jpg'.format(sign, measure, n)
-  plt.savefig(image_name)
-  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
-  # plt.show()
-
-def func_powerlaw(x, m, c):
-  return x**m * c
-
-def degree_histogram_directed(G, type='in_degree', weight=None):
-    nodes = G.nodes()
-    if type == 'in_degree':
-        in_degree = dict(G.in_degree(weight=weight))
-        degseq=[in_degree.get(k,0) for k in nodes]
-    elif type == 'out_degree':
-        out_degree = dict(G.out_degree(weight=weight))
-        degseq=[out_degree.get(k,0) for k in nodes]
-    else:
-        degseq=[v for k, v in G.degree()]
-    if weight == None:
-      dmax=max(degseq)+1
-      deg_seq = np.arange(0, dmax)
-      freq= [ 0 for d in range(dmax) ]
-      for d in degseq:
-          freq[d] += 1
-    else:
-      freq, bin_edges = np.histogram(degseq, density=True)
-      deg_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
-    return deg_seq, freq
-
-def plot_directed_multi_degree_distributions(G_dict, sign, measure, n, weight=None, cc=False):
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        if cc:
-          if nx.is_directed(G):
-            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-          else:
-            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-        in_degrees, in_degree_freq = degree_histogram_directed(G, type='in_degree', weight=weight)
-        out_degrees, out_degree_freq = degree_histogram_directed(G, type='out_degree', weight=weight)
-        if weight == None:
-          in_degrees, in_degree_freq = in_degrees[1:], in_degree_freq[1:]
-          out_degrees, out_degree_freq = out_degrees[1:], out_degree_freq[1:]
-        plt.plot(in_degrees, np.array(in_degree_freq) / sum(in_degree_freq),'go-', label='in-degree', alpha=0.4)
-        plt.plot(out_degrees, np.array(out_degree_freq) / sum(out_degree_freq),'bo-', label='out-degree', alpha=0.4)
-        plt.legend(loc='upper right', fontsize=7)
-        xlabel = 'Weighted Degree' if weight is not None else 'Degree'
-        plt.xlabel(xlabel)
-        plt.ylabel('Frequency')
-        plt.xscale('symlog')
-        plt.yscale('log')
-      
-  plt.tight_layout()
-  image_name = './plots/directed_degree_distribution_weighted_{}_{}_{}fold.jpg'.format(sign, measure, n) if weight is not None else './plots/directed_degree_distribution_unweighted_{}_{}_{}fold.jpg'.format(sign, measure, n)
-  # plt.show()
-  plt.savefig(image_name, dpi=300)
-  # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
-
-#################### load significant ccg_corrected
-def generate_graph(adj_mat, cc=False, weight=False):
-  if not weight:
-    adj_mat[adj_mat.nonzero()] = 1
-  G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
-  if cc: # extract the largest (strongly) connected components
-    if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
-      largest_cc = max(nx.connected_components(G), key=len)
-    else:
-      largest_cc = max(nx.strongly_connected_components(G), key=len)
-    G = nx.subgraph(G, largest_cc)
-  return G
-
-def load_significant_xcorr(directory, weight):
-  G_dict, peak_dict = {}, {}
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if file.endswith(".npz") and ('_peak' not in file) and ('_bl' not in file):
-      print(file)
-      adj_mat = load_npz_3d(os.path.join(directory, file))
-      # adj_mat = np.load(os.path.join(directory, file))
-      mouseID = file.split('_')[0]
-      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      if not mouseID in G_dict:
-        G_dict[mouseID], peak_dict[mouseID] = {}, {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
-      peak_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
-  return G_dict, peak_dict
-
-def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False):
-  path = directory.replace(measure, measure+'_significant')
-  if not os.path.exists(path):
-    os.makedirs(path)
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if '_bl' not in file:
-      print(file)
-      # adj_mat_ds = np.load(os.path.join(directory, file))
-      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
-      try: 
-        ccg = load_npz_3d(os.path.join(directory, file))
-      except:
-        ccg = load_sparse_npz(os.path.join(directory, file))
-      try:
-        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      except:
-        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      num_nodes = ccg.shape[0]
-      significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
-      significant_ccg[:] = np.nan
-      significant_peaks[:] = np.nan
-      total_len = len(list(itertools.permutations(range(num_nodes), 2)))
-      for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
-        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
-        if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
-        # if np.max(np.abs(corr))
-          max_offset = np.argmax(ccg_corrected[:maxlag])
-          significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
-          significant_peaks[row_a, row_b] = max_offset
-      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
-      # np.save(os.path.join(path, file), adj_mat)
-      save_npz(significant_ccg, os.path.join(path, file))
-      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
-
-def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
-  path = directory.replace(measure, sign+'_'+measure+'_larger')
-  if not os.path.exists(path):
-    os.makedirs(path)
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
-  # R = adj_temp.shape[2] # number of downsamples
-  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
-  num_baseline = adj_bl_temp.shape[2] # number of shuffles
-  k = int(num_baseline * alpha) + 1 # allow int(N * alpha) random correlations larger
-  for file in files:
-    if ('_bl' not in file) and ('_peak' not in file):
-      print(file)
-      # adj_mat_ds = np.load(os.path.join(directory, file))
-      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
-      all_xcorr = load_npz_3d(os.path.join(directory, file))
-      # import pdb;pdb.set_trace()
-      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
-      max_offset = np.argmax(np.abs(corr), -1)
-      xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
-      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      all_xcorr = all_xcorr - xcorr_bl
-      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(xcorr)
-      significant_adj_mat[:] = np.nan
-      significant_peaks[:] = np.nan
-      if sign == 'pos':
-        # indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
-      elif sign == 'neg':
-        # indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
-        fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
-      elif sign == 'all':
-        # pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        # neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
-        # indx = np.logical_or(pos, neg)
-        pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
-        neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
-        fold = np.logical_or(pos_fold, neg_fold)
-      # indx = np.logical_and(indx, fold)
-      indx = fold
-      if np.sum(indx):
-        significant_adj_mat[indx] = xcorr[indx]
-        significant_peaks[indx] = max_offset[indx]
-      
-      # np.save(os.path.join(path, file), adj_mat)
-      save_npz(significant_adj_mat, os.path.join(path, file))
-      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
-
 def all_xcorr(matrix, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
   N, M =matrix.shape
   # xcorr, peak_offset=np.zeros((N,N)), np.zeros((N,N))
@@ -1294,27 +357,6 @@ def all_n_cross_correlation8(matrix, window=100, disable=True): ### fastest, onl
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
     xcorr[row_a, row_b, :] = T @ px
   return xcorr
-
-def save_xcorr_shuffled(sequences, fname, window=100, num_baseline=10, disable=True):
-  N = sequences.shape[0]
-  xcorr_bl = np.zeros((N, N, window+1))
-  xcorr = all_n_cross_correlation8(sequences, disable=disable)
-  save_npz(xcorr, fname)
-  for b in range(num_baseline):
-    print(b)
-    sample_seq = sequences.copy()
-    np.random.shuffle(sample_seq) # rowwise for 2d array
-    xcorr_bl += all_n_cross_correlation8(sample_seq, disable=disable)
-  xcorr_bl = xcorr_bl / num_baseline
-  save_npz(xcorr_bl, fname.replace('.npz', '_bl.npz'))
-
-def concatenate_trial(sequences, min_duration=250, min_len=10000):
-  num_neuron, num_trial, T = sequences.shape
-  if num_trial < np.ceil(min_len / min_duration):
-    duration = int(np.ceil(min_len / num_trial)) # > min_duration
-  else:
-    duration = T # enough trials, <= min_duration
-  return sequences[:, :, :duration].reshape(num_neuron, -1)
 #%%
 ################### effect of pattern jitter on cross correlation
 ####### turn off warnings
@@ -1507,83 +549,6 @@ def plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R
   plt.savefig(figname)
 
 plot_ccg_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, Rs, measure, mouseID, stimulus)
-#%%
-# start_time = time.time()
-# start_time_A = start_time
-# print('Sampling neuron A...')
-# for L_ind, L in enumerate(Ls):
-#   for R_ind, R in enumerate(Rs):
-#     spikeTrain = getSpikeTrain(sequences[active_inds[0], :])
-#     N = len(spikeTrain)
-#     initDist = getInitDist(L)
-#     tDistMatrices = getTransitionMatrices(L, N)
-#     sampled_spiketrain = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-#     all_adj_mat_A[:, :, :, L_ind, R_ind] = n_cross_correlation8_2mat(spike_timing2train(min_len, sampled_spiketrain), sequences[active_inds[1], :])
-#     for i in range(num_sample):
-#       sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
-#       adj_mat, peak_offset = corr_mat(sample_seq, measure, maxlag=12)
-#       all_adj_mat_A[:, :, i, L_ind, R_ind] = adj_mat
-#       all_peak_off_A[:, :, i, L_ind, R_ind] = peak_offset
-#     # for b in range(num_baseline):
-#     #   sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain[b, :])[None, :], sequences[active_inds[1], :][None, :]) ,axis=0)
-#     #   # print('Baseline {} out of {}'.format(b+1, num_baseline))
-#     #   for n in range(num_nodes):
-#     #     np.random.shuffle(sample_seq[n,:])
-#     #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-#     #   adj_mat_bl_A[:, :, b, L_ind, R_ind] = adj_mat
-# print("--- %s minutes" % ((time.time() - start_time_A)/60))
-# start_time_B = time.time()
-# print('Sampling neuron B...')
-# for L_ind, L in enumerate(Ls):
-#   for R_ind, R in enumerate(Rs):
-#     spikeTrain = getSpikeTrain(sequences[active_inds[1], :])
-#     N = len(spikeTrain)
-#     initDist = getInitDist(L)
-#     tDistMatrices = getTransitionMatrices(L, N)
-#     sampled_spiketrain = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-#     all_adj_mat_B[:, :, :, L_ind, R_ind] = n_cross_correlation8_2mat(sequences[active_inds[0], :], spike_timing2train(min_len, sampled_spiketrain))
-#     for i in range(num_sample):
-#       sample_seq = np.concatenate((sequences[active_inds[0], :][None, :], spike_timing2train(min_len, sampled_spiketrain[i, :])[None, :]) ,axis=0)
-#       adj_mat, peak_offset = corr_mat(sample_seq, measure, maxlag=12)
-#       all_adj_mat_B[:, :, i, L_ind, R_ind] = adj_mat
-#       all_peak_off_B[:, :, i, L_ind, R_ind] = peak_offset
-#     # for b in range(num_baseline):
-#     #   sample_seq = np.concatenate((sequences[active_inds[0], :][None, :], spike_timing2train(min_len, sampled_spiketrain[b, :])[None, :]) ,axis=0)
-#     #   # print('Baseline {} out of {}'.format(b+1, num_baseline))
-#     #   for n in range(num_nodes):
-#     #     np.random.shuffle(sample_seq[n,:])
-#     #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-#     #   adj_mat_bl_B[:, :, b, L_ind, R_ind] = adj_mat
-# print("--- %s minutes" % ((time.time() - start_time_B)/60))
-# start_time_both = time.time()
-# print('Sampling neurons A and B...')
-# for L_ind, L in enumerate(Ls):
-#   for R_ind, R in enumerate(Rs):
-#     spikeTrain = getSpikeTrain(sequences[active_inds[0], :])
-#     N = len(spikeTrain)
-#     initDist = getInitDist(L)
-#     tDistMatrices = getTransitionMatrices(L, N)
-#     sampled_spiketrain1 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-#     spikeTrain = getSpikeTrain(sequences[active_inds[1], :])
-#     N = len(spikeTrain)
-#     initDist = getInitDist(L)
-#     tDistMatrices = getTransitionMatrices(L, N)
-#     sampled_spiketrain2 = sample_spiketrain(L, R, T, spikeTrain, initDist, tDistMatrices, num_sample)
-#     all_adj_mat[:, :, :, L_ind, R_ind] = n_cross_correlation8_2mat(spike_timing2train(min_len, sampled_spiketrain1), spike_timing2train(min_len, sampled_spiketrain2))
-#     for i in range(num_sample):
-#       sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain1[i, :])[None, :], spike_timing2train(min_len, sampled_spiketrain2[i, :])[None, :]), axis=0)
-#       adj_mat, peak_offset = corr_mat(sample_seq, measure, maxlag=12)
-#       all_adj_mat[:, :, i, L_ind, R_ind] = adj_mat
-#       all_peak_off[:, :, i, L_ind, R_ind] = peak_offset
-#     # for b in range(num_baseline):
-#     #   sample_seq = np.concatenate((spike_timing2train(min_len, sampled_spiketrain1[b, :])[None, :], spike_timing2train(min_len, sampled_spiketrain2[b, :])[None, :]), axis=0)
-#     #   # print('Baseline {} out of {}'.format(b+1, num_baseline))
-#     #   for n in range(num_nodes):
-#     #     np.random.shuffle(sample_seq[n,:])
-#     #   adj_mat = corr_mat(sample_seq, measure, maxlag=12)
-#     #   adj_mat_bl[:, :, b, L_ind, R_ind] = adj_mat
-# print("--- %s minutes" % ((time.time() - start_time_both)/60))
-# print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 ############## one pair of neurons, significant xcorr vs L and R
 def plot_corr_LR(origin_adj_mat, all_adj_mat_A, all_adj_mat_B, all_adj_mat, Ls, R, Rs, measure):
@@ -2168,53 +1133,6 @@ def plot_multi_corr_FR(session_ids, stimulus_names, corr_dict, bin_dict, name):
 plot_multi_corr_FR(session_ids, stimulus_names, xcorr_dict, bin_dict, 'cross')
 plot_multi_corr_FR(session_ids, stimulus_names, peak_dict, bin_dict, 'peakoffset')
 # %%
-def plot_multi_peak_dist(peak_dict, n, measure):
-  ind = 1
-  rows, cols = get_rowcol(peak_dict)
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      peaks = peak_dict[row][col]
-      plt.hist(peaks.flatten(), bins=12, density=True)
-      plt.axvline(x=np.nanmean(peaks), color='r', linestyle='--')
-      # plt.text(peaks.mean(), peaks.max()/2, "mean={}".format(peaks.mean()), rotation=0, verticalalignment='center')
-      plt.xlabel('peak correlation offset (ms)')
-      plt.ylabel('Probability')
-      
-  plt.tight_layout()
-  image_name = './plots/peak_distribution_{}_{}fold.jpg'.format(measure, n)
-  # plt.show()
-  plt.savefig(image_name)
-# plot_multi_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
-# plot_multi_peak_dist(peak_dict, measure)
-#%%
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-peak_dict = {}
-for session_id in session_ids:
-  print(session_id)
-  peak_dict[session_id] = {}
-  for stimulus_name in stimulus_names:
-    peak_dict[session_id][stimulus_name] = np.random.randint(low=0, high=12,size=1000)
 # %%
 ####### if cross correlation at 0 time lag == pearson correlation
 # a = np.random.random((5, 10))
@@ -2831,21 +1749,7 @@ sign = 'all'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
 save_adj_larger_fold(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
 #%%
-############# load area_dict and average speed dataframe #################
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-# session_ids = [719161530, 750749662, 755434585, 756029989]
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
-area_dict = pickle.load(a_file)
-# change the keys of area_dict from int to string
-int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
-area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
-a_file.close()
-mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
-#%%
+visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_{}_xcorr_larger_shuffled'.format(sign))
 if not os.path.exists(path):
@@ -2889,16 +1793,54 @@ plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 #%%
 measure = 'ccg'
-n = 5
+n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
 #%%
+visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_ccg_significant_corrected')
 if not os.path.exists(path):
   os.makedirs(path)
 G_ccg_dict, peak_dict = load_significant_xcorr(path, weight=True)
 measure = 'ccg'
+#%%
+n = 4
+#%%
+######### split G_dict into pos and neg
+pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
+# %%
+############# keep largest connected components for pos and neg G_dict
+pos_G_dict = get_lcc(pos_G_dict)
+neg_G_dict = get_lcc(neg_G_dict)
+# %%
+print_stat(pos_G_dict)
+print_stat(neg_G_dict)
+# %%
+plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
+# %%
+region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
+region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
+# %%
+weight = False
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
+# %%
+weight = True
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, n, cc=cc)
+# cc = True
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=None, cc=False)
+# %%
+plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
+plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 # %%
 G_ccg_dict = get_lcc(G_ccg_dict)
 # %%
@@ -2934,7 +1876,7 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file:
+    if '_bl' not in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
@@ -2948,26 +1890,37 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
         ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       except:
         ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      ccg_mat = np.choose(max_offset, np.moveaxis(corr, -1, 0))
       num_nodes = ccg.shape[0]
       significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
       significant_ccg[:] = np.nan
       significant_peaks[:] = np.nan
-      total_len = len(list(itertools.permutations(range(num_nodes), 2)))
-      for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
-        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
-        if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
-        # if np.max(np.abs(corr))
-          max_offset = np.argmax(ccg_corrected[:maxlag])
-          significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
-          significant_peaks[row_a, row_b] = max_offset
+      pos_fold = ccg_corrected[:, :, :maxlag].max(-1) > ccg_corrected.mean(-1) + n * ccg_corrected.std(-1)
+      neg_fold = ccg_corrected[:, :, :maxlag].max(-1) < ccg_corrected.mean(-1) - n * ccg_corrected.std(-1)
+      indx = np.logical_or(pos_fold, neg_fold)
+      if np.sum(indx):
+        significant_ccg[indx] = ccg_mat[indx]
+        significant_peaks[indx] = max_offset[indx]
+      
+      # total_len = len(list(itertools.permutations(range(num_nodes), 2)))
+      # for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
+      #   ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
+      #   if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+      #   # if np.max(np.abs(corr))
+      #     max_offset = np.argmax(ccg_corrected[:maxlag])
+      #     significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+      #     significant_peaks[row_a, row_b] = max_offset
       significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
       np.random.shuffle(significant_inds)
       fig = plt.figure(figsize=(5*3, 5*3))
       for ind, (row_a, row_b) in enumerate(significant_inds[:9]):
         ax = plt.subplot(3, 3, ind+1)
-        ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
         plt.axvline(x=significant_peaks[row_a, row_b], color='r', linestyle='--', alpha=0.9)
-        plt.plot(np.arange(window+1), ccg_corrected)
+        plt.plot(np.arange(window+1), ccg_corrected[row_a, row_b])
         if ind % 3 == 0:
           plt.ylabel('signigicant CCG corrected', size=20)
         if ind // 3 == 3 - 1:
@@ -2975,9 +1928,10 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
       plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
       plt.savefig('./plots/sample_significant_ccg_{}fold_{}_{}.jpg'.format(n, mouseID, stimulus_name))
 
+np.seterr(divide='ignore', invalid='ignore')
 measure = 'ccg'
 maxlag = 12
-n = 5
+n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 plot_example_ccg_n_fold(directory, measure, maxlag=maxlag, n=n, disable=True)
 # %%
@@ -3048,7 +2002,29 @@ plot_example_xcorr_n_fold(directory, measure, maxlag=maxlag, alpha=alpha, sign=s
 #%%
 #%%
 ################ plot whole connectivity matrix
-def plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure, maxlag=12):
+from matplotlib.colors import LogNorm
+def load_ccg_connectivity(directory, mouseIDs, stimulus_names, maxlag=12):
+  ccg_mat_dict = {}
+  for row_ind, mouseID in enumerate(mouseIDs):
+    print(mouseID)
+    ccg_mat_dict[mouseID] = {}
+    for col_ind, stimulus_name in enumerate(stimulus_names):
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      ccg_mat = np.choose(max_offset, np.moveaxis(corr, -1, 0))
+      ccg_mat_dict[mouseID][stimulus_name] = ccg_mat
+  return ccg_mat_dict
+
+def plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure):
   ind = 1
   fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
   left, width = .25, .5
@@ -3058,19 +2034,6 @@ def plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure, maxlag=1
   for row_ind, mouseID in enumerate(mouseIDs):
     print(mouseID)
     for col_ind, stimulus_name in enumerate(stimulus_names):
-      # adj_mat_ds = np.load(os.path.join(directory, file))
-      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
-      try: 
-        ccg = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
-      except:
-        ccg = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
-      try:
-        ccg_jittered = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
-      except:
-        ccg_jittered = load_sparse_npz(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '_bl.npz'))
-      num_nodes = ccg.shape[0]
-      ccg_corrected = ccg - ccg_jittered
-      ccg_corrected = ccg_corrected[:, :, :maxlag].max(-1)
       plt.subplot(len(mouseIDs), len(stimulus_names), ind)
       if row_ind == 0:
         plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
@@ -3082,28 +2045,30 @@ def plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure, maxlag=1
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      sns_plot = sns.heatmap(ccg_corrected.astype(float),center=0,cmap="RdBu_r")# cmap="YlGnBu"
+      sns_plot = sns.heatmap(ccg_mat_dict[mouseID][stimulus_name].astype(float),center=0,cmap="RdBu_r")# cmap="YlGnBu"
+      # sns_plot = sns.heatmap(ccg_mat_dict[mouseID][stimulus_name].astype(float),norm=LogNorm(),cmap="RdBu_r")# cmap="YlGnBu"
       # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
       # sns_plot.set_xticks(np.arange(len(regions))+0.5)
       # sns_plot.set_xticklabels(regions, rotation=90)
       # sns_plot.set_yticks(np.arange(len(regions))+0.5)
       # sns_plot.set_yticklabels(regions, rotation=0)
       sns_plot.invert_yaxis()
+  plt.suptitle('{} fold'.format(n), size=30)
   plt.tight_layout()
-  plt.show()
-
+  plt.savefig('./plots/connectivity_matrix_{}_{}fold.jpg'.format(measure, n))
+  # plt.show()
+#%%
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
-mouseIDs = [719161530, 750749662]
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
 measure = 'ccg'
 maxlag = 12
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-plot_ccg_connectivity(directory, mouseIDs, stimulus_names, measure)
-
-# %%
-plot_multi_peak_dist(peak_dict, n, measure)
+ccg_mat_dict = load_ccg_connectivity(directory, mouseIDs, stimulus_names, maxlag=12)
+#%%
+plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure)
 # %%
 def plot_multi_peak(peak_dict, n, measure):
   ind = 1
@@ -3124,6 +2089,44 @@ def plot_multi_peak(peak_dict, n, measure):
   plt.show()
 
 plot_multi_peak(peak_dict, n, measure)
+# %%
+def plot_multi_peak_dist(peak_dict, n, measure):
+  ind = 1
+  rows, cols = get_rowcol(peak_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      peaks = peak_dict[row][col]
+      plt.hist(peaks.flatten(), bins=12, density=True)
+      plt.axvline(x=np.nanmean(peaks), color='r', linestyle='--')
+      # plt.text(peaks.mean(), peaks.max()/2, "mean={}".format(peaks.mean()), rotation=0, verticalalignment='center')
+      plt.xlabel('peak correlation offset (ms)')
+      plt.ylabel('Probability')
+      
+  plt.tight_layout()
+  image_name = './plots/peak_distribution_{}_{}fold.jpg'.format(measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+# plot_multi_corr_FR(session_ids, stimulus_names, pcorr_dict, bin_dict, 'pearson')
+# plot_multi_peak_dist(peak_dict, measure)
+
+plot_multi_peak_dist(peak_dict, n, measure)
 # %%
 ############## calculate ccg and save
 np.seterr(divide='ignore', invalid='ignore')
@@ -3213,21 +2216,31 @@ def unique(l):
   u, ind = np.unique(l, return_index=True)
   return list(u[np.argsort(ind)])
 
-mouse_id, stimulus_id = 0, 3
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+mouse_ind, stimulus_ind = 0, 3
+matrix = load_npz_3d(os.path.join(directory, str(session_ids[mouse_ind]) + '_' + stimulus_names[stimulus_ind] + '.npz'))
+matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+# print(matrix.shape)
+# mean_matrix = matrix.mean(axis=-1).T # neuron, time
+trial_matrix = matrix[:,:,0].T # neuron, time
 a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
 area_dict = pickle.load(a_file)
 # change the keys of area_dict from int to string
 int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
 area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
 a_file.close()
-areas = list(area_dict[str(session_ids[mouse_id])].values())
+areas = list(area_dict[str(session_ids[mouse_ind])].values())
 areas_uniq = unique(areas)
 areas_num = [(np.array(areas)==a).sum() for a in areas_uniq]
 areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
-sequence_by_area = {a:[name for name, age in area_dict[str(session_ids[mouse_id])].items() if age == a] for a in areas_uniq}
+sequence_by_area = {a:[name for name, age in area_dict[str(session_ids[mouse_ind])].items() if age == a] for a in areas_uniq}
 # %%
-sorted_sample_seq = np.vstack([sequences[sequence_by_area[a], :8000] for a in areas_uniq])
-spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :8000]] # divided by 1000 cuz bin size is 1 ms
+duration = 500
+sorted_sample_seq = np.vstack([trial_matrix[sequence_by_area[a], :duration] for a in areas_uniq])
+spike_pos = [np.nonzero(t)[0] for t in sorted_sample_seq[:, :duration]] # divided by 1000 cuz bin size is 1 ms
 colors1 = [customPalette[i] for i in sum([[areas_uniq.index(a)] * areas_num[areas_uniq.index(a)] for a in areas_uniq], [])]
 uniq_colors = unique(colors1)
 text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
@@ -3239,14 +2252,15 @@ fig = plt.figure(figsize=(10, 16))
 plt.eventplot(spike_pos, colors=colors1, lineoffsets=lineoffsets2,
                     linewidths=2, linelengths=2)
 for ind, t_pos in enumerate(text_pos):
-  plt.text(-1.2, t_pos, areas_uniq[ind], size=20, color=uniq_colors[ind], weight='bold')
-plt.axis('off')
+  plt.text(-70, t_pos, areas_uniq[ind], size=20, color=uniq_colors[ind], weight='bold')
+  # plt.text(-1.2, t_pos, areas_uniq[ind], size=20, color=uniq_colors[ind], weight='bold')
+# plt.axis('off')
+plt.gca().get_yaxis().set_visible(False)
+plt.xlabel('time after onset (ms)')
 plt.gca().invert_yaxis()
 plt.tight_layout()
 # plt.show()
-# plt.savefig('./plots/raster.jpg')
-# plt.show()
-plt.savefig('./plots/raster.jpg')
+plt.savefig('./plots/raster_{}_{}.jpg'.format(session_ids[mouse_ind], stimulus_names[stimulus_ind]))
 # %%
 ############### plot average response
 matrix = load_npz_3d(os.path.join(directory, file))
@@ -3257,6 +2271,7 @@ print(matrix.shape)
 mean_matrix = matrix.mean(axis=2)
 print(mean_matrix.shape)
 #%%
+duration = 230
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
@@ -3275,9 +2290,13 @@ for row_ind, mouseID in enumerate(mouseIDs):
     # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
     matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
     matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+    response_area = np.zeros((duration, len(areas_uniq)))
+    for area_ind, a in enumerate(areas_uniq):
+      response_area[:, area_ind] = np.mean(matrix[ :duration, sequence_by_area[a], :], axis=-1).mean(-1)
+    # sorted_sample_seq = np.vstack([matrix[ :duration, sequence_by_area[a]] for a in areas_uniq])
     # print(matrix.shape)
-    mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
-    print(mean_matrix.shape)
+    # mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+    # print(mean_matrix.shape)
     plt.subplot(len(mouseIDs), len(stimulus_names), ind)
     if row_ind == 0:
       plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
@@ -3289,11 +2308,14 @@ for row_ind, mouseID in enumerate(mouseIDs):
       transform=plt.gca().transAxes, fontsize=20, rotation=90)
     plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ind += 1
-    plt.plot(mean_matrix[:150], alpha=1)
+    # plt.plot(mean_matrix[:duration], alpha=1)
+    plt.plot(response_area, label=areas_uniq, alpha = 0.6)
     plt.xlabel('time after stimulus onset (ms)')
     plt.ylabel('average number of spikes')
+plt.legend()
 plt.tight_layout()
-plt.savefig('./plots/average_response_shorter.jpg')
+# plt.show()
+plt.savefig('./plots/average_response_area.jpg')
 # %%
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
@@ -3309,6 +2331,7 @@ ind = 1
 for row_ind, mouseID in enumerate(mouseIDs):
   print(mouseID)
   for col_ind, stimulus_name in enumerate(stimulus_names):
+    print(stimulus_name)
     # adj_mat_ds = np.load(os.path.join(directory, file))
     # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
     matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
@@ -3334,3 +2357,114 @@ for row_ind, mouseID in enumerate(mouseIDs):
 plt.tight_layout()
 plt.savefig('./plots/average_response_scale.jpg')
 # %%
+np.seterr(divide='ignore', invalid='ignore')
+############# plot num neurons vs minFR #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_duration = 250
+min_FR = 0.004 # 4 Hz
+# min_spikes = min_duration * min_FR
+# min_spikes = min_len * min_FR
+measure = 'ccg'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+num_baseline = 1
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+num_nodes = np.full([len(session_ids), len(stimulus_names)], np.nan)
+if not os.path.exists(path):
+  os.makedirs(path)
+# file_order = int(sys.argv[1])
+# file_order = 1
+for file_order in range(len(files)):
+  file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+  mouseID = file.split('_')[0]
+  stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+  # sequences = load_npz(os.path.join(directory, file))
+  # (num_neuron, num_trial, T)
+  sequences = load_npz_3d(os.path.join(directory, file))
+  sequences = sequences[:, :, :min_duration]
+  active_neuron_inds = sequences.mean(1).sum(1) > sequences.shape[2] * min_FR
+  sequences = sequences[active_neuron_inds]
+  num_nodes[session_ids.index(int(mouseID)), stimulus_names.index(stimulus_name)] = np.sum(active_neuron_inds)
+  print('{}, spike train shape: {}'.format(file, sequences.shape))
+#%%
+plt.figure(figsize=(7,6))
+for row_ind, row in enumerate(session_ids):
+  plt.plot(stimulus_names, num_nodes[row_ind, :], label=row, alpha=0.6)
+plt.gca().set_title('min firing rate {} Hz'.format(min_FR*1000), fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.ylabel('number of nodes')
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/numnodes_minFR{}.jpg'.format(min_FR*1000))
+# plt.show()
+# %%
+############# load area_dict and average speed dataframe #################
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# session_ids = [719161530, 750749662, 755434585, 756029989]
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+area_dict = pickle.load(a_file)
+# change the keys of area_dict from int to string
+int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+a_file.close()
+mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+# %%
+############# plot min num neurons per area across mice vs minFR #################
+# min_len, min_num = (260000, 739)
+min_len, min_num = (10000, 29)
+min_duration = 250
+min_FR = 0.004 # 4 Hz
+# min_spikes = min_duration * min_FR
+# min_spikes = min_len * min_FR
+measure = 'ccg'
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+num_baseline = 1
+files = os.listdir(directory)
+files = [f for f in files if f.endswith('.npz')]
+files.sort(key=lambda x:int(x[:9]))
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
+# path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+num_nodes_area = np.full([len(session_ids), len(stimulus_names), len(visual_regions)], np.nan)
+if not os.path.exists(path):
+  os.makedirs(path)
+# file_order = int(sys.argv[1])
+# file_order = 1
+for file_order in range(len(files)):
+  file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
+  mouseID = file.split('_')[0]
+  stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+  # sequences = load_npz(os.path.join(directory, file))
+  # (num_neuron, num_trial, T)
+  sequences = load_npz_3d(os.path.join(directory, file))
+  sequences = sequences[:, :, :min_duration]
+  active_neuron_inds = sequences.mean(1).sum(1) > sequences.shape[2] * min_FR
+  areas = np.array([area_dict[mouseID][id] for id in np.where(active_neuron_inds)[0]])
+  for ind, region in enumerate(visual_regions):
+    num_nodes_area[session_ids.index(int(mouseID)), stimulus_names.index(stimulus_name), ind] = np.count_nonzero(areas == region)
+  print('{}, min num of neurons per area: {}'.format(file, num_nodes_area[session_ids.index(int(mouseID)), stimulus_names.index(stimulus_name)].min()))
+#%%
+plt.figure(figsize=(7,6))
+for r_ind, region in enumerate(visual_regions):
+  plt.plot(stimulus_names, num_nodes_area[:, :, r_ind].min(0), label=region, alpha=0.6)
+plt.gca().set_title('min firing rate {} Hz'.format(min_FR*1000), fontsize=20, rotation=0)
+plt.xticks(rotation=90)
+plt.ylabel('min number of nodes across mice')
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/numnodes_area_minFR{}.jpg'.format(min_FR*1000))
