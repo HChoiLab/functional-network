@@ -1842,31 +1842,31 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=N
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 # %%
-G_ccg_dict = get_lcc(G_ccg_dict)
-# %%
-print_stat(G_ccg_dict)
-# %%
-plot_stat(G_ccg_dict, n=n, measure=measure)
-# %%
-region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n)
-# %%
-weight = False
-region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
-# %%
-weight = True
-region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
-# %%
-############# plot all graphs with community layout and color as region #################
-cc = False
-plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
-# %%
-############# plot all graphs with community layout and color as region #################
-cc = True
-plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
-# %%
-plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight=None, cc=False)
-# %%
-plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight='weight', cc=False)
+# G_ccg_dict = get_lcc(G_ccg_dict)
+# # %%
+# print_stat(G_ccg_dict)
+# # %%
+# plot_stat(G_ccg_dict, n=n, measure=measure)
+# # %%
+# region_connection_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n)
+# # %%
+# weight = False
+# region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+# # %%
+# weight = True
+# region_connection_delta_heatmap(G_ccg_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+# # %%
+# ############# plot all graphs with community layout and color as region #################
+# cc = False
+# plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
+# # %%
+# ############# plot all graphs with community layout and color as region #################
+# cc = True
+# plot_multi_graphs_color(G_ccg_dict, 'pos', area_dict, measure, n, cc=cc)
+# # %%
+# plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight=None, cc=False)
+# # %%
+# plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight='weight', cc=False)
 #%%
 ################ plot example significant ccg
 def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disable=False):
@@ -2070,7 +2070,7 @@ ccg_mat_dict = load_ccg_connectivity(directory, mouseIDs, stimulus_names, maxlag
 #%%
 plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure)
 # %%
-def plot_multi_peak(peak_dict, n, measure):
+def plot_corr_peak_stimulus(peak_dict, n, measure):
   ind = 1
   rows, cols = get_rowcol(peak_dict)
   fig = plt.figure(figsize=(6, 6))
@@ -2088,7 +2088,7 @@ def plot_multi_peak(peak_dict, n, measure):
   plt.savefig('./plots/peak_stimulus_{}_{}fold'.format(measure, n))
   plt.show()
 
-plot_multi_peak(peak_dict, n, measure)
+plot_corr_peak_stimulus(peak_dict, n, measure)
 # %%
 def plot_multi_peak_dist(peak_dict, n, measure):
   ind = 1
@@ -2127,6 +2127,85 @@ def plot_multi_peak_dist(peak_dict, n, measure):
 # plot_multi_peak_dist(peak_dict, measure)
 
 plot_multi_peak_dist(peak_dict, n, measure)
+#%%
+############### get average reponse peak offset
+def moving_average(x, N):
+    cumsum = np.cumsum(np.insert(x, 0, 0))
+    return (cumsum[N:] - cumsum[:-N]) / float(N)
+
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+response_dict = {}
+for row_ind, mouseID in enumerate(mouseIDs):
+  print(mouseID)
+  response_dict[mouseID] = {}
+  for col_ind, stimulus_name in enumerate(stimulus_names):
+    print(stimulus_name)
+    matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+    matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+    mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+    response_dict[mouseID][stimulus_name] = mean_matrix
+
+#%%
+def plot_average_response_smoothed(response_dict, n=10):
+  peak_response_dict = {}
+  rows, cols = get_rowcol(response_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    peak_response_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(col, fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), row,
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      smoothed_response = moving_average(response_dict[row][col], n)[:250]
+      peak_response_dict[row][col] = np.argmax(smoothed_response)
+      plt.axvline(x=peak_response_dict[row][col], color='r', linestyle='--', alpha=0.9)
+      plt.plot(smoothed_response, alpha=1)
+      plt.xlabel('time after stimulus onset (ms)')
+      plt.ylabel('average number of spikes')
+  plt.suptitle('{} ms moving average'.format(n), size=30)
+  plt.tight_layout()
+  plt.savefig('./plots/average_response_smoothed_{}.jpg'.format(n))
+  return peak_response_dict
+
+n = 25
+peak_response_dict = plot_average_response_smoothed(response_dict, n=n)
+#%%
+def plot_response_peak_stimulus(peak_response_dict, n):
+  ind = 1
+  rows, cols = get_rowcol(peak_response_dict)
+  fig = plt.figure(figsize=(6, 6))
+  for row in rows:
+    peaks = np.zeros(len(cols))
+    for col_ind, col in enumerate(cols):
+      peaks[col_ind] = peak_response_dict[row][col]
+    plt.plot(cols, peaks, alpha=0.6, label=row)
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.title('peak response time after onset (ms)')
+  plt.tight_layout()
+  plt.savefig('./plots/average_response_peakoffset_stimulus_{}.jpg'.format(n))
+  plt.show()
+
+plot_response_peak_stimulus(peak_response_dict, n)
 # %%
 ############## calculate ccg and save
 np.seterr(divide='ignore', invalid='ignore')
@@ -2134,11 +2213,12 @@ np.seterr(divide='ignore', invalid='ignore')
 # min_len, min_num = (260000, 739)
 min_len, min_num = (10000, 29)
 min_duration = 250
-min_fre = 0.002 # 2 Hz
-min_spikes = min_len * min_fre
+min_FR = 0.002 # 2 Hz
+# min_spikes = min_duration * min_FR
+# min_spikes = min_len * min_FR
 measure = 'ccg'
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-num_baseline = 100
+num_baseline = 1
 files = os.listdir(directory)
 files = [f for f in files if f.endswith('.npz')]
 files.sort(key=lambda x:int(x[:9]))
@@ -2147,15 +2227,20 @@ path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected
 if not os.path.exists(path):
   os.makedirs(path)
 file_order = int(sys.argv[1])
+# file_order = 1
 file = files[file_order] # 0, 2, 7 spontaneous, gabors, natural_movie_three
 print(file)
-# sequences = load_npz(os.path.join(directory, file))
+# (num_neuron, num_trial, T)
 sequences = load_npz_3d(os.path.join(directory, file))
-sequences = concatenate_trial(sequences, min_duration, min_len)
-sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
+sequences = sequences[:, :, :min_duration]
+active_neuron_inds = sequences.mean(1).sum(1) > sequences.shape[2] * min_FR
+sequences = sequences[active_neuron_inds]
+print('Spike train shape: {}'.format(sequences.shape))
+# sequences = concatenate_trial(sequences, min_duration, min_len)
+# sequences = sequences[np.count_nonzero(sequences[:, :min_len], axis=1) > min_spikes, :min_len]
 fname = os.path.join(path, file)
 start_time = time.time()
-save_ccg_corrected(sequences=sequences, fname=fname, num_jitter=num_baseline, L=25, window=100, disable=False)
+save_mean_ccg_corrected(sequences=sequences, fname=fname, num_jitter=num_baseline, L=25, window=100, disable=False)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 ############## calculate xcorr and save
@@ -2261,15 +2346,89 @@ plt.gca().invert_yaxis()
 plt.tight_layout()
 # plt.show()
 plt.savefig('./plots/raster_{}_{}.jpg'.format(session_ids[mouse_ind], stimulus_names[stimulus_ind]))
+#%%
 # %%
+############### plot average response for spontaneous and natural movies
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_name = 'spontaneous'
+# stimulus_name = 'natural_movie_one'
+# stimulus_name = 'natural_movie_three'
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+fig = plt.figure(figsize=(4*8, 3*len(mouseIDs)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+for row_ind, mouseID in enumerate(mouseIDs):
+  print(mouseID)
+  print(stimulus_name)
+  # adj_mat_ds = np.load(os.path.join(directory, file))
+  # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+  matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+  matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+  # print(matrix.shape)
+  mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+  print(mean_matrix.shape)
+  plt.subplot(len(mouseIDs), 1, row_ind+1)
+  # if row_ind == 0:
+  #   plt.gca().set_title(stimulus_name, fontsize=20, rotation=0)
+  plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
+  horizontalalignment='left',
+  verticalalignment='center',
+  # rotation='vertical',
+  transform=plt.gca().transAxes, fontsize=20, rotation=90)
+  plt.tick_params(left=True, bottom=False, labelleft=True, labelbottom=False, labelright=True)
+  plt.plot(mean_matrix[:5000], alpha=1)
+  if row_ind == len(mouseIDs)-1:
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True, labelright=True)
+    plt.xticks(fontsize=20)
+    plt.xlabel('time after stimulus onset (ms)', size=25)
+  plt.ylabel('average number of spikes')
+plt.suptitle(stimulus_name, size=30)
+plt.tight_layout()
+plt.savefig('./plots/average_response_{}_5000.jpg'.format(stimulus_name))
+#%%
 ############### plot average response
-matrix = load_npz_3d(os.path.join(directory, file))
-mouseID = file.split('_')[0]
-stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
-print(matrix.shape)
-mean_matrix = matrix.mean(axis=2)
-print(mean_matrix.shape)
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
+mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
+left, width = .25, .5
+bottom, height = .25, .5
+right = left + width
+top = bottom + height
+ind = 1
+for row_ind, mouseID in enumerate(mouseIDs):
+  print(mouseID)
+  for col_ind, stimulus_name in enumerate(stimulus_names):
+    print(stimulus_name)
+    # adj_mat_ds = np.load(os.path.join(directory, file))
+    # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+    matrix = load_npz_3d(os.path.join(directory, str(mouseID) + '_' + stimulus_name + '.npz'))
+    matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
+    # print(matrix.shape)
+    mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
+    print(mean_matrix.shape)
+    plt.subplot(len(mouseIDs), len(stimulus_names), ind)
+    if row_ind == 0:
+      plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
+    if col_ind == 0:
+      plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
+      horizontalalignment='left',
+      verticalalignment='center',
+      # rotation='vertical',
+      transform=plt.gca().transAxes, fontsize=20, rotation=90)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    plt.plot(mean_matrix[:250], alpha=1)
+    plt.xlabel('time after stimulus onset (ms)')
+    plt.ylabel('average number of spikes')
+plt.tight_layout()
+plt.savefig('./plots/average_response_250.jpg')
 #%%
 duration = 230
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
@@ -2406,20 +2565,7 @@ plt.tight_layout()
 plt.savefig('./plots/numnodes_minFR{}.jpg'.format(min_FR*1000))
 # plt.show()
 # %%
-############# load area_dict and average speed dataframe #################
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-# session_ids = [719161530, 750749662, 755434585, 756029989]
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
-area_dict = pickle.load(a_file)
-# change the keys of area_dict from int to string
-int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
-area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
-a_file.close()
-mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
 # %%
 ############# plot min num neurons per area across mice vs minFR #################
 # min_len, min_num = (260000, 739)
