@@ -2045,7 +2045,9 @@ def plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure):
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      sns_plot = sns.heatmap(ccg_mat_dict[mouseID][stimulus_name].astype(float),center=0,cmap="RdBu_r")# cmap="YlGnBu"
+      matrix = ccg_mat_dict[mouseID][stimulus_name].astype(float)
+      vmax, vmin = np.nanmean(matrix) + np.nanstd(3*matrix), np.nanmean(matrix) - 3*np.nanstd(matrix)
+      sns_plot = sns.heatmap(matrix,vmax=vmax,vmin=vmin,center=0,cmap="RdBu_r")# cmap="YlGnBu"
       # sns_plot = sns.heatmap(ccg_mat_dict[mouseID][stimulus_name].astype(float),norm=LogNorm(),cmap="RdBu_r")# cmap="YlGnBu"
       # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
       # sns_plot.set_xticks(np.arange(len(regions))+0.5)
@@ -2068,6 +2070,7 @@ maxlag = 12
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 ccg_mat_dict = load_ccg_connectivity(directory, mouseIDs, stimulus_names, maxlag=12)
 #%%
+n = 4
 plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure)
 # %%
 def plot_corr_peak_stimulus(peak_dict, n, measure):
