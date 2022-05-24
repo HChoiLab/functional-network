@@ -646,7 +646,7 @@ for R in Rs:
 # measure = 'xcorr'
 # # measure = 'causality'
 # directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+# stimulus_names = ['spontaneous', 'flashes', 
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -683,7 +683,7 @@ for R in Rs:
 # measure = 'xcorr'
 # # measure = 'causality'
 # directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+# stimulus_names = ['spontaneous', 'flashes', 
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -1001,7 +1001,7 @@ min_spikes = min_len * 0.002 # 2 Hz
 measure = 'xcorr'
 # measure = 'causality'
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -1154,7 +1154,7 @@ plot_multi_corr_FR(session_ids, stimulus_names, peak_dict, bin_dict, 'peakoffset
 # measure = 'xcorr'
 # # measure = 'causality'
 # directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+# stimulus_names = ['spontaneous', 'flashes', 
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -1868,9 +1868,9 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='
 # # %%
 # plot_directed_multi_degree_distributions(G_ccg_dict, 'pos', measure, n, weight='weight', cc=False)
 #%%
-################ plot example significant ccg
-def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disable=False):
-  path = directory.replace(measure, measure+'_significant')
+################ plot example significant ccg for sharp peak
+def plot_example_ccg_sharp_peak(directory, measure, maxlag=12, n=7, window=100, disable=False):
+  path = directory.replace(measure, measure+'_sharp_peak')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
@@ -1880,8 +1880,6 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      # adj_mat_ds = np.load(os.path.join(directory, file))
-      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
       try: 
         ccg = load_npz_3d(os.path.join(directory, file))
       except:
@@ -1904,15 +1902,7 @@ def plot_example_ccg_n_fold(directory, measure, maxlag=12, n=7, window=100, disa
       if np.sum(indx):
         significant_ccg[indx] = ccg_mat[indx]
         significant_peaks[indx] = max_offset[indx]
-      
-      # total_len = len(list(itertools.permutations(range(num_nodes), 2)))
-      # for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
-      #   ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
-      #   if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
-      #   # if np.max(np.abs(corr))
-      #     max_offset = np.argmax(ccg_corrected[:maxlag])
-      #     significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
-      #     significant_peaks[row_a, row_b] = max_offset
+    
       significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
       print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
       np.random.shuffle(significant_inds)
@@ -1933,9 +1923,68 @@ measure = 'ccg'
 maxlag = 12
 n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-plot_example_ccg_n_fold(directory, measure, maxlag=maxlag, n=n, disable=True)
+plot_example_ccg_sharp_peak(directory, measure, maxlag=maxlag, n=n, disable=True)
+#%%
+################ plot example significant ccg for sharp intergral
+def plot_example_ccg_sharp_integral(directory, measure, maxlag=12, n=7, window=100, disable=False):
+  path = directory.replace(measure, measure+'_sharp_integral')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file and 'gabors' not in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+      print(file)
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg=np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      filter = np.array([[[1/maxlag]]]).repeat(maxlag, axis=2)
+      corr_integral = signal.convolve(corr, filter, mode='valid')
+      ccg_mat = corr_integral[:, :, 0] # average of first maxlag window
+      num_nodes = ccg.shape[0]
+      pos_fold = ccg_mat > corr_integral.mean(-1) + n * corr_integral.std(-1)
+      neg_fold = ccg_mat < corr_integral.mean(-1) - n * corr_integral.std(-1)
+      indx = np.logical_or(pos_fold, neg_fold)
+      if np.sum(indx):
+        significant_ccg[indx] = ccg_mat[indx]
+    
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
+      np.random.shuffle(significant_inds)
+      fig = plt.figure(figsize=(5*3, 5*3))
+      for ind, (row_a, row_b) in enumerate(significant_inds[:9]):
+        ax = plt.subplot(3, 3, ind+1)
+        plt.axvline(x=maxlag, color='r', linestyle='--', alpha=0.9)
+        plt.plot(np.arange(window+1), ccg_corrected[row_a, row_b])
+        if ind % 3 == 0:
+          plt.ylabel('signigicant CCG corrected', size=20)
+        if ind // 3 == 3 - 1:
+          plt.xlabel('time lag (ms)', size=20)
+        title = 'positive edge' if pos_fold[row_a, row_b] else 'negative edge'
+        plt.title(title, size=20)
+      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+      plt.savefig('./plots/sample_significant_ccg_{}fold_sharp_integral_{}_{}.jpg'.format(n, mouseID, stimulus_name))
+
+np.seterr(divide='ignore', invalid='ignore')
+measure = 'ccg'
+maxlag = 12
+n = 3
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+plot_example_ccg_sharp_integral(directory, measure, maxlag=maxlag, n=n, disable=True)
 # %%
-################ plot example significant xcorr
+################ plot example significant xcorr for sharp peak
 def plot_example_xcorr_n_fold(directory, measure, maxlag=12, alpha=0.01, sign='all', n=7, window=100):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
@@ -2060,7 +2109,7 @@ def plot_ccg_connectivity(ccg_mat_dict, mouseIDs, stimulus_names, n, measure):
   plt.savefig('./plots/connectivity_matrix_{}_{}fold.jpg'.format(measure, n))
   # plt.show()
 #%%
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
@@ -2132,12 +2181,8 @@ def plot_multi_peak_dist(peak_dict, n, measure):
 plot_multi_peak_dist(peak_dict, n, measure)
 #%%
 ############### get average reponse peak offset
-def moving_average(x, N):
-    cumsum = np.cumsum(np.insert(x, 0, 0))
-    return (cumsum[N:] - cumsum[:-N]) / float(N)
-
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
@@ -2189,7 +2234,7 @@ def plot_average_response_smoothed(response_dict, n=10):
   plt.savefig('./plots/average_response_smoothed_{}.jpg'.format(n))
   return peak_response_dict
 
-n = 25
+n = 5
 peak_response_dict = plot_average_response_smoothed(response_dict, n=n)
 #%%
 def plot_response_peak_stimulus(peak_response_dict, n):
@@ -2304,7 +2349,7 @@ def unique(l):
   u, ind = np.unique(l, return_index=True)
   return list(u[np.argsort(ind)])
 
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -2394,7 +2439,7 @@ plt.savefig('./plots/average_response_{}_5000.jpg'.format(stimulus_name))
 #%%
 ############### plot average response
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
@@ -2433,8 +2478,8 @@ for row_ind, mouseID in enumerate(mouseIDs):
 plt.tight_layout()
 plt.savefig('./plots/average_response_250.jpg')
 #%%
-duration = 230
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+duration = 250
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
@@ -2478,8 +2523,8 @@ plt.legend()
 plt.tight_layout()
 # plt.show()
 plt.savefig('./plots/average_response_area.jpg')
-# %%
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+ # %%
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
@@ -2535,7 +2580,7 @@ files = [f for f in files if f.endswith('.npz')]
 files.sort(key=lambda x:int(x[:9]))
 path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
 # path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -2585,7 +2630,7 @@ files = [f for f in files if f.endswith('.npz')]
 files.sort(key=lambda x:int(x[:9]))
 path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected'))
 # path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_xcorr_shuffled'))
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
@@ -2617,3 +2662,19 @@ plt.ylabel('min number of nodes across mice')
 plt.legend()
 plt.tight_layout()
 plt.savefig('./plots/numnodes_area_minFR{}.jpg'.format(min_FR*1000))
+
+#%%
+start_time = time.time()
+measure = 'ccg'
+n = 3
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+save_ccg_corrected_sharp_integral(directory, measure, maxlag=12, n=n)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
+#%%
+from scipy import signal
+a = np.arange(0, 27).reshape(3,3,3)
+maxlag = 2
+filter = np.array([[[1/maxlag]]]).repeat(maxlag, axis=2)
+b = signal.convolve(a, filter, mode='valid')
+b
+# %%
