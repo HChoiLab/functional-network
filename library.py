@@ -19,8 +19,10 @@ import community
 import seaborn as sns
 from numpy.lib.stride_tricks import as_strided
 from scipy.ndimage.filters import uniform_filter1d
+from scipy import signal
 from plfit import plfit
 from scipy import sparse
+np.seterr(divide='ignore', invalid='ignore')
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
@@ -350,6 +352,9 @@ def get_rowcol(G_dict):
   cols = list(stimulus_rank_dict.keys())
   return rows, cols
 
+def Z_score(r):
+  return np.log((1+r)/(1-r)) / 2
+
 ############## correlation
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
@@ -412,7 +417,7 @@ def n_cross_correlation8(matrix, maxlag=12, window=100, disable=True): ### faste
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
     # corr = np.dot(T, px)
     corr = T @ px
-    corr = (corr - corr.mean())[:maxlag]
+    corr = (corr - corr.mean())[:maxlag+1]
     max_offset = np.argmax(np.abs(corr))
     xcorr[row_a, row_b] = corr[max_offset]
     peak_offset[row_a, row_b] = max_offset
@@ -461,14 +466,14 @@ def n_cross_correlation8_2mat(matrix_a, matrix_b, maxlag=12, window=100, disable
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
     # corr = np.dot(T, px)
     corr = T @ px
-    corr = (corr - corr.mean())[:maxlag]
+    corr = (corr - corr.mean())[:maxlag+1]
     xcorr[0, 1, row] = corr[np.argmax(np.abs(corr))]
     px, py = norm_matb_0[row, :], norm_mata_1[row, :]
     T = as_strided(py[window:], shape=(window+1, M + window),
                     strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
     # corr = np.dot(T, px)
     corr = T @ px
-    corr = (corr - corr.mean())[:maxlag]
+    corr = (corr - corr.mean())[:maxlag+1]
     xcorr[1, 0, row] = corr[np.argmax(np.abs(corr))]
   return xcorr
 
@@ -669,16 +674,16 @@ def xcorr_n_fold(matrix, n=7, num_jitter=10, L=25, R=1, maxlag=12, window=100, d
   total_len = len(list(itertools.permutations(range(N), 2)))
   for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
     ccg_corrected = (xcorr[row_a, row_b, :, None] - xcorr_jittered[row_a, row_b, :, :]).mean(-1)
-    if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+    if ccg_corrected[:maxlag+1].max() > ccg_corrected.mean() + n * ccg_corrected.std():
     # if np.max(np.abs(corr))
-      max_offset = np.argmax(ccg_corrected[:maxlag])
-      significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+      max_offset = np.argmax(ccg_corrected[:maxlag+1])
+      significant_ccg[row_a, row_b] = ccg_corrected[:maxlag+1][max_offset]
       peak_offset[row_a, row_b] = max_offset
   return significant_ccg, peak_offset
 
-########## save significant ccg
-def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False):
-  path = directory.replace(measure, measure+'_significant')
+########## save significant ccg for sharp peaks
+def save_ccg_corrected_sharp_peak(directory, measure, maxlag=12, n=7):
+  path = directory.replace(measure, measure+'_sharp_peak')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
@@ -699,15 +704,15 @@ def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False)
       significant_ccg[:] = np.nan
       significant_peaks[:] = np.nan
       ccg_corrected = ccg - ccg_jittered
-      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])[:, :, :maxlag]
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])[:, :, :maxlag+1]
       max_offset = np.argmax(np.abs(corr), -1)
       ccg_mat = np.choose(max_offset, np.moveaxis(corr, -1, 0))
       num_nodes = ccg.shape[0]
       significant_ccg, significant_peaks=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
       significant_ccg[:] = np.nan
       significant_peaks[:] = np.nan
-      pos_fold = ccg_corrected[:, :, :maxlag].max(-1) > ccg_corrected.mean(-1) + n * ccg_corrected.std(-1)
-      neg_fold = ccg_corrected[:, :, :maxlag].max(-1) < ccg_corrected.mean(-1) - n * ccg_corrected.std(-1)
+      pos_fold = ccg_corrected[:, :, :maxlag+1].max(-1) > ccg_corrected.mean(-1) + n * ccg_corrected.std(-1)
+      neg_fold = ccg_corrected[:, :, :maxlag+1].max(-1) < ccg_corrected.mean(-1) - n * ccg_corrected.std(-1)
       indx = np.logical_or(pos_fold, neg_fold)
       if np.sum(indx):
         significant_ccg[indx] = ccg_mat[indx]
@@ -716,19 +721,58 @@ def save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=7, disable=False)
       # total_len = len(list(itertools.permutations(range(num_nodes), 2)))
       # for row_a, row_b in tqdm(itertools.permutations(range(num_nodes), 2), total=total_len , miniters=int(total_len/100), disable=disable): # , miniters=int(total_len/100)
       #   ccg_corrected = ccg[row_a, row_b, :] - ccg_jittered[row_a, row_b, :]
-      #   if ccg_corrected[:maxlag].max() > ccg_corrected.mean() + n * ccg_corrected.std():
+      #   if ccg_corrected[:maxlag+1].max() > ccg_corrected.mean() + n * ccg_corrected.std():
       #   # if np.max(np.abs(corr))
-      #     max_offset = np.argmax(ccg_corrected[:maxlag])
-      #     significant_ccg[row_a, row_b] = ccg_corrected[:maxlag][max_offset]
+      #     max_offset = np.argmax(ccg_corrected[:maxlag+1])
+      #     significant_ccg[row_a, row_b] = ccg_corrected[:maxlag+1][max_offset]
       #     significant_peaks[row_a, row_b] = max_offset
       print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(significant_ccg, os.path.join(path, file))
       save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
 
-############ save significant xcorr
-def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
-  path = directory.replace(measure, sign+'_'+measure+'_larger')
+def moving_average(x, N):
+    cumsum = np.cumsum(np.insert(x, 0, 0))
+    return (cumsum[N:] - cumsum[:-N]) / float(N)
+
+########## save significant ccg for sharp integral
+def save_ccg_corrected_sharp_integral(directory, measure, maxlag=12, n=3):
+  path = directory.replace(measure, measure+'_sharp_integral')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg=np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      filter = np.array([[[1/maxlag]]]).repeat(maxlag, axis=2)
+      corr_integral = signal.convolve(corr, filter, mode='valid')
+      ccg_mat = corr_integral[:, :, 0] # average of first maxlag window
+      num_nodes = ccg.shape[0]
+      pos_fold = ccg_mat > corr_integral.mean(-1) + n * corr_integral.std(-1)
+      neg_fold = ccg_mat < corr_integral.mean(-1) - n * corr_integral.std(-1)
+      indx = np.logical_or(pos_fold, neg_fold)
+      if np.sum(indx):
+        significant_ccg[indx] = ccg_mat[indx]
+      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
+      save_npz(significant_ccg, os.path.join(path, file))
+
+############ save significant xcorr for sharp peaks
+def save_xcorr_sharp_peak(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
+  path = directory.replace(measure, sign+'_'+measure+'_sharp_peak')
   if not os.path.exists(path):
     os.makedirs(path)
   files = os.listdir(directory)
@@ -745,7 +789,7 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
       # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
       all_xcorr = load_npz_3d(os.path.join(directory, file))
       # import pdb;pdb.set_trace()
-      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag]
+      corr = (all_xcorr - all_xcorr.mean(-1)[:, :, None])[:, :, :maxlag+1]
       max_offset = np.argmax(np.abs(corr), -1)
       xcorr = np.choose(max_offset, np.moveaxis(corr, -1, 0))
       xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
@@ -755,16 +799,16 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
       significant_peaks[:] = np.nan
       if sign == 'pos':
         # indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
-        fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+        fold = all_xcorr[:, :, :maxlag+1].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
       elif sign == 'neg':
         # indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
-        fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+        fold = all_xcorr[:, :, :maxlag+1].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
       elif sign == 'all':
         # pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
         # neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
         # indx = np.logical_or(pos, neg)
-        pos_fold = all_xcorr[:, :, :maxlag].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
-        neg_fold = all_xcorr[:, :, :maxlag].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
+        pos_fold = all_xcorr[:, :, :maxlag+1].max(-1) > all_xcorr.mean(-1) + n * all_xcorr.std(-1)
+        neg_fold = all_xcorr[:, :, :maxlag+1].max(-1) < all_xcorr.mean(-1) - n * all_xcorr.std(-1)
         fold = np.logical_or(pos_fold, neg_fold)
       # indx = np.logical_and(indx, fold)
       indx = fold
@@ -776,7 +820,104 @@ def save_adj_larger_fold(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
       save_npz(significant_adj_mat, os.path.join(path, file))
       save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
 
-#################### load significant ccg_corrected
+############ save significant xcorr for larger
+def save_xcorr_larger_2d(directory, sign, measure, alpha):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_bl_temp.shape[2] # number of shuffles
+  k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if ('_bl' not in file) and ('_peak' not in file) and ('719161530' in file):
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      xcorr = load_npz_3d(os.path.join(directory, file))
+      xcorr_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      peaks = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
+      significant_adj_mat, significant_peaks=np.zeros_like(xcorr), np.zeros_like(peaks)
+      significant_adj_mat[:] = np.nan
+      significant_peaks[:] = np.nan
+      if sign == 'pos':
+        indx = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+      elif sign == 'neg':
+        indx = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+      elif sign == 'all':
+        pos = xcorr > np.clip(np.partition(xcorr_bl, -k, axis=-1)[:, :, -k], a_min=0, a_max=None)
+        neg = xcorr < np.clip(np.partition(xcorr_bl, k-1, axis=-1)[:, :, k-1], a_min=None, a_max=0)
+        indx = np.logical_or(pos, neg)
+      if np.sum(indx):
+        significant_adj_mat[indx] = xcorr[indx]
+        significant_peaks[indx] = peaks[indx]
+      
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(significant_adj_mat, os.path.join(path, file))
+      save_npz(significant_peaks, os.path.join(path, file.replace('.npz', '_peak.npz')))
+
+############ save significant xcorr for larger with downsampling
+def save_xcorr_larger_3d(directory, sign, measure, alpha):
+  path = directory.replace(measure, sign+'_'+measure+'_larger')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  # adj_temp = load_npz_3d(os.path.join(directory, [f for f in files if not '_bl' in f][0]))
+  # R = adj_temp.shape[2] # number of downsamples
+  adj_bl_temp = load_npz_3d(os.path.join(directory, [f for f in files if '_bl' in f][0]))
+  N = adj_bl_temp.shape[2] # number of shuffles
+  k = int(N * alpha) + 1 # allow int(N * alpha) random correlations larger
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      # adj_mat_ds = np.load(os.path.join(directory, file))
+      # adj_mat_bl = np.load(os.path.join(directory, file.replace('.npy', '_bl.npy')))
+      adj_mat_ds = load_npz_3d(os.path.join(directory, file))
+      adj_mat_bl = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      adj_mat = np.zeros_like(adj_mat_ds)
+      if measure == 'xcorr':
+        iterator = list(itertools.permutations(range(adj_mat_ds.shape[0]), 2))
+      else:
+        iterator = list(itertools.combinations(range(adj_mat_ds.shape[0]), 2))
+      total_len = len(iterator)
+      for row_a, row_b in tqdm(iterator, total=total_len):
+        # if adj_mat_ds[row_a, row_b, r] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0): # only keep positive edges:
+        # if adj_mat_ds[row_a, row_b, :].mean() > max(adj_mat_bl[row_a, row_b, :].max(), 0): # only keep positive edges:
+          # adj_mat[row_a, row_b, r] = adj_mat_ds[row_a, row_b, r]
+        if sign == 'pos':
+          indx = adj_mat_ds[row_a, row_b] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0)
+        elif sign == 'neg':
+          indx = adj_mat_ds[row_a, row_b] < min(np.partition(adj_mat_bl[row_a, row_b, :], k-1)[k-1], 0)
+        elif sign == 'all':
+          pos = adj_mat_ds[row_a, row_b] > max(np.partition(adj_mat_bl[row_a, row_b, :], -k)[-k], 0)
+          neg = adj_mat_ds[row_a, row_b] < min(np.partition(adj_mat_bl[row_a, row_b, :], k-1)[k-1], 0)
+          indx = np.logical_or(pos, neg)
+        if np.sum(indx):
+          adj_mat[row_a, row_b, indx] = adj_mat_ds[row_a, row_b, indx]
+      # np.save(os.path.join(path, file), adj_mat)
+      save_npz(adj_mat, os.path.join(path, file))
+
+############# load area_dict and average speed dataframe #################
+def load_other_data():
+  
+  visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+  session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+  stimulus_names = ['spontaneous', 'flashes', 'gabors',
+          'drifting_gratings', 'static_gratings',
+            'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+  area_dict = pickle.load(a_file)
+  # change the keys of area_dict from int to string
+  int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+  area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+  a_file.close()
+  mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+  return visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df
+
 def generate_graph(adj_mat, cc=False, weight=False):
   if not weight:
     adj_mat[adj_mat.nonzero()] = 1
@@ -789,6 +930,7 @@ def generate_graph(adj_mat, cc=False, weight=False):
     G = nx.subgraph(G, largest_cc)
   return G
 
+#################### load significant corr mat
 def load_significant_xcorr(directory, weight):
   G_dict, peak_dict = {}, {}
   files = os.listdir(directory)
@@ -920,6 +1062,7 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
       plt.plot(cols, mean, label=row, alpha=0.6)
     plt.gca().set_title(k, fontsize=20, rotation=0)
     plt.xticks(rotation=90)
+    plt.yscale('symlog')
     plt.legend()
     plt.tight_layout()
   # plt.show()
@@ -934,7 +1077,7 @@ def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
     print(row)
     for col_ind, col in enumerate(cols):
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
         nodes = list(G.nodes())
         active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
         # active_areas = [i for i in regions if i in active_areas]
@@ -994,7 +1137,7 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n
   for row_ind, row in enumerate(rows):
     print(row)
     G = G_dict[row]['spontaneous']
-    if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
       nodes = list(G.nodes())
       active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
       A = nx.adjacency_matrix(G)
@@ -1013,7 +1156,7 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n
               # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
     for col_ind, col in enumerate(cols):
       G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
         nodes = list(G.nodes())
         active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
         A = nx.adjacency_matrix(G)
