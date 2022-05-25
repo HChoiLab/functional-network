@@ -1747,7 +1747,7 @@ n = 4
 # sign = 'neg'
 sign = 'all'
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_shuffled/'.format(measure)
-save_adj_larger_fold(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
+save_xcorr_sharp_peak(directory, sign, measure, maxlag=maxlag, alpha=alpha, n=n)
 #%%
 visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -1793,19 +1793,37 @@ plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 #%%
 measure = 'ccg'
-n = 4
+n = 2
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-save_ccg_corrected_n_fold(directory, measure, maxlag=12, n=n)
+# save_ccg_corrected_sharp_peak(directory, measure, maxlag=12, n=n)
+save_ccg_corrected_sharp_integral(directory, measure, maxlag=12, n=n)
 #%%
 visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-path = directory.replace('spiking_sequence', 'adj_mat_ccg_significant_corrected')
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_sharp_peak_corrected')
 if not os.path.exists(path):
   os.makedirs(path)
-G_ccg_dict, peak_dict = load_significant_xcorr(path, weight=True)
+G_ccg_dict, peak_dict = load_sharp_peak_xcorr(path, weight=True)
 measure = 'ccg'
 #%%
-n = 4
+visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df = load_other_data()
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_sharp_integral_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict = load_sharp_integral_xcorr(path, weight=True)
+measure = 'ccg'
+#%%
+def remove_gabor(G_dict):
+  for key in G_dict:
+    G_dict[key].pop('gabors', None)
+  return G_dict
+G_ccg_dict = remove_gabor(G_ccg_dict)
+#%%
+active_areas = get_all_active_areas(G_ccg_dict, area_dict)
+print(active_areas)
+#%%
+n = 3
 #%%
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
@@ -1980,7 +1998,7 @@ def plot_example_ccg_sharp_integral(directory, measure, maxlag=12, n=7, window=1
 np.seterr(divide='ignore', invalid='ignore')
 measure = 'ccg'
 maxlag = 12
-n = 3
+n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 plot_example_ccg_sharp_integral(directory, measure, maxlag=maxlag, n=n, disable=True)
 # %%
@@ -2677,4 +2695,88 @@ maxlag = 2
 filter = np.array([[[1/maxlag]]]).repeat(maxlag, axis=2)
 b = signal.convolve(a, filter, mode='valid')
 b
+# %%
+def get_overlap_ccg_sharp_peak_interval(directory, rows, cols, maxlag=12, n=7):
+  num_peak, num_interval, percents = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      print(col)
+      file = str(row) + '_' + col + '.npz'
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])[:, :, :maxlag]
+      max_offset = np.argmax(np.abs(corr), -1)
+      ccg_mat = np.choose(max_offset, np.moveaxis(corr, -1, 0))
+      pos_fold = ccg_corrected[:, :, :maxlag].max(-1) > ccg_corrected.mean(-1) + n * ccg_corrected.std(-1)
+      neg_fold = ccg_corrected[:, :, :maxlag].max(-1) < ccg_corrected.mean(-1) - n * ccg_corrected.std(-1)
+      sharp_peak_indx = np.logical_or(pos_fold, neg_fold)
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      filter = np.array([[[1/maxlag]]]).repeat(maxlag, axis=2)
+      corr_integral = signal.convolve(corr, filter, mode='valid')
+      ccg_mat = corr_integral[:, :, 0] # average of first maxlag window
+      pos_fold = ccg_mat > corr_integral.mean(-1) + n * corr_integral.std(-1)
+      neg_fold = ccg_mat < corr_integral.mean(-1) - n * corr_integral.std(-1)
+      sharp_interval_indx = np.logical_or(pos_fold, neg_fold)
+      peak_interval_indx = np.logical_and(sharp_peak_indx, sharp_interval_indx)
+      num_peak[row_ind, col_ind] = len(np.where(sharp_peak_indx)[0])
+      num_interval[row_ind, col_ind] = len(np.where(sharp_interval_indx)[0])
+      percents[row_ind, col_ind] = len(np.where(peak_interval_indx)[0]) / num_peak[row_ind, col_ind]
+  return num_peak, num_interval, percents
+
+
+def plot_overlap_ccg_sharp_peak_interval(rows, cols, num_peak, num_interval, percents, n):
+  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  metric_names = ['number of sharp peaks', 'number of sharp intervals', 'portion of sharp peaks in sharp interval']
+  plots_shape = (1, 3)
+  fig = plt.figure(figsize=(24, 8))
+  plt.subplot(*plots_shape, 1)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, num_peak[row_ind, :], label=row, alpha=1)
+  plt.gca().set_title(metric_names[0], fontsize=30, rotation=0)
+  plt.xticks(rotation=90)
+  plt.legend()
+
+  plt.subplot(*plots_shape, 2)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, num_interval[row_ind, :], label=row, alpha=1)
+  plt.gca().set_title(metric_names[1], fontsize=30, rotation=0)
+  plt.xticks(rotation=90)
+  plt.legend()
+
+  plt.subplot(*plots_shape, 3)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, percents[row_ind, :], label=row, alpha=1)
+  plt.gca().set_title(metric_names[2], fontsize=30, rotation=0)
+  plt.xticks(rotation=90)
+  plt.legend()
+
+  plt.suptitle('{} fold'.format(n), size=30)
+  plt.tight_layout()
+  plt.savefig('./plots/overlap_ccg_sharp_peak_interval_{}fold.jpg'.format(n))
+  
+#%%
+
+stimulus_names = ['spontaneous', 'flashes', 
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+measure = 'ccg'
+maxlag = 12
+n = 6
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+num_peak, num_interval, percents = get_overlap_ccg_sharp_peak_interval(directory, session_ids, stimulus_names, maxlag=maxlag, n=n)
+# %%
+plot_overlap_ccg_sharp_peak_interval(session_ids, stimulus_names, num_peak, num_interval, percents, n)
 # %%
