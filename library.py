@@ -930,8 +930,8 @@ def generate_graph(adj_mat, cc=False, weight=False):
     G = nx.subgraph(G, largest_cc)
   return G
 
-#################### load significant corr mat
-def load_significant_xcorr(directory, weight):
+#################### load sharp peak corr mat
+def load_sharp_peak_xcorr(directory, weight):
   G_dict, peak_dict = {}, {}
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
@@ -947,6 +947,23 @@ def load_significant_xcorr(directory, weight):
       G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
       peak_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_peak.npz')))
   return G_dict, peak_dict
+
+#################### load sharp integral corr mat
+def load_sharp_integral_xcorr(directory, weight):
+  G_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('_bl' not in file):
+      print(file)
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
+  return G_dict
 
 ############### regular network statistics
 def split_pos_neg(G_dict, measure):
@@ -1068,6 +1085,19 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   # plt.show()
   figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname)
+
+def get_all_active_areas(G_dict, area_dict):
+  rows, cols = get_rowcol(G_dict)
+  active_areas = np.array([])
+  for row in rows:
+    print(row)
+    for col in cols:
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        active_areas_G = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+        active_areas = np.union1d(active_areas, active_areas_G)
+  return active_areas
 
 def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
   rows, cols = get_rowcol(G_dict)
