@@ -770,6 +770,68 @@ def save_ccg_corrected_sharp_integral(directory, measure, maxlag=12, n=3):
       print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
       save_npz(significant_ccg, os.path.join(path, file))
 
+########## save significant ccg for highland
+def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
+  num_nodes = corr.shape[0]
+  highland_ccg,offset=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
+  highland_ccg[:] = np.nan
+  offset[:] = np.nan
+  filter = np.array([[[1/(duration+1)]]]).repeat(duration+1, axis=2)
+  corr_integral = signal.convolve(corr, filter, mode='valid')
+  # ccg_mat_max = corr_integral[:, :, :maxlag-duration+1].max(-1) # average of first maxlag window
+  # ccg_mat_min = corr_integral[:, :, :maxlag-duration+1].min(-1) # average of first maxlag window
+  max_offset = np.argmax(corr_integral[:, :, :maxlag-duration+1], -1)
+  ccg_mat_max = np.choose(max_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+  min_offset = np.argmin(corr_integral[:, :, :maxlag-duration+1], -1)
+  ccg_mat_min = np.choose(min_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+  pos_fold = ccg_mat_max > corr_integral.mean(-1) + n * corr_integral.std(-1)
+  neg_fold = ccg_mat_min < corr_integral.mean(-1) - n * corr_integral.std(-1)
+  fre_filter = np.count_nonzero(corr, axis=-1) > min_spike
+  pos_fold = np.logical_and(pos_fold, fre_filter)
+  neg_fold = np.logical_and(neg_fold, fre_filter)
+  highland_ccg[pos_fold] = ccg_mat_max[pos_fold]
+  highland_ccg[neg_fold] = ccg_mat_min[neg_fold]
+  offset[pos_fold] = max_offset[pos_fold]
+  offset[neg_fold] = min_offset[neg_fold]
+  indx = np.logical_or(pos_fold, neg_fold)
+  return highland_ccg, offset, indx 
+  
+def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
+  path = directory.replace(measure, measure+'_highland')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      significant_offset[:] = np.nan
+      significant_duration[:] = np.nan
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
+        print('duration {}'.format(duration))
+        highland_ccg, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        if np.sum(indx):
+          significant_ccg[indx] = highland_ccg[indx]
+          significant_offset[indx] = offset[indx]
+          significant_duration[indx] = duration
+      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
+      save_npz(significant_ccg, os.path.join(path, file))
+      save_npz(significant_offset, os.path.join(path, file.replace('.npz', '_offset.npz')))
+      save_npz(significant_duration, os.path.join(path, file.replace('.npz', '_duration.npz')))
+
 ############ save significant xcorr for sharp peaks
 def save_xcorr_sharp_peak(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
   path = directory.replace(measure, sign+'_'+measure+'_sharp_peak')
