@@ -2779,4 +2779,81 @@ directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(mea
 num_peak, num_interval, percents = get_overlap_ccg_sharp_peak_interval(directory, session_ids, stimulus_names, maxlag=maxlag, n=n)
 # %%
 plot_overlap_ccg_sharp_peak_interval(session_ids, stimulus_names, num_peak, num_interval, percents, n)
+
+#%%
+start_time = time.time()
+measure = 'ccg'
+min_spike = 50
+n = 4
+max_duration = 6
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+save_ccg_corrected_highland(directory, measure, min_spike=min_spike, max_duration=max_duration, maxlag=12, n=n)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
+# %%
+#%%
+################ plot example significant ccg for highland
+def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=7, window=100):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file and 'gabors' not in file  and '719161530' in file and 'drifting_gratings' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+      print(file)
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      significant_offset[:] = np.nan
+      significant_duration[:] = np.nan
+      ccg_corrected = ccg - ccg_jittered
+      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      inds_2plot = []
+      for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
+        print('duration {}'.format(duration))
+        highland_ccg, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        if np.sum(indx):
+          significant_ccg[indx] = highland_ccg[indx]
+          significant_offset[indx] = offset[indx]
+          significant_duration[indx] = duration
+      
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
+      np.random.shuffle(significant_inds)
+
+      for duration in range(max_duration+1):
+        duration_inds = np.where(significant_duration==duration)
+        indexes = np.arange(len(duration_inds[0]))
+        np.random.shuffle(indexes)
+        inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
+
+      
+      fig = plt.figure(figsize=(5*3, 5*3))
+      for ind, (row_a, row_b) in enumerate(inds_2plot):
+        ax = plt.subplot(3, 3, ind+1)
+        highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+        plt.plot(np.arange(window+1), ccg_corrected[row_a, row_b])
+        plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.--', markersize=12, alpha=0.6)
+        if ind % 3 == 0:
+          plt.ylabel('signigicant CCG corrected', size=20)
+        if ind // 3 == 3 - 1:
+          plt.xlabel('time lag (ms)', size=20)
+      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+      plt.savefig('./plots/sample_significant_ccg_{}fold_highland_{}_{}.jpg'.format(n, mouseID, stimulus_name))
+
+np.seterr(divide='ignore', invalid='ignore')
+measure = 'ccg'
+min_spike = 50
+max_duration = 8
+maxlag = 12
+n = 4
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
+plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=max_duration, maxlag=maxlag, n=n)
 # %%
