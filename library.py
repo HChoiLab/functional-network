@@ -30,10 +30,13 @@ customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkb
 
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
 session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
         super(pattern_jitter,self).__init__()
@@ -808,7 +811,7 @@ def find_highland_old(corr, min_spike=50,duration=6, maxlag=12, n=7):
 ########## use sum of highland to compare with the rest
 def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
   num_nodes = corr.shape[0]
-  highland_ccg,offset=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
+  highland_ccg,offset,confidence_level=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
   highland_ccg[:] = np.nan
   offset[:] = np.nan
   filter = np.array([[[1]]]).repeat(duration+1, axis=2) # sum instead of mean
@@ -818,6 +821,7 @@ def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
   ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
   pos_fold = ccg_mat_extreme > mu + n * sigma
   neg_fold = ccg_mat_extreme < mu - n * sigma
+  c_level = (ccg_mat_extreme - mu) / sigma
   # pos_zero_fold = ccg_mat_extreme > n * sigma
   # neg_zero_fold = ccg_mat_extreme < n * sigma
   # pos_fold = np.logical_and(pos_fold, pos_zero_fold)
@@ -834,8 +838,9 @@ def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
   # neg_fold = np.logical_and(neg_fold, fre_filter)
   indx = np.logical_or(pos_fold, neg_fold)
   highland_ccg[indx] = ccg_mat_extreme[indx]
+  confidence_level[indx] = c_level[indx]
   offset[indx] = extreme_offset[indx]
-  return highland_ccg, offset, indx
+  return highland_ccg, confidence_level, offset, indx
 
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
   path = directory.replace(measure, measure+'_highland')
@@ -855,21 +860,24 @@ def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6
       except:
         ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
       num_nodes = ccg.shape[0]
-      significant_ccg,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
+      significant_ccg,significant_confidence,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
       significant_ccg[:] = np.nan
+      significant_confidence[:] = np.nan
       significant_offset[:] = np.nan
       significant_duration[:] = np.nan
       ccg_corrected = ccg - ccg_jittered
       corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
       for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
         print('duration {}'.format(duration))
-        highland_ccg, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
         if np.sum(indx):
           significant_ccg[indx] = highland_ccg[indx]
+          significant_confidence[indx] = confidence_level[indx]
           significant_offset[indx] = offset[indx]
           significant_duration[indx] = duration
       print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
       save_npz(significant_ccg, os.path.join(path, file))
+      save_npz(significant_confidence, os.path.join(path, file.replace('.npz', '_confidence.npz')))
       save_npz(significant_offset, os.path.join(path, file.replace('.npz', '_offset.npz')))
       save_npz(significant_duration, os.path.join(path, file.replace('.npz', '_duration.npz')))
 
@@ -1099,7 +1107,7 @@ def load_other_data(session_ids):
   mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
   return area_dict, active_area_dict, mean_speed_df
 
-def generate_graph(adj_mat, active_area, cc=False, weight=False):
+def generate_graph(adj_mat, confidence_level, active_area, cc=False, weight=False):
   if not weight:
     adj_mat[adj_mat.nonzero()] = 1
   G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
@@ -1107,6 +1115,9 @@ def generate_graph(adj_mat, active_area, cc=False, weight=False):
   mapping = {i:node_idx[i] for i in range(len(node_idx))}
   G = nx.relabel_nodes(G, mapping)
   assert set(G.nodes())==set(node_idx)
+  nodes = sorted(G.nodes())
+  cl = {(nodes[i],nodes[j]):confidence_level[i,j] for i,j in zip(*np.where(~np.isnan(confidence_level)))}
+  nx.set_edge_attributes(G, cl, 'confidence')
   if cc: # extract the largest (strongly) connected components
     if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
       largest_cc = max(nx.connected_components(G), key=len)
@@ -1156,15 +1167,16 @@ def load_highland_xcorr(directory, active_area_dict, weight):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file):
+    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file) and ('drifting_gratings' not in file):
       print(file)
       adj_mat = load_npz_3d(os.path.join(directory, file))
+      confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
       # adj_mat = np.load(os.path.join(directory, file))
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
       if not mouseID in G_dict:
         G_dict[mouseID], offset_dict[mouseID], duration_dict[mouseID] = {}, {}, {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), active_area=active_area_dict[mouseID][stimulus_name], cc=False, weight=weight)
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[mouseID][stimulus_name], cc=False, weight=weight)
       offset_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
       duration_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
   return G_dict, offset_dict, duration_dict
@@ -1239,9 +1251,10 @@ def print_stat(G_dict):
 
 def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   rows, cols = get_rowcol(pos_G_dict)
-  pos_num_nodes, neg_num_nodes, pos_num_edges, neg_num_edges, pos_densities, neg_densities, pos_total_weight, neg_total_weight, pos_mean_weight, neg_mean_weight = [np.full([len(rows), len(cols)], np.nan) for _ in range(10)]
-  num_col = 2 if neg_G_dict is not None else 1
-  fig = plt.figure(figsize=(5*num_col, 25))
+  pos_num_nodes, neg_num_nodes, pos_num_edges, neg_num_edges, pos_densities, neg_densities, pos_total_weight, neg_total_weight, pos_mean_weight, neg_mean_weight, pos_mean_confidence, neg_mean_confidence = [np.full([len(rows), len(cols)], np.nan) for _ in range(12)]
+  num_col = 4 if neg_G_dict is not None else 2
+  # fig = plt.figure(figsize=(5*num_col, 25))
+  fig = plt.figure(figsize=(5*num_col, 13))
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
@@ -1251,6 +1264,7 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
       pos_num_edges[row_ind, col_ind] = nx.number_of_edges(pos_G)
       pos_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(pos_G, "weight").values()))
       pos_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(pos_G, "weight").values()))
+      pos_mean_confidence[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(pos_G, "confidence").values()))
       if neg_G_dict is not None:
         neg_G = neg_G_dict[row][col] if col in neg_G_dict[row] else nx.DiGraph()
         neg_densities[row_ind, col_ind] = nx.density(neg_G)
@@ -1258,32 +1272,29 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
         neg_num_edges[row_ind, col_ind] = nx.number_of_edges(neg_G)
         neg_total_weight[row_ind, col_ind] = np.sum(list(nx.get_edge_attributes(neg_G, "weight").values()))
         neg_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(neg_G, "weight").values()))
-  metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
+        neg_mean_confidence[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(neg_G, "confidence").values()))
+  if neg_G_dict is not None:
+    metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
   'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
   'positive density':pos_densities, 'negative density':neg_densities,
   'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
-  'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
-  if neg_G_dict is not None:
-    metrics = {'positive number of nodes':pos_num_nodes, 'negative number of nodes':neg_num_nodes, 
-    'positive number of edges':pos_num_edges, 'negative number of edges':neg_num_edges, 
-    'positive density':pos_densities, 'negative density':neg_densities,
-    'positive total weights':pos_total_weight, 'negative total weights':neg_total_weight, 
-    'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
+  'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight,
+  'positive average confidence':pos_mean_confidence, 'negative average confidence':neg_mean_confidence}
   else:
     metrics = {'positive number of nodes':pos_num_nodes, 'positive number of edges':pos_num_edges,
     'positive density':pos_densities, 'positive total weights':pos_total_weight,
-    'positive average weights':pos_mean_weight}
+    'positive average weights':pos_mean_weight, 'positive average confidence':pos_mean_confidence}
   # distris = {'positive weight distribution':pos_weight_distri, 'negative weight distribution':neg_weight_distri}
   
   for i, k in enumerate(metrics):
-    plt.subplot(5, num_col, i+1)
+    plt.subplot(3, num_col, i+1)
     metric = metrics[k]
     for row_ind, row in enumerate(rows):
       mean = metric[row_ind, :]
       plt.plot(cols, mean, label=row, alpha=0.6)
     plt.gca().set_title(k, fontsize=20, rotation=0)
     plt.xticks(rotation=90)
-    plt.yscale('symlog')
+    # plt.yscale('symlog')
     plt.legend()
     plt.tight_layout()
   # plt.show()
