@@ -1854,21 +1854,21 @@ print_stat(neg_G_dict)
 # %%
 plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
 # %%
-region_connection_heatmap(pos_G_dict, 'pos', active_area_dict, visual_regions, measure, n)
-region_connection_heatmap(neg_G_dict, 'neg', active_area_dict, visual_regions, measure, n)
+region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
+region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
 # %%
 weight = False
-region_connection_delta_heatmap(pos_G_dict, 'pos', active_area_dict, visual_regions, measure, n, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', active_area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
 # %%
 weight = True
-region_connection_delta_heatmap(pos_G_dict, 'pos', active_area_dict, visual_regions, measure, n, weight)
-region_connection_delta_heatmap(neg_G_dict, 'neg', active_area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(pos_G_dict, 'pos', active_area_dict, measure, n, cc=cc)
-plot_multi_graphs_color(neg_G_dict, 'neg', active_area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, n, cc=cc)
 # cc = True
 # %%
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
@@ -3000,70 +3000,11 @@ def plot_multi_data_dist(data_dict, measure, n, name):
 plot_multi_data_dist(offset_dict, measure, n, 'offset')
 plot_multi_data_dist(duration_dict, measure, n, 'duration')
 # %%
-def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
-  rows, cols = get_rowcol(G_dict)
-  scale = np.zeros(len(rows))
-  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      print(col)
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
-        nodes = list(G.nodes())
-        active_areas = np.unique(list({key: area_dict[row][col][key] for key in nodes}.values()))
-        # active_areas = [i for i in regions if i in active_areas]
-        A = nx.adjacency_matrix(G)
-        A = A.todense()
-        A[A.nonzero()] = 1
-        for region_ind_i, region_i in enumerate(regions):
-          if region_i in active_areas:
-            for region_ind_j, region_j in enumerate(regions):
-              if region_j in active_areas:
-                region_indices_i = np.array([k for k, v in area_dict[row][col].items() if v==region_i])
-                region_indices_j = np.array([k for k, v in area_dict[row][col].items() if v==region_j])
-                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
-    scale[row_ind] = region_connection[row_ind, :, :, :].max()
-  ind = 1
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      sns_plot = sns.heatmap(region_connection[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r")# cmap="YlGnBu"
-      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
-      sns_plot.set_xticks(np.arange(len(regions))+0.5)
-      sns_plot.set_xticklabels(regions, rotation=90)
-      sns_plot.set_yticks(np.arange(len(regions))+0.5)
-      sns_plot.set_yticklabels(regions, rotation=0)
-      sns_plot.invert_yaxis()
-  plt.tight_layout()
-  # plt.show()
-  plt.savefig('./plots/region_connection_scale_{}_{}_{}fold.jpg'.format(sign, measure, n))
-
 region_connection_heatmap(pos_G_dict, 'pos', active_area_dict, visual_regions, measure, n)
 # %%
 adj_mat = np.zeros((4,4))
-adj_mat[0,1]=1
-adj_mat[1,2]=1
+adj_mat[0,1]=2
+adj_mat[1,2]=3
 G=nx.from_numpy_array(adj_mat)
 node_idx = [3, 6,9,12]
 mapping = {i:node_idx[i] for i in range(len(node_idx))}
