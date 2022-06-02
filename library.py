@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
@@ -22,9 +23,16 @@ from scipy.ndimage.filters import uniform_filter1d
 from scipy import signal
 from plfit import plfit
 from scipy import sparse
+from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 np.seterr(divide='ignore', invalid='ignore')
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
+stimulus_names = ['spontaneous', 'flashes', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
@@ -771,7 +779,8 @@ def save_ccg_corrected_sharp_integral(directory, measure, maxlag=12, n=3):
       save_npz(significant_ccg, os.path.join(path, file))
 
 ########## save significant ccg for highland
-def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
+########## use mean of highland to compare with mean of rest
+def find_highland_old(corr, min_spike=50,duration=6, maxlag=12, n=7):
   num_nodes = corr.shape[0]
   highland_ccg,offset=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
   highland_ccg[:] = np.nan
@@ -795,7 +804,39 @@ def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
   offset[neg_fold] = min_offset[neg_fold]
   indx = np.logical_or(pos_fold, neg_fold)
   return highland_ccg, offset, indx 
-  
+
+########## use sum of highland to compare with the rest
+def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
+  num_nodes = corr.shape[0]
+  highland_ccg,offset=np.zeros((num_nodes,num_nodes)), np.zeros((num_nodes,num_nodes))
+  highland_ccg[:] = np.nan
+  offset[:] = np.nan
+  filter = np.array([[[1]]]).repeat(duration+1, axis=2) # sum instead of mean
+  corr_integral = signal.convolve(corr, filter, mode='valid', method='fft')
+  mu, sigma = np.nanmean(corr_integral, -1), np.nanstd(corr_integral, -1)
+  extreme_offset = np.argmax(np.abs(corr_integral[:, :, :maxlag-duration+1] - mu[:,:,None]), -1)
+  ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+  pos_fold = ccg_mat_extreme > mu + n * sigma
+  neg_fold = ccg_mat_extreme < mu - n * sigma
+  # pos_zero_fold = ccg_mat_extreme > n * sigma
+  # neg_zero_fold = ccg_mat_extreme < n * sigma
+  # pos_fold = np.logical_and(pos_fold, pos_zero_fold)
+  # neg_fold = np.logical_and(neg_fold, neg_zero_fold)
+
+  # corr_integral = signal.convolve(corr[:, :, :maxlag + 1], filter, mode='valid', method='fft')
+  # extreme_offset = np.argmax(np.abs(corr_integral - mu[:,:,None]), -1)
+  # ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral, -1, 0))
+  # pos_fold = ccg_mat_extreme > mu + n * sigma
+  # neg_fold = ccg_mat_extreme < mu - n * sigma
+
+  # fre_filter = np.count_nonzero(corr, axis=-1) > min_spike
+  # pos_fold = np.logical_and(pos_fold, fre_filter)
+  # neg_fold = np.logical_and(neg_fold, fre_filter)
+  indx = np.logical_or(pos_fold, neg_fold)
+  highland_ccg[indx] = ccg_mat_extreme[indx]
+  offset[indx] = extreme_offset[indx]
+  return highland_ccg, offset, indx
+
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
   path = directory.replace(measure, measure+'_highland')
   if not os.path.exists(path):
@@ -963,27 +1004,109 @@ def save_xcorr_larger_3d(directory, sign, measure, alpha):
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
 
+############# save area_dict and average speed data
+def load_area_speed(session_ids, stimulus_names, regions):
+  data_directory = './data/ecephys_cache_dir'
+  manifest_path = os.path.join(data_directory, "manifest.json")
+  cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+  area_dict = {}
+  speed_dict = {}
+  for mouseID in session_ids:
+    print(mouseID)
+    session = cache.get_session_data(int(mouseID),
+                                amplitude_cutoff_maximum=np.inf,
+                                presence_ratio_minimum=-np.inf,
+                                isi_violations_maximum=np.inf)
+    df = session.units
+    df = df.rename(columns={"channel_local_index": "channel_id", 
+                            "ecephys_structure_acronym": "ccf", 
+                            "probe_id":"probe_global_id", 
+                            "probe_description":"probe_id",
+                            'probe_vertical_position': "ypos"})
+    cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+    df_cortex = df.iloc[cortical_units_ids]
+    instruction = df_cortex.ccf
+    # if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
+    #   speed_dict[mouseID] = {}
+    instruction = instruction.reset_index()
+    if not mouseID in area_dict:
+      area_dict[mouseID] = {}
+      speed_dict[mouseID] = {}
+    for i in range(instruction.shape[0]):
+      area_dict[mouseID][i] = instruction.ccf.iloc[i]
+    for stimulus_name in stimulus_names:
+      print(stimulus_name)
+      stim_table = session.get_stimulus_table([stimulus_name])
+      stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+      if 'natural_movie' in stimulus_name:
+        frame_times = stim_table.End-stim_table.Start
+        print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
+        # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
+        # chunch each movie clip
+        stim_table = stim_table[stim_table.frame==0]
+      speed = session.running_speed[(session.running_speed['start_time']>=stim_table['Start'].min()) & (session.running_speed['end_time']<=stim_table['End'].max())]
+      speed_dict[mouseID][stimulus_name] = speed['velocity'].mean()
+  # switch speed_dict to dataframe
+  mouseIDs = list(speed_dict.keys())
+  stimuli = list(speed_dict[list(speed_dict.keys())[0]].keys())
+  mean_speed_df = pd.DataFrame(columns=stimuli, index=mouseIDs)
+  for k in speed_dict:
+    for v in speed_dict[k]:
+      mean_speed_df.loc[k][v] = speed_dict[k][v]
+  return area_dict, mean_speed_df
+
+def save_area_speed(session_ids, stimulus_names, visual_regions):
+  area_dict, mean_speed_df = load_area_speed(session_ids, stimulus_names, visual_regions)
+  a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'wb')
+  pickle.dump(area_dict, a_file)
+  a_file.close()
+  mean_speed_df.to_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
+
+def save_active_area_dict(min_FR, area_dict):
+  active_area_dict = {}
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  files = os.listdir(directory)
+  files = [f for f in files if f.endswith('.npz')]
+  files.sort(key=lambda x:int(x[:9]))
+  for file_order in range(len(files)):
+    file = files[file_order]
+    print(file)
+    mouseID = file.split('_')[0]
+    stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+    sequences = load_npz_3d(os.path.join(directory, file))
+    active_neuron_inds = np.where(sequences.mean(1).sum(1) > sequences.shape[2] * min_FR)[0]
+    if mouseID not in active_area_dict:
+      active_area_dict[mouseID] = {}
+    active_area_dict[mouseID][stimulus_name] = {key:area_dict[mouseID][key] for key in active_neuron_inds}
+  a_file = open('./data/ecephys_cache_dir/sessions/active_area_dict.pkl', 'wb')
+  pickle.dump(active_area_dict, a_file)
+  a_file.close()
+
 ############# load area_dict and average speed dataframe #################
-def load_other_data():
-  
-  visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-  session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-  stimulus_names = ['spontaneous', 'flashes', 'gabors',
-          'drifting_gratings', 'static_gratings',
-            'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+def load_other_data(session_ids):
   a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
   area_dict = pickle.load(a_file)
   # change the keys of area_dict from int to string
   int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
   area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
   a_file.close()
+  a_file = open('./data/ecephys_cache_dir/sessions/active_area_dict.pkl', 'rb')
+  active_area_dict = pickle.load(a_file)
+  # change the keys of area_dict from int to string
+  # int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+  # active_area_dict = dict((int_2_str[key], value) for (key, value) in active_area_dict.items())
+  a_file.close()
   mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
-  return visual_regions, session_ids, stimulus_names, area_dict, mean_speed_df
+  return area_dict, active_area_dict, mean_speed_df
 
-def generate_graph(adj_mat, cc=False, weight=False):
+def generate_graph(adj_mat, active_area, cc=False, weight=False):
   if not weight:
     adj_mat[adj_mat.nonzero()] = 1
   G = nx.from_numpy_array(adj_mat, create_using=nx.DiGraph) # same as from_numpy_matrix
+  node_idx = sorted(active_area.keys())
+  mapping = {i:node_idx[i] for i in range(len(node_idx))}
+  G = nx.relabel_nodes(G, mapping)
+  assert set(G.nodes())==set(node_idx)
   if cc: # extract the largest (strongly) connected components
     if np.allclose(adj_mat, adj_mat.T, rtol=1e-05, atol=1e-08): # if the matrix is symmetric
       largest_cc = max(nx.connected_components(G), key=len)
@@ -1026,6 +1149,25 @@ def load_sharp_integral_xcorr(directory, weight):
         G_dict[mouseID] = {}
       G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), cc=False, weight=weight)
   return G_dict
+
+#################### load highland corr mat
+def load_highland_xcorr(directory, active_area_dict, weight):
+  G_dict, offset_dict, duration_dict = {}, {}, {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file):
+      print(file)
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID], offset_dict[mouseID], duration_dict[mouseID] = {}, {}, {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), active_area=active_area_dict[mouseID][stimulus_name], cc=False, weight=weight)
+      offset_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
+      duration_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+  return G_dict, offset_dict, duration_dict
 
 ############### regular network statistics
 def split_pos_neg(G_dict, measure):
