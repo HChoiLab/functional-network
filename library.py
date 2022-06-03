@@ -28,14 +28,10 @@ np.seterr(divide='ignore', invalid='ignore')
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
-session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
-# stimulus_names = ['spontaneous', 'flashes', 'gabors',
-#         'drifting_gratings', 'static_gratings',
-#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
+session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
-        'static_gratings',
+        'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
@@ -595,7 +591,7 @@ def get_all_ccg(matrix, window=100, disable=True): ### fastest, only causal corr
   ccg=np.empty((N,N,window+1))
   ccg[:] = np.nan
   firing_rates = np.count_nonzero(matrix, axis=1) / (matrix.shape[1]/1000) # Hz instead of kHz
-  #### padding
+  #### add time lag on neuron B, should be causal correlation B -> A
   norm_mata = np.concatenate((matrix.conj(), np.zeros((N, window))), axis=1)
   norm_matb = np.concatenate((np.zeros((N, window)), matrix.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
   total_len = len(list(itertools.permutations(range(N), 2)))
@@ -604,9 +600,9 @@ def get_all_ccg(matrix, window=100, disable=True): ### fastest, only causal corr
         px, py = norm_mata[row_a, :], norm_matb[row_b, :]
         T = as_strided(py[window:], shape=(window+1, M + window),
                         strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
-        ccg[row_a, row_b, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+        ccg[row_b, row_a, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
     else:
-        ccg[row_a, row_b, :] = np.zeros(window+1)
+        ccg[row_b, row_a, :] = np.zeros(window+1)
   return ccg
 
 def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
@@ -625,7 +621,7 @@ def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disabl
 
 def save_mean_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
   num_neuron, num_trial, T = sequences.shape
-  num_trial = min(num_trial, 1000) # at most 1000 trials
+  # num_trial = min(num_trial, 1000) # at most 1000 trials
   ccg, ccg_jittered = np.zeros((num_neuron, num_neuron, window + 1)), np.zeros((num_neuron, num_neuron, window + 1))
   pj = pattern_jitter(num_sample=num_jitter, sequences=sequences[:,0,:], L=L, memory=False)
   for m in range(num_trial):
