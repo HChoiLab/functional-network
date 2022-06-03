@@ -89,7 +89,6 @@ def remove_outlier(array):
   not_outlier = distance_from_mean < max_deviations * standard_deviation
   return array[not_outlier]
 
-
 def bootstrap(histograms, num_presentations):
   pop = histograms.data
   axis = histograms.dims.index('stimulus_presentation_id')
@@ -458,8 +457,10 @@ start_time = time.time()
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+# session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
+session_ids = [750332458, 797828357]
+# session_ids = [754312389]
+visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam']
 # resolution_dict = {'spontaneous':0.2, 'flashes':0.02, 'gabors':0.002, 'drifting_gratings':0.004, 'static_gratings':0.0003, 'natural_scenes':0.0003, 'natural_movie_one':0.1, 'natural_movie_three':0.2}
 resolution = 0.001
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -651,4 +652,21 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # mean_speed = speed['velocity'].mean()
 # # %%
 # sequences = load_npz(os.path.join(directory, '{}_{}.npz'.format(session_id, stimulus_name)))
+# %%
+# data_directory = './data/ecephys_cache_dir'
+# manifest_path = os.path.join(data_directory, "manifest.json")
+# cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+# sessions = cache.get_session_table()
+# #%%
+# visual_regions = ['VISp', 'VISl', 'VISpm', 'VISam', 'VISrl', 'VISal']
+# session_id_all = list(sessions[sessions['session_type']=='brain_observatory_1.1'].index)
+# sessions.loc[session_id_all]['ecephys_structure_acronyms']
+# # %%
+# mask = sessions.loc[session_id_all]['ecephys_structure_acronyms'].apply(lambda x: 'VISp' in x and 'VISl' in x and 'VISpm' in x and 'VISam' in x and 'VISrl' in x and 'VISal' in x)
+# df1 = sessions.loc[session_id_all][mask]
+# print (df1)
+# # %%
+# mask = sessions['ecephys_structure_acronyms'].apply(lambda x: 'VISp' in x and 'VISl' in x and 'VISpm' in x and 'VISam' in x and 'VISrl' in x and 'VISal' in x)
+# df2 = sessions[mask]
+# print (df2)
 # %%
