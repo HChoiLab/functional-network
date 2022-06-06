@@ -595,7 +595,7 @@ def get_all_ccg(matrix, window=100, disable=True): ### fastest, only causal corr
   norm_mata = np.concatenate((matrix.conj(), np.zeros((N, window))), axis=1)
   norm_matb = np.concatenate((np.zeros((N, window)), matrix.conj(), np.zeros((N, window))), axis=1) # must concat zeros to the left, why???????????
   total_len = len(list(itertools.permutations(range(N), 2)))
-  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len , miniters=int(total_len/10), disable=disable): # , miniters=int(total_len/100)
+  for row_a, row_b in tqdm(itertools.permutations(range(N), 2), total=total_len, miniters=int(total_len/50), maxinterval=200, disable=disable): # , miniters=int(total_len/100)
     if firing_rates[row_a] * firing_rates[row_b] > 0: # there could be no spike in a certain trial
         px, py = norm_mata[row_a, :], norm_matb[row_b, :]
         T = as_strided(py[window:], shape=(window+1, M + window),
