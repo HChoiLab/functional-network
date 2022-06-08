@@ -294,6 +294,121 @@ def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   np.fill_diagonal(adj_mat, 0)
   return adj_mat
 
+def get_metric_names(G_dict):
+  G = list(list(G_dict.items())[0][1].items())[0][1]
+  if type(G) == list:
+    G = G[0]
+  if nx.is_directed(G):
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'modularity', 'transitivity']
+  else:
+    # metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'small-worldness', 'transitivity']
+    metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'efficiency', 'modularity', 'transitivity']
+  return metric_names
+
+def calculate_metric(G, metric_name, cc):
+  if metric_name == 'density':
+    metric = nx.density(G)
+  else:
+    if cc:
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+    if metric_name == 'efficiency':
+      metric = nx.global_efficiency(G)
+    elif metric_name == 'clustering':
+      metric = nx.average_clustering(G)
+    elif metric_name == 'transitivity':
+      metric = nx.transitivity(G)
+    elif metric_name == 'betweenness':
+      metric = np.mean(list(nx.betweenness_centrality(G).values()))
+    elif metric_name == 'closeness':
+      metric = np.mean(list(nx.closeness_centrality(G).values()))
+    elif metric_name == 'modularity':
+      try:
+        part = community.best_partition(G)
+        metric = community.modularity(part,G)
+      except:
+        metric = 0
+    elif metric_name == 'assortativity':
+      metric = nx.degree_assortativity_coefficient(G)
+    elif metric_name == 'small-worldness':
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+        metric = nx.sigma(G)
+      else:
+        metric = 0
+  return metric
+
+def calculate_weighted_metric(G, metric_name, cc):
+  if metric_name == 'density':
+    metric = nx.density(G)
+  else:
+    if cc:
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+    if metric_name == 'efficiency':
+      metric = nx.global_efficiency(G)
+    elif metric_name == 'clustering':
+      metric = nx.average_clustering(G, weight='weight')
+    elif metric_name == 'transitivity':
+      metric = nx.transitivity(G)
+    elif metric_name == 'betweenness':
+      metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
+    elif metric_name == 'closeness':
+      metric = np.mean(list(nx.closeness_centrality(G).values()))
+    elif metric_name == 'modularity':
+      try:
+        part = community.best_partition(G, weight='weight')
+        metric = community.modularity(part, G, weight='weight') 
+      except:
+        metric = 0
+    elif metric_name == 'assortativity':
+      metric = nx.degree_assortativity_coefficient(G, weight='weight')
+    elif metric_name == 'small-worldness':
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+        metric = nx.sigma(G)
+      else:
+        metric = 0
+  return metric
+
+def metric_stimulus_individual(G_dict, sign, measure, n, weight, cc):
+  rows, cols = get_rowcol(G_dict)
+  metric_names = get_metric_names(G_dict)
+  plots_shape = (3, 2) if len(metric_names) == 6 else (3, 3)
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
+  fig = plt.figure(figsize=(5*plots_shape[1], 13))
+  # fig = plt.figure(figsize=(20, 10))
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+        # print(nx.info(G))
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+          if weight:
+            m = calculate_weighted_metric(G, metric_name, cc)
+          else:
+            m = calculate_metric(G, metric_name, cc)
+        metric[row_ind, col_ind, metric_ind] = m
+    plt.subplot(*plots_shape, metric_ind + 1)
+    for row_ind, row in enumerate(rows):
+      plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
+    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+    plt.xticks(rotation=90)
+  plt.legend()
+  plt.tight_layout()
+  figname = './plots/metric_stimulus_individual_weighted_{}_{}_{}_fold.jpg'.format(sign, measure, n) if weight else './plots/metric_stimulus_individual_{}_{}_{}_fold.jpg'.format(sign, measure, n)
+  plt.savefig(figname)
+  return metric
+
 def save_sparse_npz(matrix, filename):
   matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
   sparse_matrix = sparse.csc_matrix(matrix_2d)
@@ -1087,6 +1202,16 @@ def save_active_area_dict(min_FR, area_dict):
   pickle.dump(active_area_dict, a_file)
   a_file.close()
 
+############# load area_dict
+def load_area_dict(session_ids):
+  a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
+  area_dict = pickle.load(a_file)
+  # change the keys of area_dict from int to string
+  int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+  area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+  a_file.close()
+  return area_dict
+
 ############# load area_dict and average speed dataframe #################
 def load_other_data(session_ids):
   a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
@@ -1164,7 +1289,7 @@ def load_highland_xcorr(directory, active_area_dict, weight):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file) and ('drifting_gratings' not in file):
+    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
       print(file)
       adj_mat = load_npz_3d(os.path.join(directory, file))
       confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
