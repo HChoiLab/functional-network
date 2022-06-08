@@ -1,5 +1,4 @@
 # %%
-from data import G_dict2
 from library import *
 
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
@@ -1824,6 +1823,14 @@ if not os.path.exists(path):
 G_ccg_dict = load_sharp_integral_xcorr(path, weight=True)
 measure = 'ccg'
 #%%
+################# save area dict
+save_area_speed(session_ids, stimulus_names, visual_regions)
+#%%
+################# save active area dict
+area_dict = load_area_dict(session_ids)
+min_FR = 0.002 # 2 Hz
+save_active_area_dict(min_FR, area_dict)
+#%%
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
@@ -1877,6 +1884,9 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=N
 # %%
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
+#%%
+pos_metric = metric_stimulus_individual(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
+neg_metric = metric_stimulus_individual(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
 #%%
 def intra_inter_density(G_dict, sign, area_dict, regions, measure):
   rows, cols = get_rowcol(G_dict)
@@ -2873,7 +2883,7 @@ def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, 
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file and 'gabors' not in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+    if '_bl' not in file and 'gabors' not in file and '719161530' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
@@ -2929,7 +2939,7 @@ def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, 
 np.seterr(divide='ignore', invalid='ignore')
 measure = 'ccg'
 min_spike = 50
-max_duration = 8
+max_duration = 12
 maxlag = 12
 n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
@@ -2998,9 +3008,9 @@ def plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_dur
 np.seterr(divide='ignore', invalid='ignore')
 measure = 'ccg'
 min_spike = 50
-max_duration = 8
+max_duration = 12
 maxlag = 12
-n = 5
+n = 4
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_duration=max_duration, maxlag=maxlag, n=n)
 # %%
