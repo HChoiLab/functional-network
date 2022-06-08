@@ -1,4 +1,5 @@
 # %%
+from data import G_dict2
 from library import *
 
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
@@ -1876,6 +1877,63 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=N
 # %%
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
+#%%
+def intra_inter_density(G_dict, sign, area_dict, regions, measure):
+  rows, cols = get_rowcol(G_dict)
+  metric = np.zeros((len(rows), len(cols), 2))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        node_area = {key: area_dict[row][key] for key in nodes}
+        areas = list(node_area.values())
+        active_areas = np.unique(areas)
+        area_size = [areas.count(r) for r in regions]
+        intra_num = sum(map(lambda x : x * (x-1), area_size)) 
+        inter_num = len(nodes) * (len(nodes) - 1) - intra_num
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          if region_i in active_areas:
+            for region_ind_j, region_j in enumerate(regions):
+              if region_j in active_areas:
+                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+        
+        diag_indx = np.eye(len(regions),dtype=bool)
+        metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx]) / intra_num
+        metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx]) / inter_num
+  metric_names = ['intra-region density', 'inter-region density']
+  metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+  for metric_ind, metric_name in enumerate(metric_names):
+    df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+    df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
+    df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
+    df['metric'] = metric_name
+    df['stimulus'] = cols
+    metric_stimulus = metric_stimulus.append(df, ignore_index=True)
+  # print(metric_stimulus)
+  fig = plt.figure(figsize=[6, 6])
+  for i, m in metric_stimulus.groupby("metric"):
+    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
+    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
+  plt.title('{} network'.format(sign), size=20)
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
+
+intra_inter_density(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
+intra_inter_density(pos_G_dict, 'positive', area_dict, visual_regions, measure)
+intra_inter_density(neg_G_dict, 'negative', area_dict, visual_regions, measure)
 # %%
 # G_ccg_dict = get_lcc(G_ccg_dict)
 # # %%
@@ -2815,7 +2873,7 @@ def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, 
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file and 'gabors' not in file  and '719161530' in file and 'drifting_gratings' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+    if '_bl' not in file and 'gabors' not in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
@@ -2833,11 +2891,11 @@ def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, 
       significant_offset[:] = np.nan
       significant_duration[:] = np.nan
       ccg_corrected = ccg - ccg_jittered
-      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
       inds_2plot = []
       for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
         print('duration {}'.format(duration))
-        highland_ccg, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        highland_ccg, confidence_level, offset, indx = find_highland(ccg_corrected, min_spike, duration, maxlag, n)
         if np.sum(indx):
           significant_ccg[indx] = highland_ccg[indx]
           significant_offset[indx] = offset[indx]
@@ -2847,11 +2905,12 @@ def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, 
       print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
       np.random.shuffle(significant_inds)
 
-      for duration in range(max_duration+1):
+      for duration in np.arange(0,9,1):
         duration_inds = np.where(significant_duration==duration)
-        indexes = np.arange(len(duration_inds[0]))
-        np.random.shuffle(indexes)
-        inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
+        if len(duration_inds[0]):
+          indexes = np.arange(len(duration_inds[0]))
+          np.random.shuffle(indexes)
+          inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
 
       
       fig = plt.figure(figsize=(5*3, 5*3))
@@ -2881,7 +2940,7 @@ def plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_dur
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if '_bl' not in file and 'gabors' not in file  and '719161530' in file and 'drifting_gratings' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+    if '_bl' not in file and 'gabors' not in file and '719161530' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
       print(file)
       mouseID = file.split('_')[0]
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
@@ -2899,11 +2958,11 @@ def plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_dur
       significant_offset[:] = np.nan
       significant_duration[:] = np.nan
       ccg_corrected = ccg - ccg_jittered
-      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
       inds_2plot = []
       for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
         print('duration {}'.format(duration))
-        highland_ccg, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        highland_ccg, confidence_level, offset, indx = find_highland(ccg_corrected, min_spike, duration, maxlag, n)
         if np.sum(indx):
           significant_ccg[indx] = highland_ccg[indx]
           significant_offset[indx] = offset[indx]
@@ -2915,13 +2974,14 @@ def plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_dur
 
       for duration in range(max_duration+1):
         duration_inds = np.where(significant_duration==duration)
-        indexes = np.arange(len(duration_inds[0]))
-        np.random.shuffle(indexes)
-        inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
+        if len(duration_inds[0]):
+          indexes = np.arange(len(duration_inds[0]))
+          np.random.shuffle(indexes)
+          inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
 
       
       fig = plt.figure(figsize=(5*3, 5*3))
-      for ind, (row_a, row_b) in enumerate(inds_2plot):
+      for ind, (row_a, row_b) in enumerate(inds_2plot[:9]):
         ax = plt.subplot(3, 3, ind+1)
         filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
         ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
@@ -2940,7 +3000,7 @@ measure = 'ccg'
 min_spike = 50
 max_duration = 8
 maxlag = 12
-n = 4
+n = 5
 directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
 plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_duration=max_duration, maxlag=maxlag, n=n)
 # %%
