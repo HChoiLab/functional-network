@@ -862,10 +862,11 @@ def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6
       significant_offset[:] = np.nan
       significant_duration[:] = np.nan
       ccg_corrected = ccg - ccg_jittered
-      corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
       for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
         print('duration {}'.format(duration))
-        highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        highland_ccg, confidence_level, offset, indx = find_highland(ccg_corrected, min_spike, duration, maxlag, n)
+        # highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
         if np.sum(indx):
           significant_ccg[indx] = highland_ccg[indx]
           significant_confidence[indx] = confidence_level[indx]
