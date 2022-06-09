@@ -1897,3 +1897,136 @@ def concatenate_trial(sequences, min_duration=250, min_len=10000):
   else:
     duration = T # enough trials, <= min_duration
   return sequences[:, :, :duration].reshape(num_neuron, -1)
+
+################ hub node region distribution
+def get_hub_region_count(G_dict, regions, weight=None):
+  rows, cols = get_rowcol(G_dict)
+  region_counts = {}
+  for row in rows:
+    print(row)
+    if row not in region_counts:
+      region_counts[row] = {}
+    for col in cols:
+      areas = area_dict[row]
+      G = G_dict[row][col]
+      nodes = np.array(list(dict(nx.degree(G)).keys()))
+      degrees = np.array(list(dict(nx.degree(G, weight=weight)).values()))
+      hub_th = np.mean(degrees) + 3 * np.std(degrees)
+      hub_nodes = nodes[np.where(degrees > hub_th)]
+      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
+      uniq, counts = np.unique(region_hubs, return_counts=True)
+      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+  return region_counts
+
+
+def plot_hub_pie_chart(region_counts, sign, regions, weight):
+  ind = 1
+  rows, cols = get_rowcol(region_counts)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = region_counts[row][col].keys()
+      sizes = region_counts[row][col].values()
+      hub_num[row_ind][col_ind] = sum(sizes)
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[regions.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  plt.suptitle('Hub nodes distribution', size=30)
+  plt.tight_layout()
+  # plt.show()
+  fname = './plots/pie_chart_strength_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}.jpg'
+  plt.savefig(fname.format(sign))
+
+def get_directed_hub_region_count(G_dict, regions, weight=None):
+  rows, cols = get_rowcol(G_dict)
+  source_region_counts, target_region_counts = {}, {}
+  for row in rows:
+    print(row)
+    if row not in source_region_counts:
+      source_region_counts[row] = {}
+      target_region_counts[row] = {}
+    for col in cols:
+      areas = area_dict[row]
+      G = G_dict[row][col]
+      nodes = np.array(list(dict(G.out_degree()).keys()))
+      degrees = np.array(list(dict(G.out_degree(weight=weight)).values()))
+      hub_th = np.mean(degrees) + 3 * np.std(degrees)
+      hub_nodes = nodes[np.where(degrees > hub_th)]
+      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
+      uniq, counts = np.unique(region_hubs, return_counts=True)
+      source_region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+
+      nodes = np.array(list(dict(G.in_degree()).keys()))
+      degrees = np.array(list(dict(G.in_degree(weight=weight)).values()))
+      hub_th = np.mean(degrees) + 3 * np.std(degrees)
+      hub_nodes = nodes[np.where(degrees > hub_th)]
+      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
+      uniq, counts = np.unique(region_hubs, return_counts=True)
+      target_region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+  return source_region_counts, target_region_counts
+
+def plot_directed_hub_pie_chart(region_counts, sign, direction, regions, weight):
+  ind = 1
+  rows, cols = get_rowcol(region_counts)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = region_counts[row][col].keys()
+      sizes = region_counts[row][col].values()
+      hub_num[row_ind][col_ind] = sum(sizes)
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[regions.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  plt.suptitle('Hub nodes distribution', size=30)
+  plt.tight_layout()
+  # plt.show()
+  fname = './plots/pie_chart_strength_{}_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}_{}.jpg'
+  plt.savefig(fname.format(sign, direction))
