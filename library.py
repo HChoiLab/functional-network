@@ -1494,6 +1494,97 @@ def region_connection_heatmap(G_dict, sign, area_dict, regions, measure, n):
   # plt.show()
   plt.savefig('./plots/region_connection_scale_{}_{}_{}fold.jpg'.format(sign, measure, n))
 
+def colors_from_values(values, palette_name):
+  # normalize the values to range [0, 1]
+  normalized = (values - min(values)) / (max(values) - min(values))
+  # convert to indices
+  indices = np.round(normalized * (len(values) - 1)).astype(np.int32)
+  # use the indices to get the colors
+  palette = sns.color_palette(palette_name, len(values))
+  return np.array(palette).take(indices, axis=0)
+
+def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  each_shape_row, each_shape_col = len(regions)+2, len(regions)+1
+  full_shape = (len(rows)*each_shape_row, len(cols)*each_shape_col)
+  scale = np.zeros(len(rows))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  scale_mask = np.ones((len(regions), len(regions)))
+  scale_mask[np.diag_indices_from(scale_mask)] = 0
+  scale_mask = scale_mask[None,:,:]
+  heat_cm = "RdBu_r" if sign=='pos' else "RdBu"
+  bar_cm = "Reds" if sign=='pos' else "Blues"
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+        # active_areas = [i for i in regions if i in active_areas]
+        A = nx.adjacency_matrix(G)
+        A = A.todense()
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          if region_i in active_areas:
+            for region_ind_j, region_j in enumerate(regions):
+              if region_j in active_areas:
+                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
+    scale[row_ind] = (region_connection[row_ind, :, :, :]*scale_mask).max()
+  fig = plt.figure(figsize=(4*len(cols), 4*len(rows)))
+  # left, width = .25, .5
+  # bottom, height = .25, .5
+  # right = left + width
+  # top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      # plt.subplot(len(rows), len(cols), ind)
+      # if col_ind == 0:
+      #   plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+      #   horizontalalignment='left',
+      #   verticalalignment='center',
+      #   # rotation='vertical',
+      #   transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      
+      ax1 = plt.subplot2grid(full_shape, (row_ind*each_shape_row,col_ind*each_shape_col), colspan=len(regions), rowspan=len(regions))
+      ax2 = plt.subplot2grid(full_shape, (row_ind*each_shape_row+len(regions),col_ind*each_shape_col), colspan=len(regions), rowspan=1)
+      if row_ind == 0:
+        ax1.set_title(cols[col_ind], fontsize=20)
+      if col_ind == 0:
+        plt.text(-2.4, 0.15, row, fontsize=20, rotation=90)
+      mask = np.zeros((len(regions), len(regions)))
+      mask[np.diag_indices_from(mask)] = True
+      data = region_connection[row_ind, col_ind, :, :].astype(float)
+      cbar=True if col_ind == len(cols) - 1 else False
+      # xticklabels=True if row_ind == len(rows) - 1 else False
+      xticklabels = False
+      yticklabels=True if col_ind == 0 else False
+      sns_plot = sns.heatmap(data, ax=ax1, mask=mask, xticklabels=xticklabels, yticklabels=yticklabels, cbar=cbar, vmin=0, vmax=scale[row_ind],center=0,cmap=heat_cm)# cmap="YlGnBu"
+      # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+      # if row_ind == 0:
+      #   sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      #   sns_plot.set_xticklabels(regions, rotation=90)
+      if col_ind == 0:
+        sns_plot.set_yticks(np.arange(len(regions))+0.5)
+        sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+
+      bar_plot = sns.barplot(x=regions, y=data.diagonal(), ax=ax2, palette=colors_from_values(data.diagonal(), bar_cm))# "Reds"
+      bar_plot.tick_params(bottom=False)  # remove the ticks
+      if row_ind != len(rows) - 1:
+        bar_plot.set(xticklabels=[])
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/region_connection_seperate_{}_{}_{}fold.jpg'.format(sign, measure, n))
+
 def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n, weight):
   rows, cols = get_rowcol(G_dict)
   cols.remove('spontaneous')
