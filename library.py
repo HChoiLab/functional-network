@@ -403,6 +403,13 @@ def metric_stimulus_individual(G_dict, sign, measure, n, weight, cc):
       plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
     plt.gca().set_title(metric_name, fontsize=30, rotation=0)
     plt.xticks(rotation=90)
+    if metric_ind // 2 < 2:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
   plt.legend()
   plt.tight_layout()
   figname = './plots/metric_stimulus_individual_weighted_{}_{}_{}_fold.jpg'.format(sign, measure, n) if weight else './plots/metric_stimulus_individual_{}_{}_{}_fold.jpg'.format(sign, measure, n)
@@ -1303,6 +1310,20 @@ def load_highland_xcorr(directory, active_area_dict, weight):
       duration_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
   return G_dict, offset_dict, duration_dict
 
+def remove_gabor(G_dict):
+  for key in G_dict:
+    G_dict[key].pop('gabors', None)
+  return G_dict
+
+def remove_thalamic(G_dict, area_dict, regions):
+  rows, cols = get_rowcol(G_dict)
+  for row in rows:
+    for col in cols:
+      G = G_dict[row][col]
+      nodes = [n for n in G.nodes() if area_dict[row][n] in regions]
+      G_dict[row][col] = G.subgraph(nodes)
+  return G_dict
+
 ############### regular network statistics
 def split_pos_neg(G_dict, measure):
   pos_G_dict, neg_G_dict = {}, {}
@@ -1417,7 +1438,15 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
     plt.gca().set_title(k, fontsize=20, rotation=0)
     plt.xticks(rotation=90)
     # plt.yscale('symlog')
-    plt.legend()
+    if i == len(metrics)-1:
+      plt.legend()
+    if i // num_col < 2:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
     plt.tight_layout()
   # plt.show()
   figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
@@ -1899,7 +1928,7 @@ def concatenate_trial(sequences, min_duration=250, min_len=10000):
   return sequences[:, :, :duration].reshape(num_neuron, -1)
 
 ################ hub node region distribution
-def get_hub_region_count(G_dict, regions, weight=None):
+def get_hub_region_count(G_dict, area_dict, regions, weight=None):
   rows, cols = get_rowcol(G_dict)
   region_counts = {}
   for row in rows:
@@ -1918,8 +1947,32 @@ def get_hub_region_count(G_dict, regions, weight=None):
       region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
   return region_counts
 
+################ maximal clique region distribution
+def get_max_clique_region_count(G_dict, area_dict, regions):
+  region_counts = {}
+  rows, cols = get_rowcol(G_dict)
+  max_cliq_size = pd.DataFrame(index=rows, columns=cols)
+  for row in rows:
+    print(row)
+    if row not in region_counts:
+      region_counts[row] = {}
+    for col in cols:
+      G = nx.to_undirected(G_dict[row][col])
+      cliqs = np.array(list(nx.find_cliques(G)))
+      cliq_size = np.array([len(l) for l in cliqs])
+      max_cliq_size.loc[row][col] = max(cliq_size)
+      if type(cliqs[np.where(cliq_size==max(cliq_size))[0]][0]) == list: # multiple maximum cliques
+        cliq_nodes = []
+        for li in cliqs[np.where(cliq_size==max(cliq_size))[0]]:
+          cliq_nodes += li
+      else:
+        cliq_nodes = cliqs[np.argmax(cliq_size)]
+      cliq_area = [area_dict[row][n] for n in cliq_nodes if area_dict[row][n] in regions]
+      uniq, counts = np.unique(cliq_area, return_counts=True)
+      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+  return region_counts
 
-def plot_hub_pie_chart(region_counts, sign, regions, weight):
+def plot_hub_pie_chart(region_counts, sign, name, regions, weight):
   ind = 1
   rows, cols = get_rowcol(region_counts)
   hub_num = np.zeros((len(rows), len(cols)))
@@ -1955,13 +2008,13 @@ def plot_hub_pie_chart(region_counts, sign, regions, weight):
       # for i in range(len(p[0])):
       #   p[0][i].set_alpha(0.6)
       ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-  plt.suptitle('Hub nodes distribution', size=30)
+  plt.suptitle('{} region distribution'.format(name), size=30)
   plt.tight_layout()
   # plt.show()
-  fname = './plots/pie_chart_strength_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}.jpg'
-  plt.savefig(fname.format(sign))
+  fname = './plots/pie_chart_{}_strength_{}.jpg' if weight is not None else './plots/pie_chart_{}_degree_{}.jpg'
+  plt.savefig(fname.format(name, sign))
 
-def get_directed_hub_region_count(G_dict, regions, weight=None):
+def get_directed_hub_region_count(G_dict, area_dict, regions, weight=None):
   rows, cols = get_rowcol(G_dict)
   source_region_counts, target_region_counts = {}, {}
   for row in rows:
