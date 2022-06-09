@@ -1839,15 +1839,11 @@ if not os.path.exists(path):
 G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
 measure = 'ccg'
 #%%
-def remove_gabor(G_dict):
-  for key in G_dict:
-    G_dict[key].pop('gabors', None)
-  return G_dict
 G_ccg_dict = remove_gabor(G_ccg_dict)
+G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 #%%
-active_areas = get_all_active_areas(G_ccg_dict, area_dict)
-print(active_areas)
-#%%
+# active_areas = get_all_active_areas(G_ccg_dict, area_dict)
+# print(active_areas)
 n = 4
 #%%
 ######### split G_dict into pos and neg
@@ -1861,6 +1857,9 @@ print_stat(pos_G_dict)
 print_stat(neg_G_dict)
 # %%
 plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
+# %%
+region_connection_seperate_diagonal(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
+region_connection_seperate_diagonal(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
 # %%
 region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
 region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
@@ -1887,177 +1886,56 @@ plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='
 #%%
 pos_metric = metric_stimulus_individual(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 neg_metric = metric_stimulus_individual(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
-# %%
-# Pie chart, where the slices will be ordered and plotted counter-clockwise:
-labels = region_counts[rows[0]][cols[7]].keys()
-sizes = region_counts[rows[0]][cols[7]].values()
-explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
-areas_uniq = ['VISam', 'VISpm', 'LGd', 'VISp', 'VISl', 'VISal', 'LP', 'VISrl']
-colors = [customPalette[areas_uniq.index(l)] for l in labels]
-patches, texts, pcts = plt.pie(sizes, radius=1, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-        shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
-for i, patch in enumerate(patches):
-  texts[i].set_color(patch.get_facecolor())
-# for i in range(len(p[0])):
-#   p[0][i].set_alpha(0.6)
-plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-plt.show()
-
-# %%
-################ hub node region distribution
-def get_hub_region_count(G_dict, regions, weight=None):
-  rows, cols = get_rowcol(G_dict)
-  region_counts = {}
-  for row in rows:
-    print(row)
-    if row not in region_counts:
-      region_counts[row] = {}
-    for col in cols:
-      areas = area_dict[row]
-      G = G_dict[row][col]
-      nodes = np.array(list(dict(nx.degree(G)).keys()))
-      degrees = np.array(list(dict(nx.degree(G, weight=weight)).values()))
-      hub_th = np.mean(degrees) + 3 * np.std(degrees)
-      hub_nodes = nodes[np.where(degrees > hub_th)]
-      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
-      uniq, counts = np.unique(region_hubs, return_counts=True)
-      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
-  return region_counts
-
-
-def plot_hub_pie_chart(region_counts, sign, regions, weight):
-  ind = 1
-  rows, cols = get_rowcol(region_counts)
-  hub_num = np.zeros((len(rows), len(cols)))
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  # fig.patch.set_facecolor('black')
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      ax = plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      labels = region_counts[row][col].keys()
-      sizes = region_counts[row][col].values()
-      hub_num[row_ind][col_ind] = sum(sizes)
-      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
-      colors = [customPalette[regions.index(l)] for l in labels]
-      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
-      for i, patch in enumerate(patches):
-        texts[i].set_color(patch.get_facecolor())
-      # for i in range(len(p[0])):
-      #   p[0][i].set_alpha(0.6)
-      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-  plt.suptitle('Hub nodes distribution', size=30)
-  plt.tight_layout()
-  # plt.show()
-  fname = './plots/pie_chart_strength_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}.jpg'
-  plt.savefig(fname.format(sign))
-
-def get_directed_hub_region_count(G_dict, regions, weight=None):
-  rows, cols = get_rowcol(G_dict)
-  source_region_counts, target_region_counts = {}, {}
-  for row in rows:
-    print(row)
-    if row not in source_region_counts:
-      source_region_counts[row] = {}
-      target_region_counts[row] = {}
-    for col in cols:
-      areas = area_dict[row]
-      G = G_dict[row][col]
-      nodes = np.array(list(dict(G.out_degree()).keys()))
-      degrees = np.array(list(dict(G.out_degree(weight=weight)).values()))
-      hub_th = np.mean(degrees) + 3 * np.std(degrees)
-      hub_nodes = nodes[np.where(degrees > hub_th)]
-      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
-      uniq, counts = np.unique(region_hubs, return_counts=True)
-      source_region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
-
-      nodes = np.array(list(dict(G.in_degree()).keys()))
-      degrees = np.array(list(dict(G.in_degree(weight=weight)).values()))
-      hub_th = np.mean(degrees) + 3 * np.std(degrees)
-      hub_nodes = nodes[np.where(degrees > hub_th)]
-      region_hubs = [areas[n] for n in hub_nodes if areas[n] in regions]
-      uniq, counts = np.unique(region_hubs, return_counts=True)
-      target_region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
-  return source_region_counts, target_region_counts
-
-def plot_directed_hub_pie_chart(region_counts, sign, direction, regions, weight):
-  ind = 1
-  rows, cols = get_rowcol(region_counts)
-  hub_num = np.zeros((len(rows), len(cols)))
-  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
-  # fig.patch.set_facecolor('black')
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      ax = plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=20, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      labels = region_counts[row][col].keys()
-      sizes = region_counts[row][col].values()
-      hub_num[row_ind][col_ind] = sum(sizes)
-      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
-      colors = [customPalette[regions.index(l)] for l in labels]
-      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
-              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
-      for i, patch in enumerate(patches):
-        texts[i].set_color(patch.get_facecolor())
-      # for i in range(len(p[0])):
-      #   p[0][i].set_alpha(0.6)
-      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-  plt.suptitle('Hub nodes distribution', size=30)
-  plt.tight_layout()
-  # plt.show()
-  fname = './plots/pie_chart_strength_{}_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}_{}.jpg'
-  plt.savefig(fname.format(sign, direction))
 #%%
+############### metric_stimulus_by_region
+def metric_stimulus_by_region(G_dict, sign, measure, n, weight, cc):
+  rows, cols = get_rowcol(G_dict)
+  metric_names = get_metric_names(G_dict)
+  plots_shape = (3, 2) if len(metric_names) == 6 else (3, 3)
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
+  fig = plt.figure(figsize=(5*plots_shape[1], 13))
+  # fig = plt.figure(figsize=(20, 10))
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+        if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+          if weight:
+            m = calculate_weighted_metric(G, metric_name, cc)
+          else:
+            m = calculate_metric(G, metric_name, cc)
+        metric[row_ind, col_ind, metric_ind] = m
+    plt.subplot(*plots_shape, metric_ind + 1)
+    for row_ind, row in enumerate(rows):
+      plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
+    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+    plt.xticks(rotation=90)
+    if metric_ind // 2 < 2:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+  plt.legend()
+  plt.tight_layout()
+  figname = './plots/metric_stimulus_individual_weighted_{}_{}_{}_fold.jpg'.format(sign, measure, n) if weight else './plots/metric_stimulus_individual_{}_{}_{}_fold.jpg'.format(sign, measure, n)
+  plt.savefig(figname)
+  return metric
+# %%
+############## undirected
 weight = None
-pos_region_counts = get_hub_region_count(pos_G_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(pos_region_counts, 'pos', visual_regions, weight)
-neg_region_counts = get_hub_region_count(neg_G_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(neg_region_counts, 'neg', visual_regions, weight)
-#%%
-weight = 'weight'
-pos_region_counts = get_hub_region_count(pos_G_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(pos_region_counts, 'pos', visual_regions, weight)
-neg_region_counts = get_hub_region_count(neg_G_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(neg_region_counts, 'neg', visual_regions, weight)
+# weight = 'weight'
+pos_region_counts = get_hub_region_count(pos_G_dict, area_dict, visual_regions, weight=weight)
+plot_hub_pie_chart(pos_region_counts, 'pos', 'hub_node', visual_regions, weight)
+neg_region_counts = get_hub_region_count(neg_G_dict, area_dict, visual_regions, weight=weight)
+plot_hub_pie_chart(neg_region_counts, 'neg', 'hub_node', visual_regions, weight)
 #%%
 ############## directed
-weight = None
-pos_source_region_counts, pos_target_region_counts = get_directed_hub_region_count(pos_G_dict, visual_regions, weight=weight)
-plot_directed_hub_pie_chart(pos_source_region_counts, 'pos', 'source', visual_regions, weight)
-plot_directed_hub_pie_chart(pos_target_region_counts, 'pos', 'target', visual_regions, weight)
-neg_source_region_counts, neg_target_region_counts = get_directed_hub_region_count(neg_G_dict, visual_regions, weight=weight)
-plot_directed_hub_pie_chart(neg_source_region_counts, 'neg', 'source', visual_regions, weight)
-plot_directed_hub_pie_chart(neg_target_region_counts, 'neg', 'target', visual_regions, weight)
-#%%
+# weight = None
 weight = 'weight'
 pos_source_region_counts, pos_target_region_counts = get_directed_hub_region_count(pos_G_dict, visual_regions, weight=weight)
 plot_directed_hub_pie_chart(pos_source_region_counts, 'pos', 'source', visual_regions, weight)
@@ -2066,47 +1944,13 @@ neg_source_region_counts, neg_target_region_counts = get_directed_hub_region_cou
 plot_directed_hub_pie_chart(neg_source_region_counts, 'neg', 'source', visual_regions, weight)
 plot_directed_hub_pie_chart(neg_target_region_counts, 'neg', 'target', visual_regions, weight)
 # %%
-plt.figure(figsize=(8, 7))
-for row_ind, row in enumerate(rows):
-  plt.plot(cols, hub_num[row_ind, :], label=row, alpha=1)
-plt.gca().set_title('number of hub nodes', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.legend()
-plt.tight_layout()
-plt.savefig('./plots/num_hubs_individual_strength.jpg')
-# %%
-plt.figure(figsize=(8, 7))
-plt.plot(cols, hub_num.mean(axis=0), label=row, alpha=0.6)
-plt.fill_between(cols, hub_num.mean(axis=0) - hub_num.std(axis=0), hub_num.mean(axis=0) + hub_num.std(axis=0), alpha=0.2)
-plt.gca().set_title('number of hub nodes', fontsize=20, rotation=0)
-plt.xticks(rotation=90)
-plt.tight_layout()
-plt.savefig('./plots/num_hubs_strength.jpg')
-# %%
 ########### maximum clique distribution
-region_counts = {}
-rows, cols = get_rowcol(G_dict, measure)
-max_cliq_size = pd.DataFrame(index=rows, columns=cols)
-G = G_dict['719161530']['static_gratings'][1]
-for row in rows:
-  print(row)
-  if row not in region_counts:
-    region_counts[row] = {}
-  for col in cols:
-    G = G_dict[row][col][0]
-    cliqs = np.array(list(nx.find_cliques(G)))
-    cliq_size = np.array([len(l) for l in cliqs])
-    max_cliq_size.loc[row][col] = max(cliq_size)
-    if type(cliqs[np.where(cliq_size==max(cliq_size))[0]][0]) == list: # multiple maximum cliques
-      cliq_nodes = []
-      for li in cliqs[np.where(cliq_size==max(cliq_size))[0]]:
-        cliq_nodes += li
-    else:
-      cliq_nodes = cliqs[np.argmax(cliq_size)]
-    cliq_area = [area_dict[row][n] for n in cliq_nodes]
-    uniq, counts = np.unique(cliq_area, return_counts=True)
-    region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
-plot_pie_chart(G_dict, measure, region_counts)
+pos_clique_region_counts, pos_max_cliq_size = get_max_clique_region_count(pos_G_dict, area_dict, visual_regions)
+plot_hub_pie_chart(pos_clique_region_counts, 'pos', 'max_clique', visual_regions, weight)
+neg_clique_region_counts, neg_max_cliq_size = get_max_clique_region_count(neg_G_dict, area_dict, visual_regions)
+plot_hub_pie_chart(neg_clique_region_counts, 'neg', 'max_clique', visual_regions, weight)
+#%%
+plot_cliq_size_stimulus(pos_max_cliq_size, neg_max_cliq_size, measure, n)
 #%%
 def intra_inter_density(G_dict, sign, area_dict, regions, measure):
   rows, cols = get_rowcol(G_dict)
@@ -3377,4 +3221,23 @@ for file in files:
     stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
     if adj_mat.shape[0] != len(active_area_dict[mouseID][stimulus_name].keys()):
       print('!!!!!!!!!!! Not matching!!!!!!!!!!! {} {}'.format(adj_mat.shape[0], len(active_area_dict[mouseID][stimulus_name].keys())))
+#%%
+
+# fig = plt.figure(figsize=(20,15))
+# num_row, num_col = 2, 2
+# for ind in range(4):
+#   # plt.subplot(2, 2, ind)
+#   ax1 = plt.subplot2grid((22,22), (ind//num_col*11,ind%num_col*11), colspan=10, rowspan=9)
+#   ax2 = plt.subplot2grid((22,22), (ind//num_col*11+9,ind%num_col*11), colspan=10, rowspan=1)
+#   pv = np.random.random((10, 10))
+#   mask = np.zeros_like(pv)
+#   mask[np.diag_indices_from(mask)] = True
+
+#   sns.heatmap(pv, ax=ax1, annot=True, cmap="YlGnBu",mask=mask, linecolor='b', cbar = False)
+#   ax1.xaxis.tick_top()
+#   ax1.set_xticklabels(range(10),rotation=40)
+#   # sns.heatmap((pd.DataFrame(pv.sum(axis=0))).transpose(), ax=ax2,  annot=True, cmap="YlGnBu", cbar=False, xticklabels=False, yticklabels=False)
+#   sns.barplot(x=list(range(10)), y=pv.diagonal(), ax=ax2)
+# plt.show()
+# # sns.heatmap(pd.DataFrame(pv.sum(axis=1)), ax=ax3,  annot=True, cmap="YlGnBu", cbar=False, xticklabels=False, yticklabels=False)
 # %%
