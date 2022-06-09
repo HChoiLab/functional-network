@@ -1970,7 +1970,25 @@ def get_max_clique_region_count(G_dict, area_dict, regions):
       cliq_area = [area_dict[row][n] for n in cliq_nodes if area_dict[row][n] in regions]
       uniq, counts = np.unique(cliq_area, return_counts=True)
       region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
-  return region_counts
+  return region_counts, max_cliq_size
+
+def plot_cliq_size_stimulus(pos_max_cliq_size, neg_max_cliq_size, measure, n):
+  fig = plt.figure(figsize=(10, 6))
+  plt.subplot(1, 2, 1)
+  for row_ind, row in enumerate(pos_max_cliq_size.index):
+    plt.plot(pos_max_cliq_size.columns, pos_max_cliq_size.loc[row], label=row, alpha=1)
+  plt.gca().set_title('size of positive max clique', fontsize=20, rotation=0)
+  plt.xticks(rotation=90)
+  plt.legend()
+  plt.subplot(1, 2, 2)
+  for row_ind, row in enumerate(neg_max_cliq_size.index):
+    plt.plot(neg_max_cliq_size.columns, neg_max_cliq_size.loc[row], label=row, alpha=1)
+  plt.gca().set_title('size of negative max clique', fontsize=20, rotation=0)
+  plt.xticks(rotation=90)
+  
+  plt.tight_layout()
+  figname = './plots/cliq_size_stimulus_{}_{}_fold.jpg'.format(measure, n)
+  plt.savefig(figname)
 
 def plot_hub_pie_chart(region_counts, sign, name, regions, weight):
   ind = 1
