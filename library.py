@@ -275,7 +275,7 @@ class CommunityLayout():
           pos.update(pos_subgraph)
       return pos
 
-def save_active_inds(min_FR, session_ids, stimulus_name):
+def save_active_inds(min_FR, session_ids, stimulus_names):
   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
   if not os.path.isdir(directory):
     os.mkdir(directory)
