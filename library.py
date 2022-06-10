@@ -275,6 +275,28 @@ class CommunityLayout():
           pos.update(pos_subgraph)
       return pos
 
+def save_active_inds(min_FR, session_ids, stimulus_name):
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  if not os.path.isdir(directory):
+    os.mkdir(directory)
+  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+  if not os.path.isdir(inds_path):
+    os.mkdir(inds_path)
+  for session_id in session_ids:
+    print(session_id)
+    active_inds = []
+    for stimulus_name in stimulus_names:
+      file = str(session_id) + '_' + stimulus_name + '.npz'
+      print(file)
+      sequences = load_npz_3d(os.path.join(directory, file))
+      print('Spike train shape: {}'.format(sequences.shape))
+      active_neuron_inds = sequences.mean(1).sum(1) > sequences.shape[2] * min_FR
+      active_inds.append(active_neuron_inds)
+      if stimulus_name == stimulus_names[-1]:
+        active_inds = np.logical_and.reduce(active_inds)
+        print('Number of active neurons {}'.format(active_inds.sum()))
+        np.save(os.path.join(inds_path, str(session_id) + '.npy'), np.where(active_inds)[0])
+
 def corr_mat(sequences, measure, maxlag=12, noprogressbar=True):
   if measure == 'pearson':
     adj_mat = np.corrcoef(sequences)
@@ -349,6 +371,39 @@ def calculate_weighted_metric(G, metric_name, cc):
       if not nx.is_connected(G):
         largest_cc = max(nx.connected_components(G), key=len)
         G = nx.subgraph(G, largest_cc)
+    if metric_name == 'efficiency':
+      metric = nx.global_efficiency(G)
+    elif metric_name == 'clustering':
+      metric = nx.average_clustering(G, weight='weight')
+    elif metric_name == 'transitivity':
+      metric = nx.transitivity(G)
+    elif metric_name == 'betweenness':
+      metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
+    elif metric_name == 'closeness':
+      metric = np.mean(list(nx.closeness_centrality(G).values()))
+    elif metric_name == 'modularity':
+      try:
+        part = community.best_partition(G, weight='weight')
+        metric = community.modularity(part, G, weight='weight') 
+      except:
+        metric = 0
+    elif metric_name == 'assortativity':
+      metric = nx.degree_assortativity_coefficient(G, weight='weight')
+    elif metric_name == 'small-worldness':
+      if not nx.is_connected(G):
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = nx.subgraph(G, largest_cc)
+      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+        metric = nx.sigma(G)
+      else:
+        metric = 0
+  return metric
+
+def calculate_directed_metric(G, metric_name):
+  if metric_name == 'in_degree':
+    metric = G.in_degree()
+  elif metric_name == 'out_degree':
+    metric = G.out_degree()
     if metric_name == 'efficiency':
       metric = nx.global_efficiency(G)
     elif metric_name == 'clustering':
@@ -1972,25 +2027,42 @@ def get_max_clique_region_count(G_dict, area_dict, regions):
       region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
   return region_counts, max_cliq_size
 
-def plot_cliq_size_stimulus(pos_max_cliq_size, neg_max_cliq_size, measure, n):
+def plot_group_size_stimulus(pos_group_size, neg_group_size, name, measure, n):
   fig = plt.figure(figsize=(10, 6))
   plt.subplot(1, 2, 1)
-  for row_ind, row in enumerate(pos_max_cliq_size.index):
-    plt.plot(pos_max_cliq_size.columns, pos_max_cliq_size.loc[row], label=row, alpha=1)
-  plt.gca().set_title('size of positive max clique', fontsize=20, rotation=0)
+  for row_ind, row in enumerate(pos_group_size.index):
+    plt.plot(pos_group_size.columns, pos_group_size.loc[row], label=row, alpha=1)
+  plt.gca().set_title('size of positive {}'.format(name), fontsize=20, rotation=0)
   plt.xticks(rotation=90)
   plt.legend()
   plt.subplot(1, 2, 2)
-  for row_ind, row in enumerate(neg_max_cliq_size.index):
-    plt.plot(neg_max_cliq_size.columns, neg_max_cliq_size.loc[row], label=row, alpha=1)
-  plt.gca().set_title('size of negative max clique', fontsize=20, rotation=0)
+  for row_ind, row in enumerate(neg_group_size.index):
+    plt.plot(neg_group_size.columns, neg_group_size.loc[row], label=row, alpha=1)
+  plt.gca().set_title('size of negative {}'.format(name), fontsize=20, rotation=0)
   plt.xticks(rotation=90)
-  
   plt.tight_layout()
-  figname = './plots/cliq_size_stimulus_{}_{}_fold.jpg'.format(measure, n)
+  figname = './plots/{}_size_stimulus_{}_{}_fold.jpg'.format(name, measure, n)
   plt.savefig(figname)
 
-def plot_hub_pie_chart(region_counts, sign, name, regions, weight):
+################ LSCC region distribution (largest strongly connected component)
+def get_lscc_region_count(G_dict, area_dict, regions):
+  region_counts = {}
+  rows, cols = get_rowcol(G_dict)
+  lscc_size = pd.DataFrame(index=rows, columns=cols)
+  for row in rows:
+    print(row)
+    if row not in region_counts:
+      region_counts[row] = {}
+    for col in cols:
+      G = G_dict[row][col]
+      lscc_nodes = max(nx.strongly_connected_components(G), key=len)
+      lscc_size.loc[row][col] = len(lscc_nodes)
+      lscc_area = [area_dict[row][n] for n in lscc_nodes if area_dict[row][n] in regions]
+      uniq, counts = np.unique(lscc_area, return_counts=True)
+      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+  return region_counts, lscc_size
+
+def plot_hub_pie_chart(region_counts, sign, name, regions):
   ind = 1
   rows, cols = get_rowcol(region_counts)
   hub_num = np.zeros((len(rows), len(cols)))
@@ -2029,7 +2101,7 @@ def plot_hub_pie_chart(region_counts, sign, name, regions, weight):
   plt.suptitle('{} region distribution'.format(name), size=30)
   plt.tight_layout()
   # plt.show()
-  fname = './plots/pie_chart_{}_strength_{}.jpg' if weight is not None else './plots/pie_chart_{}_degree_{}.jpg'
+  fname = './plots/pie_chart_{}_{}.jpg'
   plt.savefig(fname.format(name, sign))
 
 def get_directed_hub_region_count(G_dict, area_dict, regions, weight=None):
@@ -2101,3 +2173,56 @@ def plot_directed_hub_pie_chart(region_counts, sign, direction, regions, weight)
   # plt.show()
   fname = './plots/pie_chart_strength_{}_{}.jpg' if weight is not None else './plots/pie_chart_degree_{}_{}.jpg'
   plt.savefig(fname.format(sign, direction))
+
+def plot_intra_inter_density(G_dict, sign, area_dict, regions, measure):
+  rows, cols = get_rowcol(G_dict)
+  metric = np.zeros((len(rows), len(cols), 2))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        node_area = {key: area_dict[row][key] for key in nodes}
+        areas = list(node_area.values())
+        active_areas = np.unique(areas)
+        area_size = [areas.count(r) for r in regions]
+        intra_num = sum(map(lambda x : x * (x-1), area_size)) 
+        inter_num = len(nodes) * (len(nodes) - 1) - intra_num
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          if region_i in active_areas:
+            for region_ind_j, region_j in enumerate(regions):
+              if region_j in active_areas:
+                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+        
+        diag_indx = np.eye(len(regions),dtype=bool)
+        metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx]) / intra_num
+        metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx]) / inter_num
+  metric_names = ['intra-region density', 'inter-region density']
+  metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+  for metric_ind, metric_name in enumerate(metric_names):
+    df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+    df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
+    df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
+    df['metric'] = metric_name
+    df['stimulus'] = cols
+    metric_stimulus = metric_stimulus.append(df, ignore_index=True)
+  # print(metric_stimulus)
+  fig = plt.figure(figsize=[6, 6])
+  for i, m in metric_stimulus.groupby("metric"):
+    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
+    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
+  plt.title('{} network'.format(sign), size=20)
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
