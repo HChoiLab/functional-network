@@ -1890,8 +1890,8 @@ neg_metric = metric_stimulus_individual(neg_G_dict, 'neg', measure, n, weight='w
 ############### metric_stimulus_by_region
 def metric_stimulus_by_region(G_dict, sign, measure, n, weight, cc):
   rows, cols = get_rowcol(G_dict)
-  metric_names = get_metric_names(G_dict)
-  plots_shape = (3, 2) if len(metric_names) == 6 else (3, 3)
+  metric_names = ['in_degree', 'out_degree', 'in_strength', 'out_strength', 'betweenness', 'in_closeness', 'out_closeness']
+  plots_shape = (4, 2)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
   metric[:] = np.nan
   fig = plt.figure(figsize=(5*plots_shape[1], 13))
@@ -1930,84 +1930,39 @@ def metric_stimulus_by_region(G_dict, sign, measure, n, weight, cc):
 weight = None
 # weight = 'weight'
 pos_region_counts = get_hub_region_count(pos_G_dict, area_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(pos_region_counts, 'pos', 'hub_node', visual_regions, weight)
 neg_region_counts = get_hub_region_count(neg_G_dict, area_dict, visual_regions, weight=weight)
-plot_hub_pie_chart(neg_region_counts, 'neg', 'hub_node', visual_regions, weight)
+plot_hub_pie_chart(pos_region_counts, 'pos', 'hub_node', visual_regions)
+plot_hub_pie_chart(neg_region_counts, 'neg', 'hub_node', visual_regions)
 #%%
 ############## directed
 # weight = None
 weight = 'weight'
 pos_source_region_counts, pos_target_region_counts = get_directed_hub_region_count(pos_G_dict, visual_regions, weight=weight)
+neg_source_region_counts, neg_target_region_counts = get_directed_hub_region_count(neg_G_dict, visual_regions, weight=weight)
 plot_directed_hub_pie_chart(pos_source_region_counts, 'pos', 'source', visual_regions, weight)
 plot_directed_hub_pie_chart(pos_target_region_counts, 'pos', 'target', visual_regions, weight)
-neg_source_region_counts, neg_target_region_counts = get_directed_hub_region_count(neg_G_dict, visual_regions, weight=weight)
 plot_directed_hub_pie_chart(neg_source_region_counts, 'neg', 'source', visual_regions, weight)
 plot_directed_hub_pie_chart(neg_target_region_counts, 'neg', 'target', visual_regions, weight)
 # %%
 ########### maximum clique distribution
 pos_clique_region_counts, pos_max_cliq_size = get_max_clique_region_count(pos_G_dict, area_dict, visual_regions)
-plot_hub_pie_chart(pos_clique_region_counts, 'pos', 'max_clique', visual_regions, weight)
 neg_clique_region_counts, neg_max_cliq_size = get_max_clique_region_count(neg_G_dict, area_dict, visual_regions)
-plot_hub_pie_chart(neg_clique_region_counts, 'neg', 'max_clique', visual_regions, weight)
+plot_hub_pie_chart(pos_clique_region_counts, 'pos', 'max_clique', visual_regions)
+plot_hub_pie_chart(neg_clique_region_counts, 'neg', 'max_clique', visual_regions)
 #%%
-plot_cliq_size_stimulus(pos_max_cliq_size, neg_max_cliq_size, measure, n)
+plot_group_size_stimulus(pos_max_cliq_size, neg_max_cliq_size, 'max_clique', measure, n)
 #%%
-def intra_inter_density(G_dict, sign, area_dict, regions, measure):
-  rows, cols = get_rowcol(G_dict)
-  metric = np.zeros((len(rows), len(cols), 2))
-  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
-        nodes = list(G.nodes())
-        node_area = {key: area_dict[row][key] for key in nodes}
-        areas = list(node_area.values())
-        active_areas = np.unique(areas)
-        area_size = [areas.count(r) for r in regions]
-        intra_num = sum(map(lambda x : x * (x-1), area_size)) 
-        inter_num = len(nodes) * (len(nodes) - 1) - intra_num
-        A = nx.to_numpy_array(G)
-        A[A.nonzero()] = 1
-        for region_ind_i, region_i in enumerate(regions):
-          if region_i in active_areas:
-            for region_ind_j, region_j in enumerate(regions):
-              if region_j in active_areas:
-                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-        
-        diag_indx = np.eye(len(regions),dtype=bool)
-        metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx]) / intra_num
-        metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx]) / inter_num
-  metric_names = ['intra-region density', 'inter-region density']
-  metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-  for metric_ind, metric_name in enumerate(metric_names):
-    df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-    df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
-    df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
-    df['metric'] = metric_name
-    df['stimulus'] = cols
-    metric_stimulus = metric_stimulus.append(df, ignore_index=True)
-  # print(metric_stimulus)
-  fig = plt.figure(figsize=[6, 6])
-  for i, m in metric_stimulus.groupby("metric"):
-    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
-    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
-  plt.title('{} network'.format(sign), size=20)
-  plt.legend()
-  plt.xticks(rotation=90)
-  plt.tight_layout()
-  # plt.show()
-  plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
-
-intra_inter_density(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
-intra_inter_density(pos_G_dict, 'positive', area_dict, visual_regions, measure)
-intra_inter_density(neg_G_dict, 'negative', area_dict, visual_regions, measure)
+pos_lscc_region_counts, pos_lscc_size = get_lscc_region_count(pos_G_dict, area_dict, visual_regions)
+neg_lscc_region_counts, neg_lscc_size = get_lscc_region_count(neg_G_dict, area_dict, visual_regions)
+#%%
+plot_hub_pie_chart(pos_lscc_region_counts, 'pos', 'LSCC', visual_regions)
+plot_hub_pie_chart(neg_lscc_region_counts, 'neg', 'LSCC', visual_regions)
+#%%
+plot_group_size_stimulus(pos_lscc_size, neg_lscc_size, 'LSCC', measure, n)
+#%%
+plot_intra_inter_density(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
+plot_intra_inter_density(pos_G_dict, 'positive', area_dict, visual_regions, measure)
+plot_intra_inter_density(neg_G_dict, 'negative', area_dict, visual_regions, measure)
 # %%
 # G_ccg_dict = get_lcc(G_ccg_dict)
 # # %%
@@ -2353,7 +2308,7 @@ stimulus_names = ['spontaneous', 'flashes',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
-mouseIDs = [719161530, 750749662, 755434585, 756029989, 791319847]
+mouseIDs = session_ids
 response_dict = {}
 for row_ind, mouseID in enumerate(mouseIDs):
   print(mouseID)
@@ -2364,9 +2319,8 @@ for row_ind, mouseID in enumerate(mouseIDs):
     matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
     mean_matrix = matrix.mean(axis=-1).mean(axis=-1)
     response_dict[mouseID][stimulus_name] = mean_matrix
-
 #%%
-def plot_average_response_smoothed(response_dict, n=10):
+def plot_average_response_smoothed(response_dict, p=0.1):
   peak_response_dict = {}
   rows, cols = get_rowcol(response_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -2390,21 +2344,23 @@ def plot_average_response_smoothed(response_dict, n=10):
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      smoothed_response = moving_average(response_dict[row][col], n)[:250]
-      peak_response_dict[row][col] = np.argmax(smoothed_response)
-      plt.axvline(x=peak_response_dict[row][col], color='r', linestyle='--', alpha=0.9)
+      n = int(p * response_dict[row][col].shape[0])
+      smoothed_response = moving_average(response_dict[row][col], n)
+      peak_response_dict[row][col] = np.argmax(smoothed_response) / len(smoothed_response)
+      plt.axvline(x=np.argmax(smoothed_response), color='r', linestyle='--', alpha=0.9)
       plt.plot(smoothed_response, alpha=1)
       plt.xlabel('time after stimulus onset (ms)')
       plt.ylabel('average number of spikes')
   plt.suptitle('{} ms moving average'.format(n), size=30)
   plt.tight_layout()
-  plt.savefig('./plots/average_response_smoothed_{}.jpg'.format(n))
+  plt.savefig('./plots/average_response_smoothed_{}.jpg'.format(p))
   return peak_response_dict
 
-n = 5
-peak_response_dict = plot_average_response_smoothed(response_dict, n=n)
+# n = 25
+p = 0.1
+peak_response_dict = plot_average_response_smoothed(response_dict, p=p)
 #%%
-def plot_response_peak_stimulus(peak_response_dict, n):
+def plot_response_peak_stimulus(peak_response_dict, p):
   ind = 1
   rows, cols = get_rowcol(peak_response_dict)
   fig = plt.figure(figsize=(6, 6))
@@ -2415,12 +2371,13 @@ def plot_response_peak_stimulus(peak_response_dict, n):
     plt.plot(cols, peaks, alpha=0.6, label=row)
   plt.legend()
   plt.xticks(rotation=90)
-  plt.title('peak response time after onset (ms)')
+  plt.ylabel('fraction of presentation duration')
+  plt.title('peak response time after onset (fraction)')
   plt.tight_layout()
-  plt.savefig('./plots/average_response_peakoffset_stimulus_{}.jpg'.format(n))
+  plt.savefig('./plots/average_response_peakoffset_stimulus_{}.jpg'.format(p))
   plt.show()
 
-plot_response_peak_stimulus(peak_response_dict, n)
+plot_response_peak_stimulus(peak_response_dict, p)
 # %%
 ############## calculate ccg and save
 np.seterr(divide='ignore', invalid='ignore')
@@ -2519,7 +2476,7 @@ def unique(l):
 stimulus_names = ['spontaneous', 'flashes', 
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
+# session_ids = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
 mouse_ind, stimulus_ind = 0, 3
 matrix = load_npz_3d(os.path.join(directory, str(session_ids[mouse_ind]) + '_' + stimulus_names[stimulus_ind] + '.npz'))
 matrix = np.moveaxis(matrix, -1, 0) # time, neuron, condition
@@ -2610,7 +2567,7 @@ stimulus_names = ['spontaneous', 'flashes',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
-mouseIDs = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
+mouseIDs = session_ids
 fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
 left, width = .25, .5
 bottom, height = .25, .5
@@ -2651,7 +2608,8 @@ stimulus_names = ['spontaneous', 'flashes',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 # session_ids = sessions[sessions.session_type=='brain_observatory_1.1'].index.values # another one is functional_connectivity
-mouseIDs = [719161530, 750749662, 754312389, 755434585, 756029989, 791319847]
+mouseIDs = session_ids
+areas_uniq = visual_regions
 fig = plt.figure(figsize=(4*len(stimulus_names), 3*len(mouseIDs)))
 left, width = .25, .5
 bottom, height = .25, .5
@@ -3240,4 +3198,33 @@ for file in files:
 #   sns.barplot(x=list(range(10)), y=pv.diagonal(), ax=ax2)
 # plt.show()
 # # sns.heatmap(pd.DataFrame(pv.sum(axis=1)), ax=ax3,  annot=True, cmap="YlGnBu", cbar=False, xticklabels=False, yticklabels=False)
+# %%
+def corr_pos_neg_weight(pos_G_dict, neg_G_dict):
+  rows, cols = get_rowcol(pos_G_dict)
+  pos_mean_weight, neg_mean_weight = [np.full([len(rows), len(cols)], np.nan) for _ in range(2)]
+  fig = plt.figure()
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      pos_G = pos_G_dict[row][col] if col in pos_G_dict[row] else nx.DiGraph()
+      pos_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(pos_G, "weight").values()))
+      neg_G = neg_G_dict[row][col] if col in neg_G_dict[row] else nx.DiGraph()
+      neg_mean_weight[row_ind, col_ind] = np.mean(list(nx.get_edge_attributes(neg_G, "weight").values()))
+  metrics = {'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight}
+  x = metrics['positive average weights'].flatten()
+  y = np.abs(metrics['negative average weights'].flatten())
+  plt.scatter(x, y)
+  plt.xlabel('positive average weights')
+  plt.ylabel('negative average weights')
+  plt.xticks(rotation=90)
+  # plt.yscale('symlog')
+  plt.legend()
+  plt.tight_layout()
+  plt.show()
+  print(scipy.stats.pearsonr(x, y)) # (0.9494023458038405, 7.839675225810582e-29)
+  # figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
+  # plt.savefig(figname)
+
+import scipy
+corr_pos_neg_weight(pos_G_dict, neg_G_dict)
 # %%
