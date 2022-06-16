@@ -1244,22 +1244,17 @@ def save_area_speed(session_ids, stimulus_names, visual_regions):
   a_file.close()
   mean_speed_df.to_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
 
-def save_active_area_dict(min_FR, area_dict):
+def save_active_area_dict(area_dict):
   active_area_dict = {}
-  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-  files = os.listdir(directory)
-  files = [f for f in files if f.endswith('.npz')]
+  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+  files = os.listdir(inds_path)
   files.sort(key=lambda x:int(x[:9]))
   for file_order in range(len(files)):
     file = files[file_order]
     print(file)
-    mouseID = file.split('_')[0]
-    stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-    sequences = load_npz_3d(os.path.join(directory, file))
-    active_neuron_inds = np.where(sequences.mean(1).sum(1) > sequences.shape[2] * min_FR)[0]
-    if mouseID not in active_area_dict:
-      active_area_dict[mouseID] = {}
-    active_area_dict[mouseID][stimulus_name] = {key:area_dict[mouseID][key] for key in active_neuron_inds}
+    mouseID = file.split('.')[0]
+    active_neuron_inds = np.load(os.path.join(inds_path, mouseID+'.npy'))
+    active_area_dict[mouseID] = {key:area_dict[mouseID][key] for key in active_neuron_inds}
   a_file = open('./data/ecephys_cache_dir/sessions/active_area_dict.pkl', 'wb')
   pickle.dump(active_area_dict, a_file)
   a_file.close()
@@ -1351,7 +1346,7 @@ def load_highland_xcorr(directory, active_area_dict, weight):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if file.endswith(".npz") and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+    if file.endswith(".npz") and ('gabors' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
       print(file)
       adj_mat = load_npz_3d(os.path.join(directory, file))
       confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
@@ -1360,7 +1355,7 @@ def load_highland_xcorr(directory, active_area_dict, weight):
       stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
       if not mouseID in G_dict:
         G_dict[mouseID], offset_dict[mouseID], duration_dict[mouseID] = {}, {}, {}
-      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[mouseID][stimulus_name], cc=False, weight=weight)
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[mouseID], cc=False, weight=weight)
       offset_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
       duration_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
   return G_dict, offset_dict, duration_dict
@@ -1420,23 +1415,26 @@ def split_pos_neg(G_dict, measure):
   return pos_G_dict, neg_G_dict
 
 def get_lcc(G_dict):
+  G_lcc_dict = {}
   for row in G_dict:
+    G_lcc_dict[row] = {}
     for col in G_dict[row]:
       G = G_dict[row][col]
+      G_lcc_dict[row][col] = nx.DiGraph()
       if not nx.is_empty(G):
         if nx.is_directed(G):
           if not nx.is_weakly_connected(G):
             Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
-            G_dict[row][col] = G.subgraph(Gcc[0])
+            G_lcc_dict[row][col] = G.subgraph(Gcc[0])
         else:
           if not nx.is_connected(G):
             Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-            G_dict[row][col] = G.subgraph(Gcc[0])
+            G_lcc_dict[row][col] = G.subgraph(Gcc[0])
 
           # largest_cc = max(nx.connected_components(G), key=len)
           # G_dict[row][col][i] = nx.subgraph(G, largest_cc)
-      print(G.number_of_nodes(), G_dict[row][col].number_of_nodes())
-  return G_dict
+      print(G_dict[row][col].number_of_nodes(), G_lcc_dict[row][col].number_of_nodes())
+  return G_lcc_dict
 
 def print_stat(G_dict):
   for row in G_dict:
@@ -1479,10 +1477,10 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   'positive average weights':pos_mean_weight, 'negative average weights':neg_mean_weight,
   'positive average confidence':pos_mean_confidence, 'negative average confidence':neg_mean_confidence}
   else:
-    metrics = {'positive number of nodes':pos_num_nodes, 'positive number of edges':pos_num_edges,
-    'positive density':pos_densities, 'positive total weights':pos_total_weight,
-    'positive average weights':pos_mean_weight, 'positive average confidence':pos_mean_confidence}
-  # distris = {'positive weight distribution':pos_weight_distri, 'negative weight distribution':neg_weight_distri}
+    metrics = {'total number of nodes':pos_num_nodes, 'total number of edges':pos_num_edges,
+    'total density':pos_densities, 'total total weights':pos_total_weight,
+    'total average weights':pos_mean_weight, 'total average confidence':pos_mean_confidence}
+  # distris = {'total weight distribution':pos_weight_distri, 'negative weight distribution':neg_weight_distri}
   
   for i, k in enumerate(metrics):
     plt.subplot(3, num_col, i+1)
@@ -1587,7 +1585,7 @@ def colors_from_values(values, palette_name):
   palette = sns.color_palette(palette_name, len(values))
   return np.array(palette).take(indices, axis=0)
 
-def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measure, n):
+def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measure, n, weight):
   rows, cols = get_rowcol(G_dict)
   each_shape_row, each_shape_col = len(regions)+2, len(regions)+1
   full_shape = (len(rows)*each_shape_row, len(cols)*each_shape_col)
@@ -1596,8 +1594,8 @@ def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measur
   scale_mask = np.ones((len(regions), len(regions)))
   scale_mask[np.diag_indices_from(scale_mask)] = 0
   scale_mask = scale_mask[None,:,:]
-  heat_cm = "RdBu_r" if sign=='pos' else "RdBu"
-  bar_cm = "Reds" if sign=='pos' else "Blues"
+  heat_cm = "RdBu_r" if sign=='pos' or 'total' else "RdBu"
+  bar_cm = "Reds" if sign=='pos' or 'total' else "Blues"
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
@@ -1608,7 +1606,8 @@ def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measur
         # active_areas = [i for i in regions if i in active_areas]
         A = nx.adjacency_matrix(G)
         A = A.todense()
-        A[A.nonzero()] = 1
+        if not weight:
+          A[A.nonzero()] = 1
         for region_ind_i, region_i in enumerate(regions):
           if region_i in active_areas:
             for region_ind_j, region_j in enumerate(regions):
@@ -1618,7 +1617,7 @@ def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measur
                 region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
                 region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
                 region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+                # assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
       region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :] / region_connection[row_ind, col_ind, :, :].sum()
     scale[row_ind] = (region_connection[row_ind, :, :, :]*scale_mask).max()
   fig = plt.figure(figsize=(4*len(cols), 4*len(rows)))
@@ -1667,7 +1666,8 @@ def region_connection_seperate_diagonal(G_dict, sign, area_dict, regions, measur
         bar_plot.set(xticklabels=[])
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/region_connection_seperate_{}_{}_{}fold.jpg'.format(sign, measure, n))
+  figname = './plots/region_connection_seperate_weighted_{}_{}_{}fold.jpg' if weight else './plots/region_connection_seperate_unweighted_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(sign, measure, n))
 
 def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n, weight):
   rows, cols = get_rowcol(G_dict)
@@ -2055,11 +2055,15 @@ def get_lscc_region_count(G_dict, area_dict, regions):
       region_counts[row] = {}
     for col in cols:
       G = G_dict[row][col]
+      nodes = list(G.nodes())
       lscc_nodes = max(nx.strongly_connected_components(G), key=len)
-      lscc_size.loc[row][col] = len(lscc_nodes)
+      lscc_size.loc[row][col] = len(lscc_nodes) / len(nodes)
+      node_area = [area_dict[row][n] for n in nodes if area_dict[row][n] in regions]
+      uniq, counts = np.unique(node_area, return_counts=True)
+      r_counts = {k: v for k, v in dict(zip(uniq, counts)).items()}
       lscc_area = [area_dict[row][n] for n in lscc_nodes if area_dict[row][n] in regions]
       uniq, counts = np.unique(lscc_area, return_counts=True)
-      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+      region_counts[row][col] = {k: v/r_counts[k] for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
   return region_counts, lscc_size
 
 def plot_hub_pie_chart(region_counts, sign, name, regions):
@@ -2087,7 +2091,8 @@ def plot_hub_pie_chart(region_counts, sign, name, regions):
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       labels = region_counts[row][col].keys()
-      sizes = region_counts[row][col].values()
+      sizes = np.array(list(region_counts[row][col].values()))
+      sizes = sizes / sum(sizes)
       hub_num[row_ind][col_ind] = sum(sizes)
       explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
       colors = [customPalette[regions.index(l)] for l in labels]
