@@ -2013,18 +2013,26 @@ def get_max_clique_region_count(G_dict, area_dict, regions):
       region_counts[row] = {}
     for col in cols:
       G = nx.to_undirected(G_dict[row][col])
+
+      nodes = list(G.nodes())
+      node_area = [area_dict[row][n] for n in nodes if area_dict[row][n] in regions]
+      total_uniq, total_counts = np.unique(node_area, return_counts=True)
+      r_counts = {k: v for k, v in dict(zip(total_uniq, total_counts)).items()}
+
       cliqs = np.array(list(nx.find_cliques(G)))
       cliq_size = np.array([len(l) for l in cliqs])
-      max_cliq_size.loc[row][col] = max(cliq_size)
-      if type(cliqs[np.where(cliq_size==max(cliq_size))[0]][0]) == list: # multiple maximum cliques
-        cliq_nodes = []
-        for li in cliqs[np.where(cliq_size==max(cliq_size))[0]]:
-          cliq_nodes += li
-      else:
-        cliq_nodes = cliqs[np.argmax(cliq_size)]
+      
+      # if type(cliqs[np.where(cliq_size==max(cliq_size))[0]][0]) == list: # multiple maximum cliques
+      #   # cliq_nodes = []
+      #   # for li in cliqs[np.where(cliq_size==max(cliq_size))[0]]:
+      #   #   cliq_nodes += li
+      #   cliq_nodes = cliqs[np.where(cliq_size==max(cliq_size))[0]][0]
+      # else:
+      cliq_nodes = cliqs[np.argmax(cliq_size)]
       cliq_area = [area_dict[row][n] for n in cliq_nodes if area_dict[row][n] in regions]
       uniq, counts = np.unique(cliq_area, return_counts=True)
-      region_counts[row][col] = {k: v for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+      region_counts[row][col] = {k: v/r_counts[k] for k, v in sorted(dict(zip(uniq, counts)).items(), key=lambda item: item[1], reverse=True)}
+      max_cliq_size.loc[row][col] = max(cliq_size)
   return region_counts, max_cliq_size
 
 def plot_group_size_stimulus(pos_group_size, neg_group_size, name, measure, n):
@@ -2040,6 +2048,18 @@ def plot_group_size_stimulus(pos_group_size, neg_group_size, name, measure, n):
     plt.plot(neg_group_size.columns, neg_group_size.loc[row], label=row, alpha=1)
   plt.gca().set_title('size of negative {}'.format(name), fontsize=20, rotation=0)
   plt.xticks(rotation=90)
+  plt.tight_layout()
+  figname = './plots/{}_size_stimulus_{}_{}_fold.jpg'.format(name, measure, n)
+  plt.savefig(figname)
+
+def plot_total_group_size_stimulus(group_size, name, measure, n):
+  fig = plt.figure(figsize=(7, 6))
+  for row_ind, row in enumerate(group_size.index):
+    plt.plot(group_size.columns, group_size.loc[row], label=row, alpha=1)
+  plt.gca().set_title('size of {}'.format(name), fontsize=20, rotation=0)
+  plt.xticks(rotation=90)
+  plt.ylabel('percentage of {} nodes in all nodes'.format(name))
+  plt.legend()
   plt.tight_layout()
   figname = './plots/{}_size_stimulus_{}_{}_fold.jpg'.format(name, measure, n)
   plt.savefig(figname)
