@@ -1859,6 +1859,24 @@ print_stat(G_ccg_dict)
 #%%
 plot_stat(G_ccg_dict, n, measure=measure)
 #%%
+G_ccg_lcc_dict = get_lcc(G_ccg_dict)
+rows, cols = get_rowcol(G_ccg_lcc_dict)
+plt.figure(figsize=(7,6))
+for row in rows:
+  n_nodes, n_nodes_lcc = [], []
+  for col in cols:
+    n_nodes.append(G_ccg_dict[row][col].number_of_nodes())
+    n_nodes_lcc.append(G_ccg_lcc_dict[row][col].number_of_nodes())
+  # plt.scatter(n_nodes, n_nodes_lcc, label=row)
+  plt.plot(cols, n_nodes_lcc, label=row)
+# plt.xlabel('number of nodes', size=15)
+plt.xticks(rotation=90)
+plt.ylabel('number of nodes', size=15)
+plt.title('size of LCC', size=20)
+plt.legend()
+plt.savefig('./plots/size_of_lcc_{}_{}_fold'.format(measure, n))
+# plt.show()
+#%%
 weight = False
 library.region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
 #%%
@@ -1872,6 +1890,20 @@ plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight
 plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
+#%%
+########### LSCC distribution
+lscc_region_counts, lscc_size = get_lscc_region_count(G_ccg_dict, area_dict, visual_regions)
+#%%
+plot_hub_pie_chart(lscc_region_counts, 'total', 'LSCC', visual_regions)
+plot_total_group_size_stimulus(lscc_size, 'total_LSCC', measure, n)
+#%%
+########### maximum clique distribution
+
+clique_region_counts, max_cliq_size = get_max_clique_region_count(G_ccg_dict, area_dict, visual_regions)
+#%%
+plot_hub_pie_chart(clique_region_counts, 'total', 'max_clique', visual_regions)
+#%%
+plot_total_group_size_stimulus(max_cliq_size, 'max_clique', measure, n)
 #%%
 total_metric = metric_stimulus_individual(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
 #%%
