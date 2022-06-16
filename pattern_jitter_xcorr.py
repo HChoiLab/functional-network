@@ -1,5 +1,8 @@
 # %%
 from library import *
+import importlib
+import library
+importlib.reload(library)
 
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
@@ -1826,10 +1829,16 @@ measure = 'ccg'
 ################# save area dict
 save_area_speed(session_ids, stimulus_names, visual_regions)
 #%%
+################# save aactive neuron inds
+min_FR = 0.002 # 2 Hz
+stimulus_names = ['spontaneous', 'flashes',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+save_active_inds(min_FR, session_ids, stimulus_names)
+#%%
 ################# save active area dict
 area_dict = load_area_dict(session_ids)
-min_FR = 0.002 # 2 Hz
-save_active_area_dict(min_FR, area_dict)
+save_active_area_dict(area_dict)
 #%%
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -1846,12 +1855,32 @@ G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 # print(active_areas)
 n = 4
 #%%
+print_stat(G_ccg_dict)
+#%%
+plot_stat(G_ccg_dict, n, measure=measure)
+#%%
+weight = False
+library.region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
+#%%
+weight = True
+library.region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
+#%%
+plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight=None, cc=False)
+# plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
+# plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=None, cc=False)
+#%%
+plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
+# plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
+# plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
+#%%
+total_metric = metric_stimulus_individual(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
+#%%
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
-# %%
-############# keep largest connected components for pos and neg G_dict
-pos_G_dict = get_lcc(pos_G_dict)
-neg_G_dict = get_lcc(neg_G_dict)
+# # %%
+# ############# keep largest connected components for pos and neg G_dict
+# pos_G_dict = get_lcc(pos_G_dict)
+# neg_G_dict = get_lcc(neg_G_dict)
 # %%
 print_stat(pos_G_dict)
 print_stat(neg_G_dict)
@@ -3227,4 +3256,174 @@ def corr_pos_neg_weight(pos_G_dict, neg_G_dict):
 
 import scipy
 corr_pos_neg_weight(pos_G_dict, neg_G_dict)
+# %%
+import dimod
+sampler = dimod.ExactSolver()
+#%%
+def add_sign(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  S_dict = {}
+  for row in rows:
+    S_dict[row] = {}
+    for col in cols:
+      G = G_dict[row][col]
+      weights = nx.get_edge_attributes(G,'weight')
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      S = nx.from_numpy_array(A, create_using=nx.DiGraph)
+      node_idx = list(G.nodes())
+      mapping = {i:node_idx[i] for i in range(len(node_idx))}
+      S = nx.relabel_nodes(S, mapping)
+      for (n1, n2, d) in S.edges(data=True):
+        d.clear()
+      signs = {}
+      for e, w in weights.items():
+        signs[e] = np.sign(w)
+      nx.set_edge_attributes(S, signs, 'sign')
+      S_dict[row][col] = S
+  return S_dict
+
+S_ccg_dict = add_sign(G_ccg_dict)
+# %%
+import dwave_networkx as dnx
+frustrated_edges, colors = dnx.structural_imbalance(S, sampler)
+# %%
+G = G_ccg_dict['719161530']['spontaneous']
+S = S_ccg_dict['719161530']['spontaneous']
+# %%
+from dwave_networkx.algorithms.social import structural_imbalance_ising
+h, J = structural_imbalance_ising(S)
+# %%
+frustrated_edges, colors = dnx.structural_imbalance(S)
+# %%
+# This section calculates balace in triads with respect to direction.
+# We first extract the transitive triads, then we break the transitive triads to semi-cycles, and finally 
+# calculate balance in each semicycle. The triad is balance only if all its semicycles are balance. 
+# updated = 04/22/2020
+
+# This algorithm is based on the model introduced in the following paper:
+# XXX (will be updated)
+
+import pandas as pd
+from networkx import *
+import numpy as np
+import networkx as nx
+import itertools
+from itertools import combinations
+import time
+import pickle
+from multiprocessing import Pool
+
+
+## counting the number of instances in a list
+def count_lists(mylist):            
+    new_dict = {}
+    for i in mylist:
+        if i[1] not in new_dict:
+            new_dict[i[1]] = 1
+        else:
+            new_dict[i[1]] += 1
+    return (new_dict)            
+
+## Get all triples in triads with respect to their census and edgelists (in edge_atts)
+def get_directed_triads(triads):
+    # Get all triplets of edges
+    for candidate_edges in combinations(triads.items(), 3):
+        # Get edges between unique pair of nodes
+        unique_edges = set([tuple(sorted(k)) for k,v in candidate_edges])
+        # Only consider triad in which the tree edges use a unique pair of nodes
+        if len(unique_edges) == 3:
+            yield dict(candidate_edges)
+            
+## searching through traids
+def search_triangles(G, nodes = None):
+    if nodes is None:
+        nodes_nbrs = G.adj.items()
+    else:
+        nodes_nbrs = ((n, G[n]) for n in G.nbunch_iter(nodes))
+    for v, v_nbrs in nodes_nbrs:
+        vs = set(v_nbrs) - {v} # neighbors of v, remove selfloop
+        for w in vs:
+            #print(w)
+            xx = vs & (set(G[w]) - {w})
+            yield [ set(x) for x in list(zip(itertools.repeat(v), itertools.repeat(w), list(xx))) ]
+            
+#Calculate balance in traids (main function)
+def calculate_traid_balance(G_new):
+    triad_dict = {}
+    triad_class = {}
+    all_triads = []
+    ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
+    non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '021', '111U', '111D', '201', '030C', '120C', '210']
+    all_triad = nx.triangles(G_new.to_undirected())
+    iter_g = search_triangles(G_new)
+    
+    for iter_t in iter_g:
+        for ta in list(iter_t):
+            tt = ",".join([str(x) for x in sorted(set(ta))])
+            triad_dict[tt] = True
+            
+    for val in triad_dict.keys():
+        nodes = [int(x) for x in val.split(",")]
+        census = [k for k, v in nx.triads.triadic_census(G_new.subgraph(nodes)).items() if v][0]
+        if census not in non_transitive_census:
+            sign = nx.get_edge_attributes(G_new.subgraph(nodes),'sign')
+            triad_class[val] = [census, sign]
+            #map_census_edges(G_new, val, triad_class)     
+
+    for key, value in triad_class.items():
+        all_directed_triads = list(get_directed_triads(value[1]))
+        all_triads.append([all_directed_triads, value[0]])
+            
+    ## getting the balance vs. imbalance triads 
+    balances = []
+    imbalances = []
+    for items in all_triads:
+        balance_list = []
+        
+        ## removing two cycles from 300 and then calculate balance
+        if items[1] == '300':
+            for triangle in items[0]:
+                node = []
+                for edge in triangle:
+                    if edge[0] not in node:
+                        node.append(edge[0])
+                if len(node) != 3:
+                    balance = 1
+                    for edge in triangle:
+                        balance *= triangle[edge]
+                    balance_list.append(balance)
+        else:
+            for item in items[0]:
+                balance = 1
+                for edge in item:
+                    balance *= item[edge]
+                balance_list.append(balance)
+        neg = []
+        for n in balance_list:
+            if n <= 0 :
+                neg.append(n)
+        if neg:
+            imbalances.append(items)
+        else:
+            balances.append(items)
+            
+    print ('Triad Level Balance: ', (len(balances)/(len(balances) + len(imbalances))))        
+    print ('Number of balance and transitive triads: ', len(balances))
+    print ('Number of imbalance and transitive triads: ', len(imbalances))
+    
+    print('Number of balance triads in each census', count_lists(balances))
+    print('Number of imbalance triads in each census', count_lists(imbalances))
+
+#%%
+rows, cols = get_rowcol(S_ccg_dict)
+row = '719161530'
+for col in cols:
+  S = S_ccg_dict[row][col]
+  print(col)
+  ## iterate through the list of graphs to calculate balance in triads
+  print ('-------------------------Triadic balance-----------------------------')
+  calculate_traid_balance(S) 
+# %%
+
 # %%
