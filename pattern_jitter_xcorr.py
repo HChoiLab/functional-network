@@ -3408,22 +3408,98 @@ def calculate_traid_balance(G_new):
         else:
             balances.append(items)
             
-    print ('Triad Level Balance: ', (len(balances)/(len(balances) + len(imbalances))))        
-    print ('Number of balance and transitive triads: ', len(balances))
-    print ('Number of imbalance and transitive triads: ', len(imbalances))
+    # print ('Triad Level Balance: ', (len(balances)/(len(balances) + len(imbalances))))        
+    # print ('Number of balance and transitive triads: ', len(balances))
+    # print ('Number of imbalance and transitive triads: ', len(imbalances))
     
-    print('Number of balance triads in each census', count_lists(balances))
-    print('Number of imbalance triads in each census', count_lists(imbalances))
+    # print('Number of balance triads in each census', count_lists(balances))
+    # print('Number of imbalance triads in each census', count_lists(imbalances))
+    tb = len(balances)/(len(balances) + len(imbalances)) if len(balances) + len(imbalances) > 0 else 0
+    return tb, len(balances), len(imbalances), count_lists(balances), count_lists(imbalances)
 
 #%%
 rows, cols = get_rowcol(S_ccg_dict)
-row = '719161530'
-for col in cols:
-  S = S_ccg_dict[row][col]
-  print(col)
-  ## iterate through the list of graphs to calculate balance in triads
-  print ('-------------------------Triadic balance-----------------------------')
-  calculate_traid_balance(S) 
+t_balance, num_balance, num_imbalance = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
+balance_t_counts, imbalance_t_counts = {}, {}
+# row = '719161530'
+for row_ind, row in enumerate(rows):
+  print(row)
+  balance_t_counts[row], imbalance_t_counts[row] = {}, {}
+  for col_ind, col in enumerate(cols):
+    S = S_ccg_dict[row][col]
+    print(col)
+    t_balance[row_ind, col_ind], num_balance[row_ind, col_ind], num_imbalance[row_ind, col_ind], balance_t_counts[row][col], imbalance_t_counts[row][col] = calculate_traid_balance(S) 
 # %%
+def plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure='xcorr'):
+  num_col = 3
+  # fig = plt.figure(figsize=(5*num_col, 25))
+  fig = plt.figure(figsize=(5*num_col, 5))
+  metrics = {'Triad Level Balance':t_balance,
+  'Number of balance and transitive triads':num_balance,
+  'Number of imbalance and transitive triads':num_imbalance}
+  
+  for i, k in enumerate(metrics):
+    plt.subplot(1, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=15, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/triad_balance_stats_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
 
+plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure)
+# %%
+def plot_balance_pie_chart(balance_t_counts, name, tran_traid_census):
+  ind = 1
+  rows, cols = get_rowcol(balance_t_counts)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = balance_t_counts[row][col].keys()
+      sizes = balance_t_counts[row][col].values()
+      hub_num[row_ind][col_ind] = sum(sizes)
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[tran_traid_census.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  plt.suptitle('{} and transitive triads distribution'.format(name), size=30)
+  plt.tight_layout()
+  # plt.show()
+  fname = './plots/pie_chart_{}.jpg'
+  plt.savefig(fname.format(name))
+
+tran_traid_census = ['030T', '120D', '120U', '300']
+plot_balance_pie_chart(balance_t_counts, 'balance', tran_traid_census)
+# %%
+plot_balance_pie_chart(imbalance_t_counts, 'imbalance', tran_traid_census)
 # %%
