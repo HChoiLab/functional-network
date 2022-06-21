@@ -1529,7 +1529,7 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   figname = './plots/stats_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stats_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
 
-def stat_modular_structure(pos_G_dict, n, neg_G_dict=None):
+def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
   rows, cols = get_rowcol(pos_G_dict)
   pos_w_num_comm, neg_w_num_comm, pos_w_modularity, neg_w_modularity, pos_uw_num_comm, neg_uw_num_comm, pos_uw_modularity, neg_uw_modularity = [np.full([len(rows), len(cols)], np.nan) for _ in range(8)]
   for row_ind, row in enumerate(rows):
@@ -1595,6 +1595,85 @@ def stat_modular_structure(pos_G_dict, n, neg_G_dict=None):
   # plt.show()
   figname = './plots/stat_modular_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stat_modular_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
+
+def dict2histogram(dictionary, density=True, binning=False):
+    dataseq=[v for k, v in dictionary.items()]
+    if not binning:
+      # dmax=max(dataseq)+1
+      # data_seq = np.arange(0, dmax)
+      # freq= [ 0 for d in range(dmax) ]
+      # for d in data_seq:
+      #   freq[d] += 1
+      data_seq, freq = np.unique(dataseq, return_counts=True)
+      if density:
+        freq = freq / freq.sum()
+    else:
+      freq, bin_edges = np.histogram(dataseq, density=density)
+      data_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
+    return data_seq, freq
+
+def distribution_community(G_dict, sign, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      ind += 1
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      
+      unweight = {(i, j):1 for i,j in G.edges()}
+      nx.set_edge_attributes(G, unweight, 'weight')
+      part = community.best_partition(G, weight='weight')
+      # metric = community.modularity(part, G, weight='weight')
+      number, freq = dict2histogram(part, density=False, binning=False)
+      # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
+      plt.plot(number, freq,'go-', label='number', alpha=0.4)
+      # plt.legend(loc='upper right', fontsize=7)
+      xlabel = 'No. of community'
+      plt.xlabel(xlabel)
+      plt.ylabel('number of nodes')
+      # plt.xscale('symlog')
+      # plt.yscale('log')
+  # plt.show()
+  plt.suptitle('{} community distribution'.format(sign), size=25)
+  plt.tight_layout()
+  image_name = './plots/comm_distribution_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  plt.savefig(image_name)
+
+def plot_size_lcc(G_dict, G_lcc_dict):
+  rows, cols = get_rowcol(G_lcc_dict)
+  plt.figure(figsize=(7,6))
+  for row in rows:
+    n_nodes, n_nodes_lcc = [], []
+    for col in cols:
+      # n_nodes.append(G_dict[row][col].number_of_nodes())
+      n_nodes_lcc.append(G_lcc_dict[row][col].number_of_nodes())
+    # plt.scatter(n_nodes, n_nodes_lcc, label=row)
+    plt.plot(cols, n_nodes_lcc, label=row)
+  # plt.xlabel('number of nodes', size=15)
+  plt.xticks(rotation=90)
+  plt.ylabel('number of nodes', size=15)
+  plt.title('size of LCC', size=20)
+  plt.legend()
+  plt.savefig('./plots/size_of_lcc_{}_{}_fold.jpg'.format(measure, n))
+  # plt.show()
 
 def get_all_active_areas(G_dict, area_dict):
   rows, cols = get_rowcol(G_dict)
