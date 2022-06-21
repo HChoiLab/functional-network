@@ -1531,7 +1531,10 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
 
 def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
   rows, cols = get_rowcol(pos_G_dict)
-  pos_w_num_comm, neg_w_num_comm, pos_w_modularity, neg_w_modularity, pos_uw_num_comm, neg_uw_num_comm, pos_uw_modularity, neg_uw_modularity = [np.full([len(rows), len(cols)], np.nan) for _ in range(8)]
+  pos_w_num_comm, neg_w_num_comm, pos_w_modularity, neg_w_modularity, \
+  pos_uw_num_comm, neg_uw_num_comm, pos_uw_modularity, neg_uw_modularity, \
+  pos_w_num_lcomm, neg_uw_num_lcomm, neg_w_num_lcomm, pos_uw_num_lcomm, \
+  pos_w_cov_lcomm, neg_uw_cov_lcomm, neg_w_cov_lcomm, pos_uw_cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(16)]
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
@@ -1543,6 +1546,10 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
         metric = community.modularity(part, pos_G, weight='weight')
         pos_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
         pos_w_modularity[row_ind, col_ind] = metric
+        _, count = np.unique(list(part.values()), return_counts=True)
+        pos_w_num_lcomm[row_ind, col_ind] = sum(count >= 4) # size at least 4 is considered (large) community
+        pos_w_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / pos_G.number_of_nodes()
+        assert pos_G.number_of_nodes() == count.sum()
         neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
         if nx.is_directed(neg_G):
           neg_G = neg_G.to_undirected()
@@ -1550,26 +1557,43 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
         metric = community.modularity(part, neg_G, weight='weight')
         neg_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
         neg_w_modularity[row_ind, col_ind] = metric
+        _, count = np.unique(list(part.values()), return_counts=True)
+        neg_w_num_lcomm[row_ind, col_ind] = sum(count >= 4)
+        neg_w_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / neg_G.number_of_nodes()
+        assert neg_G.number_of_nodes() == count.sum()
         unweight = {(i, j):1 for i,j in neg_G.edges()}
         nx.set_edge_attributes(neg_G, unweight, 'weight')
         part = community.best_partition(neg_G, weight='weight')
         metric = community.modularity(part, neg_G, weight='weight')
         neg_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
         neg_uw_modularity[row_ind, col_ind] = metric
+        _, count = np.unique(list(part.values()), return_counts=True)
+        neg_uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
+        neg_uw_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / neg_G.number_of_nodes()
+        assert neg_G.number_of_nodes() == count.sum()
       unweight = {(i, j):1 for i,j in pos_G.edges()}
       nx.set_edge_attributes(pos_G, unweight, 'weight')
       part = community.best_partition(pos_G, weight='weight')
       metric = community.modularity(part, pos_G, weight='weight')
       pos_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
       pos_uw_modularity[row_ind, col_ind] = metric
+      _, count = np.unique(list(part.values()), return_counts=True)
+      pos_uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
+      pos_uw_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / pos_G.number_of_nodes()
+      assert pos_G.number_of_nodes() == count.sum()
       
   if neg_G_dict is not None:
     metrics = {'positive weighted number of communities':pos_w_num_comm, 'positive weighted modularity':pos_w_modularity, 
   'negative weighted number of communities':neg_w_num_comm, 'negative weighted modularity':neg_w_modularity, 
   'positive unweighted number of communities':pos_uw_num_comm, 'positive unweighted modularity':pos_uw_modularity, 
-  'negative unweighted number of communities':neg_uw_num_comm, 'negative unweighted modularity':neg_uw_modularity}
+  'negative unweighted number of communities':neg_uw_num_comm, 'negative unweighted modularity':neg_uw_modularity,
+  'positive weighted num of large comm':pos_w_num_lcomm, 'positive unweighted num of large comm':pos_uw_num_lcomm,
+  'negative weighted num of large comm':neg_w_num_lcomm, 'negative unweighted num of large comm':neg_uw_num_lcomm,
+  'positive weighted coverage of large comm':pos_w_cov_lcomm, 'positive unweighted coverage of large comm':pos_uw_cov_lcomm,
+  'negative weighted coverage of large comm':neg_w_cov_lcomm, 'negative unweighted coverage of large comm':neg_uw_cov_lcomm}
   else:
-    metrics = {'total unweighted number of communities':pos_uw_num_comm, 'total unweighted modularity':pos_uw_modularity}
+    metrics = {'total unweighted number of communities':pos_uw_num_comm, 'total unweighted modularity':pos_uw_modularity, 
+    'total unweighted number of large communities':pos_uw_num_lcomm, 'total unweighted coverage of large comm':pos_uw_cov_lcomm}
   num_col = 4 if neg_G_dict is not None else 2
   num_row = int(len(metrics) / num_col)
   fig = plt.figure(figsize=(5*num_col, 5*num_row))
@@ -1579,7 +1603,7 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
     for row_ind, row in enumerate(rows):
       mean = metric[row_ind, :]
       plt.plot(cols, mean, label=row, alpha=0.6)
-    plt.gca().set_title(k, fontsize=16, rotation=0)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
     plt.xticks(rotation=90)
     # plt.yscale('symlog')
     if i == len(metrics)-1:
