@@ -1850,38 +1850,38 @@ measure = 'ccg'
 #%%
 G_ccg_dict = remove_gabor(G_ccg_dict)
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+n = 4
+#%%
+######### split G_dict into pos and neg
+pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 #%%
 # active_areas = get_all_active_areas(G_ccg_dict, area_dict)
 # print(active_areas)
-n = 4
 #%%
 print_stat(G_ccg_dict)
 #%%
 plot_stat(G_ccg_dict, n, measure=measure)
 #%%
+stat_modular_structure(G_ccg_dict, measure, n)
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
+stat_modular_structure(pos_G_dict, measure, n, abs_neg_G_dict)
+#%%
+size_of_each_community(G_ccg_dict, 'total', measure, n)
+size_of_each_community(pos_G_dict, 'positive', measure, n)
+size_of_each_community(neg_G_dict, 'negative', measure, n)
+#%%
+distribution_community_size(G_ccg_dict, 'total', measure, n)
+distribution_community_size(pos_G_dict, 'positive', measure, n)
+distribution_community_size(neg_G_dict, 'negative', measure, n)
+#%%
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
-rows, cols = get_rowcol(G_ccg_lcc_dict)
-plt.figure(figsize=(7,6))
-for row in rows:
-  n_nodes, n_nodes_lcc = [], []
-  for col in cols:
-    n_nodes.append(G_ccg_dict[row][col].number_of_nodes())
-    n_nodes_lcc.append(G_ccg_lcc_dict[row][col].number_of_nodes())
-  # plt.scatter(n_nodes, n_nodes_lcc, label=row)
-  plt.plot(cols, n_nodes_lcc, label=row)
-# plt.xlabel('number of nodes', size=15)
-plt.xticks(rotation=90)
-plt.ylabel('number of nodes', size=15)
-plt.title('size of LCC', size=20)
-plt.legend()
-plt.savefig('./plots/size_of_lcc_{}_{}_fold'.format(measure, n))
-# plt.show()
+plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
 #%%
 weight = False
-library.region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
+region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
 #%%
 weight = True
-library.region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
+region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
 #%%
 plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight=None, cc=False)
 # plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
@@ -1890,6 +1890,10 @@ plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight
 plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight='weight', cc=False)
+# %%
+############# plot all graphs with community layout and color as region #################
+cc = True
+plot_multi_graphs_color(G_ccg_dict, 'total', area_dict, measure, n, cc=cc)
 #%%
 ########### LSCC distribution
 lscc_region_counts, lscc_size = get_lscc_region_count(G_ccg_dict, area_dict, visual_regions)
@@ -1906,21 +1910,19 @@ plot_hub_pie_chart(clique_region_counts, 'total', 'max_clique', visual_regions)
 plot_total_group_size_stimulus(max_cliq_size, 'max_clique', measure, n)
 #%%
 total_metric = metric_stimulus_individual(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
-#%%
-######### split G_dict into pos and neg
-pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
-# # %%
-# ############# keep largest connected components for pos and neg G_dict
-# pos_G_dict = get_lcc(pos_G_dict)
-# neg_G_dict = get_lcc(neg_G_dict)
+# %%
+############# keep largest connected components for pos and neg G_dict
+pos_G_dict = get_lcc(pos_G_dict)
+neg_G_dict = get_lcc(neg_G_dict)
 # %%
 print_stat(pos_G_dict)
 print_stat(neg_G_dict)
 # %%
 plot_stat(pos_G_dict, n, neg_G_dict, measure=measure)
 # %%
-region_connection_seperate_diagonal(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
-region_connection_seperate_diagonal(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
+weight = False
+region_connection_seperate_diagonal(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
+region_connection_seperate_diagonal(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
 # %%
 region_connection_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n)
 region_connection_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n)
@@ -1932,11 +1934,17 @@ region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, me
 weight = True
 region_connection_delta_heatmap(pos_G_dict, 'pos', area_dict, visual_regions, measure, n, weight)
 region_connection_delta_heatmap(neg_G_dict, 'neg', area_dict, visual_regions, measure, n, weight)
+#%%
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
 # %%
 ############# plot all graphs with community layout and color as region #################
-cc = True
+# cc = True
+cc = False
 plot_multi_graphs_color(pos_G_dict, 'pos', area_dict, measure, n, cc=cc)
-plot_multi_graphs_color(neg_G_dict, 'neg', area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(abs_neg_G_dict, 'neg', area_dict, measure, n, cc=cc)
+
+#%%
+
 # cc = True
 # %%
 plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
