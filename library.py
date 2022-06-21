@@ -1612,7 +1612,7 @@ def dict2histogram(dictionary, density=True, binning=False):
       data_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
     return data_seq, freq
 
-def distribution_community(G_dict, sign, measure, n):
+def size_of_each_community(G_dict, sign, measure, n):
   rows, cols = get_rowcol(G_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
@@ -1644,17 +1644,62 @@ def distribution_community(G_dict, sign, measure, n):
       # metric = community.modularity(part, G, weight='weight')
       number, freq = dict2histogram(part, density=False, binning=False)
       # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
-      plt.plot(number, freq,'go-', label='number', alpha=0.4)
+      plt.plot(range(len(freq)), sorted(freq, reverse=True),'go-', label='number', alpha=0.4)
       # plt.legend(loc='upper right', fontsize=7)
-      xlabel = 'No. of community'
+      xlabel = 'index of community in descending order of size'
       plt.xlabel(xlabel)
-      plt.ylabel('number of nodes')
+      plt.ylabel('size')
       # plt.xscale('symlog')
       # plt.yscale('log')
   # plt.show()
-  plt.suptitle('{} community distribution'.format(sign), size=25)
+  plt.suptitle('{} size of each community'.format(sign), size=25)
   plt.tight_layout()
-  image_name = './plots/comm_distribution_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  image_name = './plots/size_of_each_community_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  plt.savefig(image_name)
+
+def distribution_community_size(G_dict, sign, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      ind += 1
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      unweight = {(i, j):1 for i,j in G.edges()}
+      nx.set_edge_attributes(G, unweight, 'weight')
+      part = community.best_partition(G, weight='weight')
+      # metric = community.modularity(part, G, weight='weight')
+      _, freq = dict2histogram(part, density=False, binning=False)
+      size, counts = np.unique(freq, return_counts=True)
+      # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
+      plt.plot(size, counts / counts.sum(),'go-', label='size', alpha=0.4)
+      # plt.legend(loc='upper right', fontsize=7)
+      xlabel = 'size of community'
+      plt.xlabel(xlabel)
+      plt.ylabel('number of nodes')
+      plt.xscale('symlog')
+      plt.yscale('log')
+  # plt.show()
+  plt.suptitle('{} community size distribution'.format(sign), size=25)
+  plt.tight_layout()
+  image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
 
 def plot_size_lcc(G_dict, G_lcc_dict):
