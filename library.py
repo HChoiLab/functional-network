@@ -347,6 +347,10 @@ def calculate_metric(G, metric_name, cc):
       metric = np.mean(list(nx.closeness_centrality(G).values()))
     elif metric_name == 'modularity':
       try:
+        if nx.is_directed(G):
+          G = G.to_undirected()
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
         part = community.best_partition(G)
         metric = community.modularity(part,G)
       except:
@@ -383,8 +387,15 @@ def calculate_weighted_metric(G, metric_name, cc):
       metric = np.mean(list(nx.closeness_centrality(G).values()))
     elif metric_name == 'modularity':
       try:
+        if nx.is_directed(G):
+          G = G.to_undirected()
+        # weight cannot be negative
+        if sum([n<0 for n in nx.get_edge_attributes(G, "weight").values()]):
+          print('Edge weight cannot be negative for weighted modularity, setting to unweighted...')
+          unweight = {(i, j):1 for i,j in G.edges()}
+          nx.set_edge_attributes(G, unweight, 'weight')
         part = community.best_partition(G, weight='weight')
-        metric = community.modularity(part, G, weight='weight') 
+        metric = community.modularity(part, G, weight='weight')
       except:
         metric = 0
     elif metric_name == 'assortativity':
@@ -1414,6 +1425,19 @@ def split_pos_neg(G_dict, measure):
         neg_G_dict[row][col] = Gneg
   return pos_G_dict, neg_G_dict
 
+def get_abs_weight(neg_G_dict):
+  abs_neg_G_dict = {}
+  rows, cols = get_rowcol(neg_G_dict)
+  for row in rows:
+    abs_neg_G_dict[row] = {}
+    for col in cols:
+      G = neg_G_dict[row][col].copy()
+      weights = nx.get_edge_attributes(G, "weight")
+      abs_weights = {(i, j):abs(weights[i, j]) for i, j in weights}
+      nx.set_edge_attributes(G, abs_weights, 'weight')
+      abs_neg_G_dict[row][col] = G
+  return abs_neg_G_dict
+
 def get_lcc(G_dict):
   G_lcc_dict = {}
   for row in G_dict:
@@ -1502,8 +1526,75 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
         labelbottom=False) # labels along the bottom edge are off
     plt.tight_layout()
   # plt.show()
-  figname = './plots/stats_{}_{}fold.jpg'.format(measure, n)
-  plt.savefig(figname)
+  figname = './plots/stats_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stats_total_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+
+def stat_modular_structure(pos_G_dict, n, neg_G_dict=None):
+  rows, cols = get_rowcol(pos_G_dict)
+  pos_w_num_comm, neg_w_num_comm, pos_w_modularity, neg_w_modularity, pos_uw_num_comm, neg_uw_num_comm, pos_uw_modularity, neg_uw_modularity = [np.full([len(rows), len(cols)], np.nan) for _ in range(8)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      pos_G = pos_G_dict[row][col].copy() if col in pos_G_dict[row] else nx.DiGraph()
+      if nx.is_directed(pos_G):
+        pos_G = pos_G.to_undirected()
+      if neg_G_dict is not None:
+        part = community.best_partition(pos_G, weight='weight')
+        metric = community.modularity(part, pos_G, weight='weight')
+        pos_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
+        pos_w_modularity[row_ind, col_ind] = metric
+        neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
+        if nx.is_directed(neg_G):
+          neg_G = neg_G.to_undirected()
+        part = community.best_partition(neg_G, weight='weight')
+        metric = community.modularity(part, neg_G, weight='weight')
+        neg_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
+        neg_w_modularity[row_ind, col_ind] = metric
+        unweight = {(i, j):1 for i,j in neg_G.edges()}
+        nx.set_edge_attributes(neg_G, unweight, 'weight')
+        part = community.best_partition(neg_G, weight='weight')
+        metric = community.modularity(part, neg_G, weight='weight')
+        neg_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
+        neg_uw_modularity[row_ind, col_ind] = metric
+      unweight = {(i, j):1 for i,j in pos_G.edges()}
+      nx.set_edge_attributes(pos_G, unweight, 'weight')
+      part = community.best_partition(pos_G, weight='weight')
+      metric = community.modularity(part, pos_G, weight='weight')
+      pos_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
+      pos_uw_modularity[row_ind, col_ind] = metric
+      
+  if neg_G_dict is not None:
+    metrics = {'positive weighted number of communities':pos_w_num_comm, 'positive weighted modularity':pos_w_modularity, 
+  'negative weighted number of communities':neg_w_num_comm, 'negative weighted modularity':neg_w_modularity, 
+  'positive unweighted number of communities':pos_uw_num_comm, 'positive unweighted modularity':pos_uw_modularity, 
+  'negative unweighted number of communities':neg_uw_num_comm, 'negative unweighted modularity':neg_uw_modularity}
+  else:
+    metrics = {'total unweighted number of communities':pos_uw_num_comm, 'total unweighted modularity':pos_uw_modularity}
+  num_col = 4 if neg_G_dict is not None else 2
+  num_row = int(len(metrics) / num_col)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=16, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/stat_modular_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stat_modular_total_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
 
 def get_all_active_areas(G_dict, area_dict):
   rows, cols = get_rowcol(G_dict)
@@ -1773,7 +1864,7 @@ def plot_multi_graphs_color(G_dict, sign, area_dict, measure, n, cc=False):
         transform=plt.gca().transAxes, fontsize=30, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       nx.set_node_attributes(G, area_dict[row], "area")
       if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
         if cc:
@@ -1791,8 +1882,17 @@ def plot_multi_graphs_color(G_dict, sign, area_dict, measure, n, cc=False):
           weights = np.ones(len(edges))
         degrees = dict(G.degree)
         try:
-          partition = community.best_partition(G)
+          if nx.is_directed(G):
+            G = G.to_undirected()
+          # weight cannot be negative
+          if sum([n<0 for n in nx.get_edge_attributes(G, "weight").values()]):
+            print('Edge weight cannot be negative for weighted modularity, setting to unweighted...')
+            unweight = {(i, j):1 for i,j in G.edges()}
+            nx.set_edge_attributes(G, unweight, 'weight')
+          partition = community.best_partition(G, weight='weight')
           pos = com.get_community_layout(G, partition)
+          metric = community.modularity(partition, G, weight='weight')
+          print('Modularity: {}'.format(metric))
         except:
           print('Community detection unsuccessful!')
           pos = nx.spring_layout(G)
