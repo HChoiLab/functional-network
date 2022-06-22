@@ -1726,6 +1726,51 @@ def distribution_community_size(G_dict, sign, measure, n):
   image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
 
+def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
+# def plot_multi_data_dist(data_dict, measure, n, name):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col]
+      nodes = list(G.nodes())
+      data = []
+      # df = pd.DataFrame(columns=regions)
+      for r in regions:
+        r_nodes = [n for n in nodes if area_dict[row][n] == r]
+        data.append([nx.degree(G, n) for n in r_nodes])
+        # r_degree = np.mean([nx.degree(G, n) for n in r_nodes])
+        # data.append(r_degree)
+      # data = data_dict[row][col]
+      plt.boxplot(data)
+      plt.xticks([1, 2, 3, 4, 5, 6], regions, rotation=0)
+      # plt.hist(data.flatten(), bins=12, density=True)
+      # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+      # plt.xlabel('region')
+      plt.ylabel('degree')
+      
+  plt.tight_layout()
+  image_name = './plots/region_degree_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
   plt.figure(figsize=(7,6))
