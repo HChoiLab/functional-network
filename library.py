@@ -1771,6 +1771,104 @@ def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
   # plt.show()
   plt.savefig(image_name)
 
+def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=None):
+  rows, cols = get_rowcol(pos_G_dict)
+  pos_w_frac_lcomm, neg_uw_frac_lcomm, neg_w_frac_lcomm, pos_uw_frac_lcomm = [np.full([len(rows), len(cols), len(regions)], np.nan) for _ in range(4)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      pos_G = pos_G_dict[row][col].copy() if col in pos_G_dict[row] else nx.DiGraph()
+      if nx.is_directed(pos_G):
+        pos_G = pos_G.to_undirected()
+      if neg_G_dict is not None:
+        part = community.best_partition(pos_G, weight='weight')
+        uniq, count = np.unique(list(part.values()), return_counts=True)
+        nodes = list(pos_G.nodes())
+        large_comms = uniq[count >= 4]
+        for r_ind, r in enumerate(regions):
+          r_nodes = [n for n in nodes if area_dict[row][n] == r]
+          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
+          pos_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+        neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
+        if nx.is_directed(neg_G):
+          neg_G = neg_G.to_undirected()
+        part = community.best_partition(neg_G, weight='weight')
+        uniq, count = np.unique(list(part.values()), return_counts=True)
+        nodes = list(neg_G.nodes())
+        large_comms = uniq[count >= 4]
+        for r_ind, r in enumerate(regions):
+          r_nodes = [n for n in nodes if area_dict[row][n] == r]
+          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
+          neg_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+        unweight = {(i, j):1 for i,j in neg_G.edges()}
+        nx.set_edge_attributes(neg_G, unweight, 'weight')
+        part = community.best_partition(neg_G, weight='weight')
+        uniq, count = np.unique(list(part.values()), return_counts=True)
+        nodes = list(neg_G.nodes())
+        large_comms = uniq[count >= 4]
+        for r_ind, r in enumerate(regions):
+          r_nodes = [n for n in nodes if area_dict[row][n] == r]
+          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
+          neg_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+      unweight = {(i, j):1 for i,j in pos_G.edges()}
+      nx.set_edge_attributes(pos_G, unweight, 'weight')
+      part = community.best_partition(pos_G, weight='weight')
+      uniq, count = np.unique(list(part.values()), return_counts=True)
+      nodes = list(pos_G.nodes())
+      large_comms = uniq[count >= 4]
+      for r_ind, r in enumerate(regions):
+        r_nodes = [n for n in nodes if area_dict[row][n] == r]
+        lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
+        pos_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+      
+  if neg_G_dict is not None:
+    metrics = {'pos w fraction of regions in large communities':pos_w_frac_lcomm, 'pos uw fraction of regions in large communities':pos_uw_frac_lcomm, 
+  'neg w fraction of regions in large communities':neg_w_frac_lcomm, 'neg uw fraction of regions in large communities':neg_uw_frac_lcomm}
+  else:
+    metrics = {'total uw fraction of regions in large communities':pos_uw_frac_lcomm}
+  num_col = len(metrics)
+  num_row = len(rows)
+  fig = plt.figure(figsize=(6*num_col, 4*num_row))
+  for row_ind, row in enumerate(rows):
+    for i, k in enumerate(metrics):
+    
+      plt.subplot(num_row, num_col, row_ind * num_col + i+1)
+      metric = metrics[k][row_ind]
+      A = metric[:, 0]
+      B = metric[:, 1]
+      C = metric[:, 2]
+      D = metric[:, 3]
+      E = metric[:, 4]
+      F = metric[:, 5]
+      # Plot stacked bar chart
+          
+      plt.bar(cols, A, label=regions[0]) #, color='cyan',
+      plt.bar(cols, B, bottom=A, label=regions[1]) #, color='green'
+      plt.bar(cols, C, bottom=A+B, label=regions[2]) #, color='red'
+      plt.bar(cols, D, bottom=A+B+C, label=regions[3]) #, color='yellow'
+      plt.bar(cols, E, bottom=A+B+C+D, label=regions[4]) #, color='yellow'
+      plt.bar(cols, F, bottom=A+B+C+D+E, label=regions[5]) #, color='yellow'
+      plt.xticks(rotation=90)
+      plt.ylabel('stacked percentage')
+      # plt.xticks(rotation=90)
+      # plt.yscale('symlog')
+      if row_ind == 0:
+        plt.title(k)
+        plt.legend()
+      if row_ind < num_row - 1:
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affected
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+      plt.tight_layout()
+  # plt.suptitle(k, fontsize=14, rotation=0)
+  # plt.show()
+  sign = 'pos_neg' if neg_G_dict is not None else 'total'
+  figname = './plots/region_large_comm_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(sign, measure, n))
+
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
   plt.figure(figsize=(7,6))
