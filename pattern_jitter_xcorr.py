@@ -1862,6 +1862,7 @@ print_stat(G_ccg_dict)
 #%%
 plot_stat(G_ccg_dict, n, measure=measure)
 #%%
+############### community structure
 stat_modular_structure(G_ccg_dict, measure, n)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 stat_modular_structure(pos_G_dict, measure, n, abs_neg_G_dict)
@@ -1874,6 +1875,10 @@ size_of_each_community(neg_G_dict, 'negative', measure, n)
 distribution_community_size(G_ccg_dict, 'total', measure, n)
 distribution_community_size(pos_G_dict, 'positive', measure, n)
 distribution_community_size(neg_G_dict, 'negative', measure, n)
+#%%
+plot_region_degree(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
+plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
+plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
 plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
