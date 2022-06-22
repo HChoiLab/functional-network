@@ -1880,6 +1880,11 @@ plot_region_degree(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
+region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n)
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
+region_large_comm(pos_G_dict, area_dict, visual_regions, measure, n, abs_neg_G_dict)
+#%%
+#%%w
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
 plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
 #%%
