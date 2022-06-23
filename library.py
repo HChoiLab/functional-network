@@ -1869,6 +1869,37 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
   figname = './plots/region_large_comm_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(sign, measure, n))
 
+def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=False):
+  rows, cols = get_rowcol(G_dict)
+  frac_lcomm = pd.DataFrame(columns=['stimulus', 'fraction', 'region'])
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      part = community.best_partition(G, weight='weight')
+      uniq, count = np.unique(list(part.values()), return_counts=True)
+      nodes = list(G.nodes())
+      large_comms = uniq[count >= 4]
+      for r_ind, r in enumerate(regions):
+        r_nodes = [n for n in nodes if area_dict[row][n] == r]
+        lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
+        frac = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+        frac_lcomm.loc[len(frac_lcomm), frac_lcomm.columns] = col, frac, r
+  plt.figure(figsize=(17, 7))
+  ax = sns.boxplot(x="stimulus", y="fraction", hue="region", data=frac_lcomm, palette="Set3")
+  ax.set(xlabel=None)
+  plt.title(name + ' percentage of region in large communities', size=15)
+  plt.savefig('./plots/region_large_comm_box_{}_{}_{}fold.jpg'.format(name, measure, n))
+  # plt.show()
+
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
   plt.figure(figsize=(7,6))
