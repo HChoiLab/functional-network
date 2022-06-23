@@ -2934,5 +2934,5 @@ def triad_region_census(triads, triad_type, area_dict, regions, measure, n, name
     plt.tight_layout()
   # plt.suptitle(k, fontsize=14, rotation=0)
   # plt.show()
-  figname = './plots/triad_region_census_{}_{}_{}fold.jpg'
-  plt.savefig(figname.format(name, measure, n))
+  figname = './plots/triad_region_census_{}_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, triad_type, measure, n))
