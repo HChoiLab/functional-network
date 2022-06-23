@@ -1727,7 +1727,6 @@ def distribution_community_size(G_dict, sign, measure, n):
   plt.savefig(image_name)
 
 def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
-# def plot_multi_data_dist(data_dict, measure, n, name):
   ind = 1
   rows, cols = get_rowcol(G_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
@@ -1899,6 +1898,58 @@ def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=Fa
   plt.title(name + ' percentage of region in large communities', size=15)
   plt.savefig('./plots/region_large_comm_box_{}_{}_{}fold.jpg'.format(name, measure, n))
   # plt.show()
+
+def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 9))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(cols):
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      part = community.best_partition(G, weight='weight')
+      comms, sizes = np.unique(list(part.values()), return_counts=True)
+      nodes = list(G.nodes())
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][n] for n in nodes if part[n]==comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items())], [v for k,v in sorted(data.items())]
+    plt.boxplot(c_purity)
+    plt.xticks(list(range(1, len(c_purity)+1)), c_size, rotation=0)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    plt.xlabel('size')
+    plt.ylabel('purity')
+  plt.suptitle(name + ' community purity VS size', size=30)
+  plt.tight_layout()
+  image_name = './plots/comm_size_purity_{}_{}_{}fold.jpg'.format(name, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
 
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
