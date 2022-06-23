@@ -2724,3 +2724,215 @@ def plot_intra_inter_density(G_dict, sign, area_dict, regions, measure):
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
+
+#################### structural balance
+def add_sign(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  S_dict = {}
+  for row in rows:
+    S_dict[row] = {}
+    for col in cols:
+      G = G_dict[row][col]
+      weights = nx.get_edge_attributes(G,'weight')
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      S = nx.from_numpy_array(A, create_using=nx.DiGraph)
+      node_idx = list(G.nodes())
+      mapping = {i:node_idx[i] for i in range(len(node_idx))}
+      S = nx.relabel_nodes(S, mapping)
+      for (n1, n2, d) in S.edges(data=True):
+        d.clear()
+      signs = {}
+      for e, w in weights.items():
+        signs[e] = np.sign(w)
+      nx.set_edge_attributes(S, signs, 'sign')
+      S_dict[row][col] = S
+  return S_dict
+
+def plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure='xcorr'):
+  num_col = 3
+  # fig = plt.figure(figsize=(5*num_col, 25))
+  fig = plt.figure(figsize=(5*num_col, 5))
+  metrics = {'Triad Level Balance':t_balance,
+  'Number of balance and transitive triads':num_balance,
+  'Number of imbalance and transitive triads':num_imbalance}
+  
+  for i, k in enumerate(metrics):
+    plt.subplot(1, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=15, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/triad_balance_stats_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
+def plot_balance_pie_chart(balance_t_counts, name, tran_traid_census):
+  ind = 1
+  rows, cols = get_rowcol(balance_t_counts)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = balance_t_counts[row][col].keys()
+      sizes = balance_t_counts[row][col].values()
+      hub_num[row_ind][col_ind] = sum(sizes)
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[tran_traid_census.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  plt.suptitle('{} and transitive triads distribution'.format(name), size=30)
+  plt.tight_layout()
+  # plt.show()
+  fname = './plots/pie_chart_{}.jpg'
+  plt.savefig(fname.format(name))
+
+##################### triad region census
+def most_common(lst):
+    return max(set(lst), key=lst.count)
+
+def triad_region_census(triads, triad_type, area_dict, regions, measure, n, name):
+  rows, cols = get_rowcol(triads)
+  num_row = len(rows)
+  if triad_type == '300':
+    num_col = 1
+    pos = ['P/X/O']
+  else:
+    num_col = len(cols)
+    if triad_type == '030T':
+      pos = ['P', 'X', 'O']
+    elif triad_type == '120D' or triad_type == '120U':
+      pos = ['X', 'P/O']
+  metric = np.zeros((len(rows), len(cols), len(pos), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      region_list = []
+      for _ in range(len(pos)):
+        region_list.append([])
+      for triad in triads[row][col]:
+        if triad[1] == triad_type:
+          if triad_type == '030T':
+            node_P = most_common([i for i,j in triad[0][0].keys()])
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+            triplets = set([node for sub in triad[0][0].keys() for node in sub])
+            triplets.remove(node_P)
+            triplets.remove(node_X)
+            node_O = list(triplets)[0]
+            region_list[0].append(area_dict[row][node_P])
+            region_list[1].append(area_dict[row][node_X])
+            region_list[2].append(area_dict[row][node_O])
+          elif triad_type == '120D' or triad_type == '120U':
+            if triad_type == '120D':
+              node_X = most_common([i for i,j in triad[0][0].keys()])
+            else:
+              node_X = most_common([j for i,j in triad[0][0].keys()])
+            triplets = set([node for sub in triad[0][0].keys() for node in sub])
+            triplets.remove(node_X)
+            node_PO = list(triplets)
+            region_list[0].append(area_dict[row][node_X])
+            for n in node_PO:
+              region_list[1].append(area_dict[row][n])
+          else:
+            node_PXO = list(set([node for sub in triad[0][0].keys() for node in sub]))
+            for n in node_PXO:
+              region_list[0].append(area_dict[row][n])
+      for p in range(len(region_list)):
+        uniq, count = np.unique(region_list[p], return_counts=True)
+        for a_ind, a in enumerate(uniq):
+          r_ind = regions.index(a)
+          metric[row_ind, col_ind, p, r_ind] = count[a_ind] / len(region_list[p])
+  if triad_type == '300':
+    fig = plt.figure(figsize=(6, 4*num_row))
+  elif triad_type == '120D' or triad_type == '120U':
+    fig = plt.figure(figsize=(3*num_col, 4*num_row))
+  else:
+    fig = plt.figure(figsize=(4*num_col, 4*num_row))
+  for row_ind, row in enumerate(rows):
+    if triad_type == '300':
+      plt.subplot(num_row, 1, row_ind+1)
+      m = metric[row_ind]
+      A = m[:, 0, 0]
+      B = m[:, 0, 1]
+      C = m[:, 0, 2]
+      D = m[:, 0, 3]
+      E = m[:, 0, 4]
+      F = m[:, 0, 5]
+      # Plot stacked bar chart
+          
+      plt.bar(cols, A, label=regions[0]) #, color='cyan',
+      plt.bar(cols, B, bottom=A, label=regions[1]) #, color='green'
+      plt.bar(cols, C, bottom=A+B, label=regions[2]) #, color='red'
+      plt.bar(cols, D, bottom=A+B+C, label=regions[3]) #, color='yellow'
+      plt.bar(cols, E, bottom=A+B+C+D, label=regions[4]) #, color='yellow'
+      plt.bar(cols, F, bottom=A+B+C+D+E, label=regions[5]) #, color='yellow'
+      plt.xticks(rotation=90)
+      plt.ylabel('stacked percentage')
+    # plt.xticks(rotation=90)sign
+      if row_ind == 0:
+        plt.legend()
+      if row_ind < num_row - 1:
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affected
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+    else:
+      for col_ind, col in enumerate(cols):
+        plt.subplot(num_row, num_col, row_ind * num_col + col_ind+1)
+        m = metric[row_ind, col_ind]
+        A = m[:, 0]
+        B = m[:, 1]
+        C = m[:, 2]
+        D = m[:, 3]
+        E = m[:, 4]
+        F = m[:, 5]
+        # Plot stacked bar chart
+            
+        plt.bar(pos, A, label=regions[0]) #, color='cyan',
+        plt.bar(pos, B, bottom=A, label=regions[1]) #, color='green'
+        plt.bar(pos, C, bottom=A+B, label=regions[2]) #, color='red'
+        plt.bar(pos, D, bottom=A+B+C, label=regions[3]) #, color='yellow'
+        plt.bar(pos, E, bottom=A+B+C+D, label=regions[4]) #, color='yellow'
+        plt.bar(pos, F, bottom=A+B+C+D+E, label=regions[5]) #, color='yellow'
+        plt.xticks(rotation=0, size=20)
+        plt.ylabel('stacked percentage')
+        if row_ind == 0:
+          plt.title(col, size=20)
+          plt.legend()
+    
+    plt.suptitle(name + '' + triad_type, size=30)
+    plt.tight_layout()
+  # plt.suptitle(k, fontsize=14, rotation=0)
+  # plt.show()
+  figname = './plots/triad_region_census_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, measure, n))
