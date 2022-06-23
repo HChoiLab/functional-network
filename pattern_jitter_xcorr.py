@@ -1880,10 +1880,24 @@ plot_region_degree(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
+############### percentage of region in large communities
 region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 region_large_comm(pos_G_dict, area_dict, visual_regions, measure, n, abs_neg_G_dict)
 #%%
+region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False)
+region_larg_comm_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos', weight=False)
+region_larg_comm_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos', weight=True)
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
+region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg', weight=False)
+region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg', weight=True)
+#%%
+plot_comm_size_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False)
+plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=False)
+plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=True)
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
+plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=False)
+plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=True)
 #%%w
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
 plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
