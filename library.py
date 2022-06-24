@@ -1726,6 +1726,39 @@ def distribution_community_size(G_dict, sign, measure, n):
   image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
 
+def plot_region_size(G_dict, area_dict, regions, measure, n, sign):
+  rows, cols = get_rowcol(G_dict)
+  region_size = np.zeros((len(rows), len(cols), len(regions)))
+  # fig = plt.figure(figsize=(5*num_col, 25))
+  fig = plt.figure(figsize=(15, 13))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      nodes = list(G.nodes())
+      for r_ind, r in enumerate(regions):
+        r_nodes = [n for n in nodes if area_dict[row][n] == r]
+        region_size[row_ind, col_ind, r_ind] = len(r_nodes)
+  for col_ind, col in enumerate(cols):
+    plt.subplot(3, 3, col_ind + 1)
+    for row_ind, row in enumerate(rows):
+      plt.plot(regions, region_size[row_ind, col_ind], label=row, alpha=0.6)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.xticks(rotation=0)
+    # plt.yscale('symlog')
+    if col_ind == 1:
+      plt.legend()
+    if col_ind // 3 < 2:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+  plt.tight_layout()
+  figname = './plots/region_size_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(sign, measure, n))
+
 def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
   ind = 1
   rows, cols = get_rowcol(G_dict)
@@ -2859,12 +2892,12 @@ def triad_region_census(triads, triad_type, area_dict, regions, measure, n, name
             triplets.remove(node_X)
             node_PO = list(triplets)
             region_list[0].append(area_dict[row][node_X])
-            for n in node_PO:
-              region_list[1].append(area_dict[row][n])
+            for node in node_PO:
+              region_list[1].append(area_dict[row][node])
           else:
             node_PXO = list(set([node for sub in triad[0][0].keys() for node in sub]))
-            for n in node_PXO:
-              region_list[0].append(area_dict[row][n])
+            for node in node_PXO:
+              region_list[0].append(area_dict[row][node])
       for p in range(len(region_list)):
         uniq, count = np.unique(region_list[p], return_counts=True)
         for a_ind, a in enumerate(uniq):
