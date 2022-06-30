@@ -16,6 +16,7 @@ import matplotlib as mpl
 from matplotlib import colors
 import statsmodels.stats.weightstats as ws
 import networkx as nx
+import networkx.algorithms.community as nx_comm
 import community
 import seaborn as sns
 from numpy.lib.stride_tricks import as_strided
@@ -1725,6 +1726,149 @@ def distribution_community_size(G_dict, sign, measure, n):
   plt.tight_layout()
   image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
+
+def random_graph_generator(G, num_rewire, algorithm, cc=False, Q=100):
+  G = G.copy()
+  if nx.is_directed(G):
+    algorithm = 'directed_configuration_model'
+  random_graphs = []
+  for num in range(num_rewire):
+    weights = np.squeeze(np.array(nx.adjacency_matrix(G)[nx.adjacency_matrix(G).nonzero()]))
+    np.random.shuffle(weights)
+    if cc:
+      largest_cc = max(nx.connected_components(G), key=len)
+      G = nx.subgraph(G, largest_cc)
+    # print(G.number_of_nodes(), G.number_of_edges())
+    if algorithm == 'Gnm':
+      n, m = G.number_of_nodes(), G.number_of_edges()
+      G = nx.gnm_random_graph(n, m, seed=None, directed=False)
+    elif algorithm == 'configuration_model':
+      degree_sequence = [d for n, d in G.degree()]
+      G = nx.configuration_model(degree_sequence)
+      # remove parallel edges and self-loops
+      G = nx.Graph(G)
+      G.remove_edges_from(nx.selfloop_edges(G))
+      # print(G.number_of_nodes(), G.number_of_edges())
+    elif algorithm == 'directed_configuration_model':
+      din = list(d for n, d in G.in_degree())
+      dout = list(d for n, d in G.out_degree())
+      G = nx.directed_configuration_model(din, dout)
+      G = nx.DiGraph(G)
+      G.remove_edges_from(nx.selfloop_edges(G))
+    elif algorithm == 'double_edge_swap':
+      # at least four nodes with edges
+      degrees = dict(nx.degree(G))
+      if len(np.nonzero(list(degrees.values()))[0]) >= 4:
+        nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
+    elif algorithm == 'connected_double_edge_swap':
+      swaps = nx.connected_double_edge_swap(G, nswap=Q*G.number_of_edges(), _window_threshold=3)
+      print('Number of successful swaps: {}'.format(swaps))
+    # add link weights
+    for ind, e in enumerate(G.edges()):
+      G[e[0]][e[1]]['weight'] = weights[ind]
+    random_graphs.append(G)
+  return random_graphs
+
+def get_modularity(G, weight='weight', resolution=1):
+  comms = nx_comm.louvain_communities(G, weight=weight, resolution=resolution)
+  return nx_comm.modularity(G, comms, weight=weight, resolution=resolution)
+  # part = community.best_partition(G, weight=weight, resolution=resolution)
+  # return community.modularity(part, G, weight=weight)
+
+def get_random_modularity(G, num_rewire, algorithm, weight='weight', resolution=1):
+  random_modularity = np.zeros(num_rewire)
+  random_Gs = random_graph_generator(G, num_rewire, algorithm=algorithm)
+  for random_ind, random_G in enumerate(random_Gs):
+    random_modularity[random_ind] = get_modularity(random_G, weight=weight, resolution=resolution)
+  return random_modularity
+
+def modular_resolution(pos_G_dict, resolution_list, num_rewire, measure, n, neg_G_dict=None):
+  rows, cols = get_rowcol(pos_G_dict)
+  pos_w_modularity, neg_w_modularity, \
+  pos_uw_modularity, neg_uw_modularity = [np.full([len(rows), len(cols), len(resolution_list)], np.nan) for _ in range(4)]
+  pos_gnm_w_modularity, neg_gnm_w_modularity, pos_swap_w_modularity, neg_swap_w_modularity, \
+  pos_gnm_uw_modularity, neg_gnm_uw_modularity, pos_swap_uw_modularity, neg_swap_uw_modularity = [np.full([len(rows), len(cols), len(resolution_list), num_rewire], np.nan) for _ in range(8)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      print(col)
+      pos_G = pos_G_dict[row][col].copy() if col in pos_G_dict[row] else nx.DiGraph()
+      if nx.is_directed(pos_G):
+        pos_G = pos_G.to_undirected()
+      for resolution_ind, resolution in enumerate(resolution_list):
+        if neg_G_dict is not None:
+          pos_w_modularity[row_ind, col_ind, resolution_ind] = get_modularity(pos_G, weight='weight', resolution=resolution)
+          pos_gnm_w_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(pos_G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+          pos_swap_w_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(pos_G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)
+          
+          neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
+          if nx.is_directed(neg_G):
+            neg_G = neg_G.to_undirected()
+          neg_w_modularity[row_ind, col_ind, resolution_ind] = get_modularity(neg_G, weight='weight', resolution=resolution)
+          neg_gnm_w_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(neg_G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+          neg_swap_w_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(neg_G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)
+
+          unweight = {(i, j):1 for i,j in neg_G.edges()}
+          nx.set_edge_attributes(neg_G, unweight, 'weight')
+          neg_uw_modularity[row_ind, col_ind, resolution_ind] = get_modularity(neg_G, weight='weight', resolution=resolution)
+          neg_gnm_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(neg_G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+          neg_swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(neg_G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)
+      
+        unweight = {(i, j):1 for i,j in pos_G.edges()}
+        nx.set_edge_attributes(pos_G, unweight, 'weight')
+        pos_uw_modularity[row_ind, col_ind, resolution_ind] = get_modularity(pos_G, weight='weight', resolution=resolution)
+        pos_gnm_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(pos_G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+        pos_swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(pos_G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)
+      
+  if neg_G_dict is not None:
+    metrics = {'positive weighted modularity':pos_w_modularity, 'negative weighted modularity':neg_w_modularity, 
+  'positive unweighted modularity':pos_uw_modularity, 'negative unweighted modularity':neg_uw_modularity}
+  else:
+    metrics = {'total unweighted modularity':pos_uw_modularity}
+  random_metrics = {'positive Gnm weighted modularity':pos_gnm_w_modularity, 'negative Gnm weighted modularity':neg_gnm_w_modularity, \
+    'positive swap weighted modularity':pos_swap_w_modularity, 'negative swap weighted modularity':neg_swap_w_modularity, \
+    'positive Gnm unweighted modularity':pos_gnm_uw_modularity, 'negative Gnm unweighted modularity':neg_gnm_uw_modularity, \
+    'positive swap unweighted modularity':pos_swap_uw_modularity, 'negative swap unweighted modularity':neg_swap_uw_modularity}
+  return metrics, random_metrics
+
+def plot_modularity_resolution(rows, cols, resolution_list, metrics, random_metrics, measure, n): 
+  num_row, num_col = len(rows), len(cols)
+  for i, k in enumerate(metrics):
+    fig = plt.figure(figsize=(5*num_col, 5*num_row))
+    ind = 1
+    for row_ind, row in enumerate(rows):
+      print(row)
+      for col_ind, col in enumerate(cols):
+        plt.subplot(num_row, num_col, ind)
+        ind += 1
+        plt.plot(resolution_list, metrics[k][row_ind, col_ind], label=r'$Q$', alpha=0.6)
+        metric_swap = random_metrics[k.replace('total', 'positive').replace('tive ', 'tive swap ')][row_ind, col_ind].mean(-1)
+        metric_gnm = random_metrics[k.replace('total', 'positive').replace('tive ', 'tive Gnm ')][row_ind, col_ind].mean(-1)
+        plt.plot(resolution_list, metric_swap, color='r', label=r'$Q_{swap}$', alpha=0.6)
+        plt.plot(resolution_list, metric_gnm, color='g', label=r'$Q_{Gnm}$', alpha=0.6)
+        plt.plot(resolution_list, metrics[k][row_ind, col_ind] - metric_swap, 'r--', label=r'$Q-Q_{swap}$', alpha=0.8)
+        plt.plot(resolution_list, metrics[k][row_ind, col_ind] - metric_gnm, 'g--', label=r'$Q-Q_{Gnm}$', alpha=0.8)
+        # plt.gca().set_title(k, fontsize=14, rotation=0)
+        plt.xticks(rotation=0)
+        
+        # plt.yscale('symlog')
+        if ind == num_row*num_col+1:
+          plt.legend(fontsize=20)
+        if row_ind < num_row -1 :
+          plt.tick_params(
+            axis='x',          # changes apply to the x-axis
+            which='both',      # both major and minor ticks are affectedrandom_metrics
+            bottom=False,      # ticks along the bottom edge are off
+            top=False,         # ticks along the top edge are off
+            labelbottom=False) # labels along the bottom edge are off
+        else:
+          plt.xlabel(r'$\gamma$', size=20)
+    plt.suptitle(k, size=30)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+    # plt.show()
+    figname = './plots/{}_{}_{}fold.jpg'
+    # plt.show()
+    plt.savefig(figname.format(k.replace(' ', '_'), measure, n))
 
 def plot_region_size(G_dict, area_dict, regions, measure, n, sign):
   rows, cols = get_rowcol(G_dict)
