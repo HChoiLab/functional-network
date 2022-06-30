@@ -1398,9 +1398,9 @@ def split_pos_neg(G_dict, measure):
   for row in rows:
     pos_G_dict[row] = {}
     neg_G_dict[row] = {}
-    print(row)
+    # print(row)
     for col in cols:
-      print(col)
+      # print(col)
       if not no_sample:
         pos_G_dict[row][col] = []
         neg_G_dict[row][col] = []
@@ -1543,42 +1543,38 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
       if nx.is_directed(pos_G):
         pos_G = pos_G.to_undirected()
       if neg_G_dict is not None:
-        part = community.best_partition(pos_G, weight='weight')
-        metric = community.modularity(part, pos_G, weight='weight')
-        pos_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
-        pos_w_modularity[row_ind, col_ind] = metric
-        _, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(pos_G, weight='weight')
+        pos_w_num_comm[row_ind, col_ind] = len(comms)
+        pos_w_modularity[row_ind, col_ind] = get_modularity(pos_G, weight='weight', comms=comms)
+        count = np.array([len(comm) for comm in comms])
         pos_w_num_lcomm[row_ind, col_ind] = sum(count >= 4) # size at least 4 is considered (large) community
         pos_w_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / pos_G.number_of_nodes()
         assert pos_G.number_of_nodes() == count.sum()
         neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
         if nx.is_directed(neg_G):
           neg_G = neg_G.to_undirected()
-        part = community.best_partition(neg_G, weight='weight')
-        metric = community.modularity(part, neg_G, weight='weight')
-        neg_w_num_comm[row_ind, col_ind] = len(set(list(part.values())))
-        neg_w_modularity[row_ind, col_ind] = metric
-        _, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        neg_w_num_comm[row_ind, col_ind] = len(comms)
+        neg_w_modularity[row_ind, col_ind] = get_modularity(neg_G, weight='weight', comms=comms)
+        count = np.array([len(comm) for comm in comms])
         neg_w_num_lcomm[row_ind, col_ind] = sum(count >= 4)
         neg_w_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / neg_G.number_of_nodes()
         assert neg_G.number_of_nodes() == count.sum()
         unweight = {(i, j):1 for i,j in neg_G.edges()}
         nx.set_edge_attributes(neg_G, unweight, 'weight')
-        part = community.best_partition(neg_G, weight='weight')
-        metric = community.modularity(part, neg_G, weight='weight')
-        neg_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
-        neg_uw_modularity[row_ind, col_ind] = metric
-        _, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        neg_uw_num_comm[row_ind, col_ind] = len(comms)
+        neg_uw_modularity[row_ind, col_ind] = get_modularity(neg_G, weight='weight', comms=comms)
+        count = np.array([len(comm) for comm in comms])
         neg_uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
         neg_uw_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / neg_G.number_of_nodes()
         assert neg_G.number_of_nodes() == count.sum()
       unweight = {(i, j):1 for i,j in pos_G.edges()}
       nx.set_edge_attributes(pos_G, unweight, 'weight')
-      part = community.best_partition(pos_G, weight='weight')
-      metric = community.modularity(part, pos_G, weight='weight')
-      pos_uw_num_comm[row_ind, col_ind] = len(set(list(part.values())))
-      pos_uw_modularity[row_ind, col_ind] = metric
-      _, count = np.unique(list(part.values()), return_counts=True)
+      comms = nx_comm.louvain_communities(pos_G, weight='weight')
+      pos_uw_num_comm[row_ind, col_ind] = len(comms)
+      pos_uw_modularity[row_ind, col_ind] = get_modularity(pos_G, weight='weight', comms=comms)
+      count = np.array([len(comm) for comm in comms])
       pos_uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
       pos_uw_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / pos_G.number_of_nodes()
       assert pos_G.number_of_nodes() == count.sum()
@@ -1621,8 +1617,11 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
   figname = './plots/stat_modular_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stat_modular_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
 
-def dict2histogram(dictionary, density=True, binning=False):
-    dataseq=[v for k, v in dictionary.items()]
+def comm2histogram(comms, density=True, binning=False):
+    if type(comms) == dict:
+      dataseq=[v for k, v in comms.items()]
+    else:
+      dataseq=[item for sublist in [[i]*len(comm) for i, comm in enumerate(comms)] for item in sublist]
     if not binning:
       # dmax=max(dataseq)+1
       # data_seq = np.arange(0, dmax)
@@ -1665,9 +1664,10 @@ def size_of_each_community(G_dict, sign, measure, n):
       
       unweight = {(i, j):1 for i,j in G.edges()}
       nx.set_edge_attributes(G, unweight, 'weight')
-      part = community.best_partition(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight')
+      # part = community.best_partition(G, weight='weight')
       # metric = community.modularity(part, G, weight='weight')
-      number, freq = dict2histogram(part, density=False, binning=False)
+      number, freq = comm2histogram(comms, density=False, binning=False)
       # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
       plt.plot(range(len(freq)), sorted(freq, reverse=True),'go-', label='number', alpha=0.4)
       # plt.legend(loc='upper right', fontsize=7)
@@ -1678,7 +1678,7 @@ def size_of_each_community(G_dict, sign, measure, n):
       # plt.yscale('log')
   # plt.show()
   plt.suptitle('{} size of each community'.format(sign), size=25)
-  plt.tight_layout()
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   image_name = './plots/size_of_each_community_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
 
@@ -1709,9 +1709,10 @@ def distribution_community_size(G_dict, sign, measure, n):
         G = G.to_undirected()
       unweight = {(i, j):1 for i,j in G.edges()}
       nx.set_edge_attributes(G, unweight, 'weight')
-      part = community.best_partition(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight')
+      # part = community.best_partition(G, weight='weight')
       # metric = community.modularity(part, G, weight='weight')
-      _, freq = dict2histogram(part, density=False, binning=False)
+      _, freq = comm2histogram(comms, density=False, binning=False)
       size, counts = np.unique(freq, return_counts=True)
       # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
       plt.plot(size, counts / counts.sum(),'go-', label='size', alpha=0.4)
@@ -1723,7 +1724,7 @@ def distribution_community_size(G_dict, sign, measure, n):
       plt.yscale('log')
   # plt.show()
   plt.suptitle('{} community size distribution'.format(sign), size=25)
-  plt.tight_layout()
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
   plt.savefig(image_name)
 
@@ -1769,8 +1770,9 @@ def random_graph_generator(G, num_rewire, algorithm, cc=False, Q=100):
     random_graphs.append(G)
   return random_graphs
 
-def get_modularity(G, weight='weight', resolution=1):
-  comms = nx_comm.louvain_communities(G, weight=weight, resolution=resolution)
+def get_modularity(G, weight='weight', resolution=1, comms=None):
+  if comms == None:
+    comms = nx_comm.louvain_communities(G, weight=weight, resolution=resolution)
   return nx_comm.modularity(G, comms, weight=weight, resolution=resolution)
   # part = community.best_partition(G, weight=weight, resolution=resolution)
   # return community.modularity(part, G, weight=weight)
@@ -1854,6 +1856,8 @@ def plot_modularity_resolution(rows, cols, resolution_list, metrics, random_metr
         # plt.yscale('symlog')
         if ind == num_row*num_col+1:
           plt.legend(fontsize=20)
+        if row_ind == 0:
+          plt.title(col, size=25)
         if row_ind < num_row -1 :
           plt.tick_params(
             axis='x',          # changes apply to the x-axis
@@ -1957,45 +1961,45 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
       if nx.is_directed(pos_G):
         pos_G = pos_G.to_undirected()
       if neg_G_dict is not None:
-        part = community.best_partition(pos_G, weight='weight')
-        uniq, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(pos_G, weight='weight')
+        lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
+        lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(pos_G.nodes())
-        large_comms = uniq[count >= 4]
         for r_ind, r in enumerate(regions):
           r_nodes = [n for n in nodes if area_dict[row][n] == r]
-          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
-          pos_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+          lcomm_r_nodes = [n for n in r_nodes if n in lcomm_nodes]
+          pos_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
         neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
         if nx.is_directed(neg_G):
           neg_G = neg_G.to_undirected()
-        part = community.best_partition(neg_G, weight='weight')
-        uniq, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
+        lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(neg_G.nodes())
-        large_comms = uniq[count >= 4]
         for r_ind, r in enumerate(regions):
           r_nodes = [n for n in nodes if area_dict[row][n] == r]
-          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
-          neg_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+          lcomm_r_nodes = [n for n in r_nodes if n in lcomm_nodes]
+          neg_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
         unweight = {(i, j):1 for i,j in neg_G.edges()}
         nx.set_edge_attributes(neg_G, unweight, 'weight')
-        part = community.best_partition(neg_G, weight='weight')
-        uniq, count = np.unique(list(part.values()), return_counts=True)
+        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
+        lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(neg_G.nodes())
-        large_comms = uniq[count >= 4]
         for r_ind, r in enumerate(regions):
           r_nodes = [n for n in nodes if area_dict[row][n] == r]
-          lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
-          neg_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+          lcomm_r_nodes = [n for n in r_nodes if n in lcomm_nodes]
+          neg_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
       unweight = {(i, j):1 for i,j in pos_G.edges()}
       nx.set_edge_attributes(pos_G, unweight, 'weight')
-      part = community.best_partition(pos_G, weight='weight')
-      uniq, count = np.unique(list(part.values()), return_counts=True)
+      comms = nx_comm.louvain_communities(pos_G, weight='weight')
+      lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
+      lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
       nodes = list(pos_G.nodes())
-      large_comms = uniq[count >= 4]
       for r_ind, r in enumerate(regions):
         r_nodes = [n for n in nodes if area_dict[row][n] == r]
-        lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
-        pos_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+        lcomm_r_nodes = [n for n in r_nodes if n in lcomm_nodes]
+        pos_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
       
   if neg_G_dict is not None:
     metrics = {'pos w fraction of regions in large communities':pos_w_frac_lcomm, 'pos uw fraction of regions in large communities':pos_uw_frac_lcomm, 
@@ -2060,14 +2064,14 @@ def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=Fa
         nx.set_edge_attributes(G, unweight, 'weight')
       else:
         name = '{}_w'.format(sign)
-      part = community.best_partition(G, weight='weight')
-      uniq, count = np.unique(list(part.values()), return_counts=True)
+      comms = nx_comm.louvain_communities(G, weight='weight')
+      lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
+      lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
       nodes = list(G.nodes())
-      large_comms = uniq[count >= 4]
       for r_ind, r in enumerate(regions):
         r_nodes = [n for n in nodes if area_dict[row][n] == r]
-        lcomm_nodes = [n for n in r_nodes if part[n] in large_comms]
-        frac = len(lcomm_nodes) / len(r_nodes) if len(r_nodes) else 0
+        lcomm_r_nodes = [n for n in r_nodes if n in lcomm_nodes]
+        frac = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
         frac_lcomm.loc[len(frac_lcomm), frac_lcomm.columns] = col, frac, r
   plt.figure(figsize=(17, 7))
   ax = sns.boxplot(x="stimulus", y="fraction", hue="region", data=frac_lcomm, palette="Set3")
@@ -2101,11 +2105,12 @@ def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False):
         nx.set_edge_attributes(G, unweight, 'weight')
       else:
         name = '{}_w'.format(sign)
-      part = community.best_partition(G, weight='weight')
-      comms, sizes = np.unique(list(part.values()), return_counts=True)
-      nodes = list(G.nodes())
+      comms = nx_comm.louvain_communities(G, weight='weight')
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
       for comm, size in zip(comms, sizes):
-        c_regions = [area_dict[row][n] for n in nodes if part[n]==comm]
+        c_regions = [area_dict[row][node] for node in comm]
         _, counts = np.unique(c_regions, return_counts=True)
         assert len(c_regions) == size == counts.sum()
         purity = counts.max() / size
