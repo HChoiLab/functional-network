@@ -1890,10 +1890,16 @@ with open('pos_neg_metrics.pkl', 'wb') as f:
 with open('pos_neg_random_metrics.pkl', 'wb') as f:
     pickle.dump(pos_neg_random_metrics, f)
 print("--- %s minutes" % ((time.time() - start_time)/60))
-# with open('total_metrics.pkl', 'rb') as f:
-#     loaded_dict = pickle.load(f)
 #%%
 rows, cols = get_rowcol(G_ccg_dict)
+with open('total_metrics.pkl', 'rb') as f:
+    total_metrics = pickle.load(f)
+with open('total_random_metrics.pkl', 'rb') as f:
+    total_random_metrics = pickle.load(f)
+with open('pos_neg_metrics.pkl', 'rb') as f:
+    pos_neg_metrics = pickle.load(f)
+with open('pos_neg_random_metrics.pkl', 'rb') as f:
+    pos_neg_random_metrics = pickle.load(f)
 plot_modularity_resolution(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
 plot_modularity_resolution(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
 #%%
@@ -2797,10 +2803,7 @@ for row_ind, mouseID in enumerate(mouseIDs):
       plt.gca().set_title(stimulus_names[col_ind], fontsize=20, rotation=0)
     if col_ind == 0:
       plt.gca().text(0, 0.5 * (bottom + top), mouseIDs[row_ind],
-      horizontalalignment='left',
-      verticalalignment='center',
-      # rotation='vertical',
-      transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      horizontalalignment='left',LowerBoundsion=90)
     plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ind += 1
     plt.plot(mean_matrix[:300], alpha=1)
@@ -3692,251 +3695,20 @@ print("Solve times:",np.around(solveTime, decimals=2))
 print("Average solve time",np.mean(solveTime))
 #print("Solve time Standard Deviation",np.std(solveTime))
 # %%
-# Binary linear programming model for computing the frustration index of 
-# a directed signed graph (frustration-index-directed) as the optimal objective function
-
-# This code solves graph optimization model(s) using "Gurobi solver"
-# to compute the measure called, frustration index, for the input signed digraph(s)
-
-# Note that you must have installed Gurobi into Jupyter and registered a Gurobi license
-# in order to run this code
-
-# This part of code requires the lower bound produced in the step above. If you intend to run this computation 
-# without providing a lower bound, you should first comment out the line containing this command:
-# model.addConstr(OFV >= int(LowerBounds[index]), 'LP lower bound')
-
-#Setting parameters
-#lazyParam=int(input("What is the lazy parameter for unbalanced triangle lazy cuts? (0/1/2/3)"))
-# See "lazy" as a tunable parameter in linear constraint attributes in Gurobi optimizer reference manual below:
-# https://www.gurobi.com/documentation/8.1/refman/lazy.html
-lazyParam=int(3)
-
-#speedupParam=int(input("Do you want to use the speedups? (0=No, 1=Yes)"))
-speedupParam=int(1)
-
-import collections
-import time
-import numpy as np
-import multiprocessing
-# from gurobipy import *
-import gurobipy as gp
-
-
-
-def get_meso_macro_balance(S):
-  S = S.copy()
-  old_nodes = sorted(list(S.nodes()))
-  mapping = {n:old_nodes.index(n) for n in old_nodes}
-  S = nx.relabel_nodes(S, mapping)
-  undirected_S = S.to_undirected(as_view=True)
-  weighted_edges = nx.get_edge_attributes(S, 'sign')
-  sorted_weighted_edges = {}
-  for (u,v) in weighted_edges:
-      (sorted_weighted_edges)[(u,v)] = weighted_edges[(u,v)]
-  solveTime=[]
-  effectiveBranchingFactors=[]
-  undirected_sorted_weighted_edges = nx.get_edge_attributes(undirected_S, 'sign')
-  ################ put nodes in ascending order
-  new_undirected_sorted_weighted_edges = {}
-  for edge in undirected_sorted_weighted_edges:
-      if edge[0] > edge[1]:
-          new_undirected_sorted_weighted_edges[(edge[1], edge[0])] = undirected_sorted_weighted_edges[edge]
-      else:
-          new_undirected_sorted_weighted_edges[edge] = undirected_sorted_weighted_edges[edge]
-  undirected_sorted_weighted_edges = new_undirected_sorted_weighted_edges
-  size = int(np.count_nonzero(nx.to_numpy_matrix(S)))
-      
-  type_of_edge=[]
-  optimal_node_values=[]
-
-  neighbors={}
-  Degree=[]
-  for u in sorted((undirected_S).nodes()):
-      neighbors[u] = list((undirected_S)[u])
-      Degree.append(len(neighbors[u]))
-  # Note that reciprocated edges are counted as one and only contribute one to the degree of each endpoint
-  
-  #Finding the node with the highest unsigned degree
-  maximum_degree = max(Degree)
-  [node_to_fix]=[([i for i, j in enumerate(Degree) if j == maximum_degree]).pop()]
-
-  # Model parameters
-  model = gp.Model("Computing the frustration index of directed signed graphs")
-  model.Params.LogToConsole = 0
-
-  # There are different methods for solving optimization models:
-  # (-1=automatic, 0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent, 4=deterministic concurrent)
-  # model.setParam(GRB.param.Method, -1)
-  
-  # What is the time limit in second?
-  # model.setParam('TimeLimit', 10*3600)
-  
-  # Do you want details of branching to be reported? (0=No, 1=Yes)
-  model.setParam(gp.GRB.param.OutputFlag, 1) 
-  
-  # Do you want a non-zero Mixed integer programming tolerance (MIP Gap)?
-  # Note that a non-zero MIP gap may prevent the model from computing the exact value of frustration index
-  # model.setParam('MIPGap', 0.0001)  
-  
-  # How many threads to be used for exploring the feasible space in parallel?
-  # Here, the minimum of 32 and the availbale CPUs is used
-  model.setParam(gp.GRB.Param.Threads, min(32,multiprocessing.cpu_count()))
-  
-  #This chunk of code lists the graph triangles
-  GraphTriangles=[]
-  for n1 in sorted((undirected_S).nodes()):
-      neighbors1 = set((undirected_S)[n1])
-      for n2 in filter(lambda x: x>n1, neighbors1):
-          neighbors2 = set((undirected_S)[n2])
-          common = neighbors1 & neighbors2
-          for n3 in filter(lambda x: x>n2, common):
-              GraphTriangles.append([n1,n2,n3])
-  #print("--- %Listed",len(GraphTriangles),"triangles for the graph")
-
-  #This chunk of code lists the balanced and unbalanced triangles
-  w=nx.get_edge_attributes(undirected_S, 'sign')  
-  unbalanced_triangles = []
-  balanced_triangles = []
-  for triad in GraphTriangles: 
-      if  (undirected_sorted_weighted_edges)[(triad[0],triad[1])]*\
-      (undirected_sorted_weighted_edges)[(triad[0],triad[2])]*\
-      (undirected_sorted_weighted_edges)[(triad[1],triad[2])] == -1:
-          unbalanced_triangles.append(triad)
-      elif (undirected_sorted_weighted_edges)[(triad[0],triad[1])]*\
-      (undirected_sorted_weighted_edges)[(triad[0],triad[2])]*\
-      (undirected_sorted_weighted_edges)[(triad[1],triad[2])] == 1:
-          balanced_triangles.append(triad)  
-  #print("--- %Listed",len(unbalanced_triangles),"unbalanced triangles for the graph")
-
-  # Create decision variables and update model to integrate new variables
-  x=[]
-  for i in range(0,S.number_of_nodes()):
-      x.append(model.addVar(vtype=gp.GRB.BINARY, name='x'+str(i))) # arguments by name
-  model.update()
-  
-  f={}
-  for (i,j) in (sorted_weighted_edges):
-      f[(i,j)]=model.addVar(lb=0.0, ub=1, vtype=gp.GRB.CONTINUOUS, name='f'+str(i)+','+str(j))
-  model.update()
-  # print("--- %Binary variables are created")
-
-  # Set the objective function
-  OFV=0
-  for (i,j) in (sorted_weighted_edges):
-      OFV = OFV + f[(i,j)]                 
-  model.setObjective(OFV, gp.GRB.MINIMIZE)
-
-  # Add constraints to the model and update model to integrate new constraints
-  
-  ## ADD CORE CONSTRAINTS ##
-
-  for (i,j) in (sorted_weighted_edges):
-      model.addConstr( f[(i,j)] >= x[i] - ((sorted_weighted_edges)[(i,j)])*x[j] -\
-                      (1-(sorted_weighted_edges)[(i,j)])/2
-                          , '1st Edge'+','+str(i)+','+str(j))
-      model.addConstr( f[(i,j)] >= -x[i] + ((sorted_weighted_edges)[(i,j)])*x[j] +\
-                      (1-(sorted_weighted_edges)[(i,j)])/2
-                          , '2nd Edge'+','+str(i)+','+str(j))                  
-  model.update()
-  model.addConstr(OFV >= int(LowerBounds), 'LP lower bound')   # This line can be commented out
-  model.update()
-  # print("--- %Core constraints are added")
-  ## ADD ADDITIONAL CONSTRAINTS (speed-ups) ##
-  
-  if speedupParam==1:
-      # Triangle valid inequalities            
-
-      triangleInequalityCount=len(unbalanced_triangles)
-      for triangle in unbalanced_triangles:
-          [i,j,k]=triangle
-          b_ij=(i,j) in sorted_weighted_edges 
-          b_ik=(i,k) in sorted_weighted_edges
-          b_jk=(j,k) in sorted_weighted_edges
-          if b_ij:
-              if b_ik:
-                  if b_jk:
-                      model.addConstr(f[(i,j)] + f[(i,k)] + f[(j,k)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-                  else:
-                      model.addConstr(f[(i,j)] + f[(i,k)] + f[(k,j)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-              elif b_jk:
-                  model.addConstr(f[(i,j)] + f[(k,i)] + f[(j,k)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-              else:
-                  model.addConstr(f[(i,j)] + f[(k,i)] + f[(k,j)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-          else:
-              if b_ik:
-                  if b_jk:
-                      model.addConstr(f[(j,i)] + f[(i,k)] + f[(j,k)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-                  else:
-                      model.addConstr(f[(j,i)] + f[(i,k)] + f[(k,j)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-              elif b_jk:
-                  model.addConstr(f[(j,i)] + f[(k,i)] + f[(j,k)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-              else:
-                  model.addConstr(f[(j,i)] + f[(k,i)] + f[(k,j)] >= 1 ,\
-                                      'UnbalancedTriangle'+','+str(i)+','+str(j)+','+str(k))
-      model.update()
-      model.setAttr('Lazy',model.getConstrs()[2*(size):2*(size)+triangleInequalityCount]\
-                    ,[lazyParam]*triangleInequalityCount)
-      model.update()
-      # print("--- %Additional constraints are added")
-
-      #branching priority is based on unsigned degree 
-      model.setAttr('BranchPriority',model.getVars()[:S.number_of_nodes()],Degree)
-      model.update() 
-  # Solve
-  start_time = time.time()
-  model.optimize()
-  solveTime.append(time.time() - start_time) 
-  
-  
-  # Save optimal objective function values
-  obj = model.getObjective()
-  frustration_index = obj.getValue()
-  
-  # Compute the effective branching factors
-  if (model.NodeCount)**(1/((size)+2*(S.number_of_nodes()))) >= 1:
-      effectiveBranchingFactors.append((model.NodeCount)**(1/((size)+2*(S.number_of_nodes()))))
-  # Printing the solution (optional)
-  # print("Optimal values of the decision variables")
-  for v in model.getVars():
-      if v.varName.startswith('x'):
-          optimal_node_values.append(int(v.x))
-          #if v.x!=1:
-          # print (v.varName,":",int(v.x)) 
-  
-  # For printing types of the edges according to the optimal partition according to the four categories:
-  # positive-internal, positive-external, negative-internal, negative-external
-  
-  for (u,v) in (sorted_weighted_edges):
-      type_of_edge.append((2*(2*optimal_node_values[u]-1)*(2*optimal_node_values[v]-1)+((sorted_weighted_edges)[(u,v)])))
-  counter=collections.Counter(type_of_edge)
-  if (counter[1]+counter[3])>0:
-      print("Cohesiveness:",(counter[3]/(counter[1]+counter[3])))
-  else:
-      print("Cohesiveness is undefined because there are no internal edges.")
-  if (counter[-1]+counter[-3])>0:
-      print("Divisiveness:",(counter[-3]/(counter[-1]+counter[-3])))
-  else:
-      print("Divisiveness is undefined because there are no external edges.")
-  # print("-"*32,"***  EXPERIMENT STATS  ***","-"*32)
-  # print("-"*92)
-  print("Frustration indices:",np.around(frustration_index))
-  print("Network level balance F: {}".format(1-2*frustration_index/S.number_of_edges()))
-  #print("Average frustrarion index",np.mean(objectivevalue))
-  #print("Frustration index Standard Deviation",np.std(objectivevalue))
-  # print("Solve times (in seconds):",np.around(solveTime, decimals=2))
-  #print("Average solve time",np.mean(solveTime))
-  #print("Solve time Standard Deviation",np.std(solveTime))
-
+S_ccg_dict = add_sign(G_ccg_dict)
 # S = S_ccg_dict['719161530']['natural_movie_one']
 # S = S_ccg_dict['719161530']['spontaneous']
-S = S_ccg_dict['719161530']['flashes']
+# S = S_ccg_dict['719161530']['flashes']
 # S = S_ccg_dict['719161530']['natural_movie_one']
-get_meso_macro_balance(S)
+rows, cols = get_rowcol(S_ccg_dict)
+ng_dict, (c_mat, d_mat, fi_mat, F_mat) = {}, [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
+for row_ind, row in enumerate(rows):
+  print(row)
+  ng_dict[row] =  {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    S = S_ccg_dict[row][col].copy()
+    print('Number of nodes: {}, number of edges: {}'.format(S.number_of_nodes(), S.number_of_edges()))
+    node_group, cohesiveness, divisiveness, frustration_index, F = get_meso_macro_balance(S)
+    ng_dict[row][col], c_mat[row_ind, col_ind], d_mat[row_ind, col_ind], fi_mat[row_ind, col_ind], F_mat[row_ind, col_ind] = node_group, cohesiveness, divisiveness, frustration_index, F
 # %%
