@@ -1875,6 +1875,28 @@ distribution_community_size(G_ccg_dict, 'total', measure, n)
 distribution_community_size(pos_G_dict, 'positive', measure, n)
 distribution_community_size(neg_G_dict, 'negative', measure, n)
 #%%
+start_time = time.time()
+num_rewire = 10
+resolution_list = np.arange(0, 2.1, 0.1)
+total_metrics, total_random_metrics = modular_resolution(G_ccg_dict, resolution_list, num_rewire, measure, n)
+with open('total_metrics.pkl', 'wb') as f:
+    pickle.dump(total_metrics, f)
+with open('total_random_metrics.pkl', 'wb') as f:
+    pickle.dump(total_random_metrics, f)
+abs_neg_G_dict = get_abs_weight(neg_G_dict)
+pos_neg_metrics, pos_neg_random_metrics = modular_resolution(pos_G_dict, resolution_list, num_rewire, measure, n, abs_neg_G_dict)
+with open('pos_neg_metrics.pkl', 'wb') as f:
+    pickle.dump(pos_neg_metrics, f)
+with open('pos_neg_random_metrics.pkl', 'wb') as f:
+    pickle.dump(pos_neg_random_metrics, f)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+# with open('total_metrics.pkl', 'rb') as f:
+#     loaded_dict = pickle.load(f)
+#%%
+rows, cols = get_rowcol(G_ccg_dict)
+plot_modularity_resolution(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
+plot_modularity_resolution(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
+#%%
 plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_size(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_size(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
