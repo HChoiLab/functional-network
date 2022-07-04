@@ -3489,6 +3489,94 @@ def calculate_traid_balance(G_new):
     tb = len(balances)/(len(balances) + len(imbalances)) if len(balances) + len(imbalances) > 0 else 0
     return balances, imbalances, tb, len(balances), len(imbalances), count_lists(balances), count_lists(imbalances)
 
+# Get census of all signed triads
+def get_all_signed_triads(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  all_triads = {}
+  for row in rows:
+    all_triads[row] = {}
+    for col in cols:
+      triad_dict = {}
+      triad_class = {}
+      all_triads[row][col] = []
+      ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
+      non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '021', '111U', '111D', '201', '030C', '120C', '210']
+      G = G_dict[row][col]
+      iter_g = search_triangles(G)
+      for iter_t in iter_g:
+        for ta in list(iter_t):
+          tt = ",".join([str(x) for x in sorted(set(ta))])
+          triad_dict[tt] = True     
+      for val in triad_dict.keys():
+        nodes = [int(x) for x in val.split(",")]
+        census = [k for k, v in nx.triads.triadic_census(G.subgraph(nodes)).items() if v][0]
+        if census not in non_transitive_census:
+          sign = nx.get_edge_attributes(G.subgraph(nodes),'sign')
+          triad_class[val] = [census, sign]
+          #map_census_edges(G, val, triad_class)     
+      for key, value in triad_class.items():
+        all_directed_triads = list(get_directed_triads(value[1]))
+        all_triads[row][col].append([all_directed_triads, value[0]])
+    return all_triads
+
+def signed_triad_census(all_triads, measure, n):
+  rows, cols = get_rowcol(all_triads)
+  num_row, num_col = len(rows), len(cols)
+  signed_triad_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_triad_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      signed_triad_count[row][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        signs = [triad_sign[edge] for edge in edge_order]
+        signs = ''.join(map(lambda x:'+' if x==1 else '-', signs))
+        signed_triad_count[row][col][triad_type + signs] = signed_triad_count[row][col].get(triad_type + signs, 0) + 1 
+      signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  fig = plt.figure(figsize=(4*num_col, 4*num_row))
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      t_count = signed_triad_count[row][col]
+      plt.subplot(num_row, num_col, row_ind*num_col+col_ind+1)
+      plt.bar(range(len(t_count)), list(t_count), align='center')
+      plt.xticks(range(len(t_count)), list(t_count.keys()))
+  plt.tight_layout()
+  # plt.suptitle(k, fontsize=14, rotation=0)
+  # plt.show()
+  figname = './plots/signed_triad_region_census_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+
+all_triads = get_all_signed_triads(G_ccg_dict)
+signed_triad_census(all_triads, measure, n)
 #%%
 rows, cols = get_rowcol(S_ccg_dict)
 t_balance, num_balance, num_imbalance = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
@@ -3711,4 +3799,88 @@ for row_ind, row in enumerate(rows):
     print('Number of nodes: {}, number of edges: {}'.format(S.number_of_nodes(), S.number_of_edges()))
     node_group, cohesiveness, divisiveness, frustration_index, F = get_meso_macro_balance(S)
     ng_dict[row][col], c_mat[row_ind, col_ind], d_mat[row_ind, col_ind], fi_mat[row_ind, col_ind], F_mat[row_ind, col_ind] = node_group, cohesiveness, divisiveness, frustration_index, F
+# %%
+def plot_meso_macro_balance(c_mat, d_mat, fi_mat, F_mat, rows, cols, measure, n):
+  metrics = {'Cohesiveness':c_mat, 'Divisiveness':d_mat, 'Frustration index':fi_mat, 'F(G)':F_mat}
+  num_row, num_col = 2, 2
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, '.-', label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/stat_meso_macro_balance_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+
+
+plot_meso_macro_balance(c_mat, d_mat, fi_mat, F_mat, rows, cols, measure, n)
+# %%
+def plot_bipartisan(ng_dict, rows, cols, area_dict, regions, measure, n):
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(3*num_col, 4*num_row))
+  scale_max = np.zeros(len(rows))
+  for row_ind, row in enumerate(rows):
+    for col_ind , col in enumerate(cols):
+      plt.subplot(num_row, num_col, row_ind * num_col + col_ind+1)
+      region_partisan_0 = [area_dict[row][node] for node, g in ng_dict[row][col].items() if g == 0]
+      region_partisan_1 = [area_dict[row][node] for node, g in ng_dict[row][col].items() if g == 1]
+      A = np.array([region_partisan_0.count(regions[0]), region_partisan_1.count(regions[0])])
+      B = np.array([region_partisan_0.count(regions[1]), region_partisan_1.count(regions[1])])
+      C = np.array([region_partisan_0.count(regions[2]), region_partisan_1.count(regions[2])])
+      D = np.array([region_partisan_0.count(regions[3]), region_partisan_1.count(regions[3])])
+      E = np.array([region_partisan_0.count(regions[4]), region_partisan_1.count(regions[4])])
+      F = np.array([region_partisan_0.count(regions[5]), region_partisan_1.count(regions[5])])
+      # Plot stacked bar chart
+          
+      plt.bar(['partisan 0', 'partisan 1'], A, label=regions[0]) #, color='cyan',
+      plt.bar(['partisan 0', 'partisan 1'], B, bottom=A, label=regions[1]) #, color='green'
+      plt.bar(['partisan 0', 'partisan 1'], C, bottom=A+B, label=regions[2]) #, color='red'
+      plt.bar(['partisan 0', 'partisan 1'], D, bottom=A+B+C, label=regions[3]) #, color='yellow'
+      plt.bar(['partisan 0', 'partisan 1'], E, bottom=A+B+C+D, label=regions[4]) #, color='yellow'
+      plt.bar(['partisan 0', 'partisan 1'], F, bottom=A+B+C+D+E, label=regions[5]) #, color='yellow'
+      if (A+B+C+D+E+F).max() * 1.05 > scale_max[row_ind]:
+        scale_max[row_ind] = (A+B+C+D+E+F).max() * 1.05
+      plt.xticks(rotation=0)
+      plt.ylabel('number of neurons')
+      # plt.xticks(rotation=90)
+      # plt.yscale('symlog')
+      if row_ind == 0:
+        plt.title(col)
+        if col_ind == 0:
+          plt.legend(fontsize=13)
+      if row_ind < num_row - 1:
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affected
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+  
+  for row_ind, row in enumerate(rows):
+    for col_ind , col in enumerate(cols):
+      plt.subplot(num_row, num_col, row_ind * num_col + col_ind+1)
+      plt.ylim(0, scale_max[row_ind])
+  
+  plt.tight_layout()
+  # plt.suptitle(k, fontsize=14, rotation=0)
+  # plt.show()
+  figname = './plots/region_bipartisan_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+
+plot_bipartisan(ng_dict, rows, cols, area_dict, visual_regions, measure, n)
 # %%
