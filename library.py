@@ -3121,6 +3121,11 @@ def signed_triad_census(all_triads, measure, n):
         signs = ''.join(map(lambda x:'+' if x==1 else '-', signs))
         signed_triad_count[row][col][triad_type + '\n' + signs] = signed_triad_count[row][col].get(triad_type + '\n' + signs, 0) + 1 
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return signed_triad_count
+  
+def plot_multi_bar_census(signed_triad_count, measure, n):
+  rows, cols = get_rowcol(signed_triad_count)
+  num_row, num_col = len(rows), len(cols)
   fig = plt.figure(figsize=(5*num_col, 3*num_row))
   for row_ind, row in enumerate(rows):
     for col_ind, col in enumerate(cols):
