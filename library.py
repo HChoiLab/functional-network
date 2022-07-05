@@ -11,6 +11,7 @@ from tqdm import tqdm
 import pickle
 import time
 import sys
+import re
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib import colors
@@ -3078,7 +3079,7 @@ def get_all_signed_triads(G_dict):
         all_triads[row][col].append([all_directed_triads, value[0]])
   return all_triads
 
-def signed_triad_census(all_triads, measure, n):
+def signed_triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
   num_row, num_col = len(rows), len(cols)
   signed_triad_count = {}
@@ -3119,7 +3120,7 @@ def signed_triad_census(all_triads, measure, n):
         triad_sign = {k: v for d in triad[0] for k, v in d.items()}
         signs = [triad_sign[edge] for edge in edge_order]
         signs = ''.join(map(lambda x:'+' if x==1 else '-', signs))
-        signed_triad_count[row][col][triad_type + '\n' + signs] = signed_triad_count[row][col].get(triad_type + '\n' + signs, 0) + 1 
+        signed_triad_count[row][col][triad_type + signs] = signed_triad_count[row][col].get(triad_type + signs, 0) + 1 
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_count
   
@@ -3131,8 +3132,9 @@ def plot_multi_bar_census(signed_triad_count, measure, n):
     for col_ind, col in enumerate(cols):
       plt.subplot(num_row, num_col, row_ind*num_col+col_ind+1)
       t_count = signed_triad_count[row][col]
-      t_count = {k: v/sum(t_count.values()) for k, v in t_count.items()}
-      t_count = {k: t_count[k] for k in list(t_count)[:5]}
+      t_count = {k.replace(re.split('\+|\-',k)[0], re.split('\+|\-',k)[0]+'\n'): v/sum(t_count.values()) for k, v in t_count.items()} # add \n between triad type and signs
+      t_count = {k: v/sum(t_count.values()) for k, v in t_count.items()} # normalize count as frequency
+      t_count = {k: t_count[k] for k in list(t_count)[:5]} # only plot top 5
       plt.bar(range(len(t_count)), list(t_count.values()), align='center')
       plt.xticks(range(len(t_count)), list(t_count.keys()), fontsize=14)
       if row_ind == 0:
