@@ -2911,7 +2911,6 @@ def plot_intra_inter_density(G_dict, sign, area_dict, regions, measure):
   # plt.show()
   plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
 
-#################### structural balance
 def add_sign(G_dict):
   rows, cols = get_rowcol(G_dict)
   S_dict = {}
@@ -2935,6 +2934,211 @@ def add_sign(G_dict):
       S_dict[row][col] = S
   return S_dict
 
+# This section calculates balace in triads with respect to direction.
+# We first extract the transitive triads, then we break the transitive triads to semi-cycles, and finally 
+# calculate balance in each semicycle. The triad is balance only if all its semicycles are balance. 
+# updated = 04/22/2020
+
+# This algorithm is based on the model introduced in the following paper:
+# XXX (will be updated)
+
+# from networkx import *
+
+## counting the number of instances in a list
+def count_lists(mylist):            
+    new_dict = {}
+    for i in mylist:
+        if i[1] not in new_dict:
+            new_dict[i[1]] = 1
+        else:
+            new_dict[i[1]] += 1
+    return (new_dict)            
+
+## Get all triples in triads with respect to their census and edgelists (in edge_atts)
+def get_directed_triads(triads):
+    # Get all triplets of edges
+    for candidate_edges in itertools.combinations(triads.items(), 3):
+        # Get edges between unique pair of nodes
+        unique_edges = set([tuple(sorted(k)) for k,v in candidate_edges])
+        # Only consider triad in which the tree edges use a unique pair of nodes
+        if len(unique_edges) == 3:
+            yield dict(candidate_edges)
+            
+## searching through traids
+def search_triangles(G, nodes = None):
+    if nodes is None:
+        nodes_nbrs = G.adj.items()
+    else:
+        nodes_nbrs = ((n, G[n]) for n in G.nbunch_iter(nodes))
+    for v, v_nbrs in nodes_nbrs:
+        vs = set(v_nbrs) - {v} # neighbors of v, remove selfloop
+        for w in vs:
+            #print(w)
+            xx = vs & (set(G[w]) - {w})
+            yield [ set(x) for x in list(zip(itertools.repeat(v), itertools.repeat(w), list(xx))) ]
+            
+#Calculate balance in traids (main function)
+def calculate_traid_balance(G_new):
+    triad_dict = {}
+    triad_class = {}
+    all_triads = []
+    ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
+    non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '021', '111U', '111D', '201', '030C', '120C', '210']
+    all_triad = nx.triangles(G_new.to_undirected())
+    iter_g = search_triangles(G_new)
+    
+    for iter_t in iter_g:
+        for ta in list(iter_t):
+            tt = ",".join([str(x) for x in sorted(set(ta))])
+            triad_dict[tt] = True
+            
+    for val in triad_dict.keys():
+        nodes = [int(x) for x in val.split(",")]
+        census = [k for k, v in nx.triads.triadic_census(G_new.subgraph(nodes)).items() if v][0]
+        if census not in non_transitive_census:
+            sign = nx.get_edge_attributes(G_new.subgraph(nodes),'sign')
+            triad_class[val] = [census, sign]
+            #map_census_edges(G_new, val, triad_class)     
+    for key, value in triad_class.items():
+        all_directed_triads = list(get_directed_triads(value[1]))
+        all_triads.append([all_directed_triads, value[0]])
+            
+    ## getting the balance vs. imbalance triads 
+    balances = []
+    imbalances = []
+    for items in all_triads:
+        balance_list = []
+        
+        ## removing two cycles from 300 and then calculate balance
+        if items[1] == '300':
+            for triangle in items[0]:
+                node = []
+                for edge in triangle:
+                    if edge[0] not in node:
+                        node.append(edge[0])
+                if len(node) != 3:
+                    balance = 1
+                    for edge in triangle:
+                        balance *= triangle[edge]
+                    balance_list.append(balance)
+        else:
+            for item in items[0]:
+                balance = 1
+                for edge in item:
+                    balance *= item[edge]
+                balance_list.append(balance)
+        neg = []
+        for n in balance_list:
+            if n <= 0 :
+                neg.append(n)
+        if neg:
+            imbalances.append(items)
+        else:
+            balances.append(items)
+    # print('Balance')
+    # print(balances)
+    # print('Imbalance')
+    # print(imbalances)
+    # print ('Triad Level Balance: ', (len(balances)/(len(balances) + len(imbalances))))        
+    # print ('Number of balance and transitive triads: ', len(balances))
+    # print ('Number of imbalance and transitive triads: ', len(imbalances))
+    
+    # print('Number of balance triads in each census', count_lists(balances))
+    # print('Number of imbalance triads in each census', count_lists(imbalances))
+    tb = len(balances)/(len(balances) + len(imbalances)) if len(balances) + len(imbalances) > 0 else 0
+    return balances, imbalances, tb, len(balances), len(imbalances), count_lists(balances), count_lists(imbalances)
+
+# Get census of all signed triads
+def get_all_signed_triads(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  all_triads = {}
+  for row in rows:
+    all_triads[row] = {}
+    for col in cols:
+      triad_dict = {}
+      triad_class = {}
+      all_triads[row][col] = []
+      ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
+      non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '021', '111U', '111D', '201', '030C', '120C', '210']
+      G = G_dict[row][col]
+      iter_g = search_triangles(G)
+      for iter_t in iter_g:
+        for ta in list(iter_t):
+          tt = ",".join([str(x) for x in sorted(set(ta))])
+          triad_dict[tt] = True     
+      for val in triad_dict.keys():
+        nodes = [int(x) for x in val.split(",")]
+        census = [k for k, v in nx.triads.triadic_census(G.subgraph(nodes)).items() if v][0]
+        if census not in non_transitive_census:
+          sign = nx.get_edge_attributes(G.subgraph(nodes),'sign')
+          triad_class[val] = [census, sign]
+          #map_census_edges(G, val, triad_class)     
+      for key, value in triad_class.items():
+        all_directed_triads = list(get_directed_triads(value[1]))
+        all_triads[row][col].append([all_directed_triads, value[0]])
+  return all_triads
+
+def signed_triad_census(all_triads, measure, n):
+  rows, cols = get_rowcol(all_triads)
+  num_row, num_col = len(rows), len(cols)
+  signed_triad_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_triad_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      signed_triad_count[row][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        signs = [triad_sign[edge] for edge in edge_order]
+        signs = ''.join(map(lambda x:'+' if x==1 else '-', signs))
+        signed_triad_count[row][col][triad_type + '\n' + signs] = signed_triad_count[row][col].get(triad_type + '\n' + signs, 0) + 1 
+      signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  fig = plt.figure(figsize=(5*num_col, 3*num_row))
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      plt.subplot(num_row, num_col, row_ind*num_col+col_ind+1)
+      t_count = signed_triad_count[row][col]
+      t_count = {k: v/sum(t_count.values()) for k, v in t_count.items()}
+      t_count = {k: t_count[k] for k in list(t_count)[:5]}
+      plt.bar(range(len(t_count)), list(t_count.values()), align='center')
+      plt.xticks(range(len(t_count)), list(t_count.keys()), fontsize=14)
+      if row_ind == 0:
+        plt.title(col, size=25)
+  plt.tight_layout()
+  # plt.suptitle(k, fontsize=14, rotation=0)
+  # plt.show()
+  figname = './plots/signed_triad_region_census_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+
+#################### micro level structural balance
 def plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure='xcorr'):
   num_col = 3
   # fig = plt.figure(figsize=(5*num_col, 25))
@@ -3319,6 +3523,7 @@ def get_meso_macro_balance(S):
   except:
     print('Model too large for size-limited license; visit https://www.gurobi.com/free-trial for a full license')
     return {}, np.nan, np.nan, np.nan, np.nan
+    # return {}, 0, 0, 0, 0
   solveTime.append(time.time() - start_time) 
   
   
