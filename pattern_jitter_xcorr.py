@@ -3364,7 +3364,21 @@ corr_pos_neg_weight(pos_G_dict, neg_G_dict)
 # %%
 ################## plot census of signed triads for each mouse given each stimulus
 all_triads = get_all_signed_triads(S_ccg_dict)
-signed_triad_census(all_triads, measure, n)
+triad_count = triad_census(all_triads)
+signed_triad_count = signed_triad_census(all_triads)
+plot_multi_bar_census(signed_triad_count, measure, n)
+#%%
+tran_triad_census = ['030T', '120D', '120U', '300']
+triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
+plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, measure, n, False)
+signs = [
+  ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---'],
+  ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----'],
+  ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----'],
+  ['++++++', '+++++-', '++++--', '+++---', '++----', '+-----', '------']
+]
+signed_tran_triad_census = [x+y for x in tran_triad_census for y in signs[tran_triad_census.index(x)][::-1]] # reverse order so that more positive signs have darker value
+plot_multi_pie_chart_census(signed_triad_count, signed_tran_triad_census, triad_colormap, measure, n, True)
 #%%
 rows, cols = get_rowcol(S_ccg_dict)
 t_balance, num_balance, num_imbalance = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
@@ -3376,15 +3390,15 @@ for row_ind, row in enumerate(rows):
   for col_ind, col in enumerate(cols):
     S = S_ccg_dict[row][col]
     print(col)
-    balance_triads[row][col], imbalance_triads[row][col], t_balance[row_ind, col_ind], num_balance[row_ind, col_ind], num_imbalance[row_ind, col_ind], balance_t_counts[row][col], imbalance_t_counts[row][col] = calculate_traid_balance(S) 
+    balance_triads[row][col], imbalance_triads[row][col], t_balance[row_ind, col_ind], num_balance[row_ind, col_ind], num_imbalance[row_ind, col_ind], balance_t_counts[row][col], imbalance_t_counts[row][col] = calculate_triad_balance(S) 
 # %%
 plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure)
 # %%
-tran_traid_census = ['030T', '120D', '120U', '300']
-plot_balance_pie_chart(balance_t_counts, 'balance', tran_traid_census)
-plot_balance_pie_chart(imbalance_t_counts, 'imbalance', tran_traid_census)
+tran_triad_census = ['030T', '120D', '120U', '300']
+plot_balance_pie_chart(balance_t_counts, 'balance', tran_triad_census)
+plot_balance_pie_chart(imbalance_t_counts, 'imbalance', tran_triad_census)
 # %%
-for triad_type in tran_traid_census:
+for triad_type in tran_triad_census:
   triad_region_census(balance_triads, triad_type, area_dict, visual_regions, measure, n, 'balance')
   triad_region_census(imbalance_triads, triad_type, area_dict, visual_regions, measure, n, 'imbalance')
 # %%
