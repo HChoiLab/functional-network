@@ -14,6 +14,7 @@ import sys
 import re
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.cm as cm
 from matplotlib import colors
 import statsmodels.stats.weightstats as ws
 import networkx as nx
@@ -3118,9 +3119,13 @@ def signed_triad_census(all_triads):
           node_P, node_X, node_O = triplets
           edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
         triad_sign = {k: v for d in triad[0] for k, v in d.items()}
-        signs = [triad_sign[edge] for edge in edge_order]
-        signs = ''.join(map(lambda x:'+' if x==1 else '-', signs))
-        signed_triad_count[row][col][triad_type + signs] = signed_triad_count[row][col].get(triad_type + signs, 0) + 1 
+        sign = [triad_sign[edge] for edge in edge_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        if triad_type == '120D' or triad_type == '120U':
+          sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+        elif triad_type == '300':
+          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+        signed_triad_count[row][col][triad_type + sign] = signed_triad_count[row][col].get(triad_type + sign, 0) + 1 
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_count
   
