@@ -3080,9 +3080,22 @@ def get_all_signed_triads(G_dict):
         all_triads[row][col].append([all_directed_triads, value[0]])
   return all_triads
 
+def triad_census(all_triads):
+  rows, cols = get_rowcol(all_triads)
+  triad_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    triad_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      triad_count[row][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        triad_count[row][col][triad_type] = triad_count[row][col].get(triad_type, 0) + 1 
+      triad_count[row][col] = dict(sorted(triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return triad_count
+
 def signed_triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
-  num_row, num_col = len(rows), len(cols)
   signed_triad_count = {}
   for row_ind, row in enumerate(rows):
     print(row)
@@ -3149,6 +3162,59 @@ def plot_multi_bar_census(signed_triad_count, measure, n):
   # plt.show()
   figname = './plots/signed_triad_region_census_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
+
+def plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, measure, n, sign=False):
+  ind = 1
+  rows, cols = get_rowcol(triad_count)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      labels = triad_count[row][col].keys()
+      sizes = triad_count[row][col].values()
+      hub_num[row_ind][col_ind] = sum(sizes)
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      vmax = 1 if len(tran_triad_census) == 4 else 2.5
+      norm = mpl.colors.Normalize(vmin=-1, vmax=vmax)
+      specific_triad_colormap = {}
+      for triad_type in triad_colormap:
+        cmap = getattr(cm, triad_colormap[triad_type])
+        m = cm.ScalarMappable(norm=norm, cmap=cmap)
+        all_triad = [t for t in tran_triad_census if triad_type in t]
+        for st_ind in range(len(all_triad)):
+          specific_triad_colormap[all_triad[st_ind]] = m.to_rgba(st_ind / (len(all_triad)-1)) if len(all_triad)-1 else m.to_rgba(0)
+      colors = [specific_triad_colormap[l] for l in labels]
+      # colors = [customPalette[tran_triad_census.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  suptitle = 'transitive triads distribution' if not sign else 'signed transitive triads distribution'
+  plt.suptitle(suptitle, size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  fname = './plots/pie_chart_triad_census_{}_{}fold.jpg' if not sign else './plots/pie_chart_signed_triad_census_{}_{}fold.jpg'
+  plt.savefig(fname.format(measure, n))
 
 #################### micro level structural balance
 def plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure='xcorr'):
