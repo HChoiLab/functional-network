@@ -1906,6 +1906,10 @@ plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_size(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_size(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
+plot_region_size_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
+plot_region_size_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
+plot_region_size_box(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
+#%%
 plot_region_degree(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
