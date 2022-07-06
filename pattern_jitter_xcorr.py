@@ -4,6 +4,20 @@ import importlib
 import library
 importlib.reload(library)
 
+area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
+measure = 'ccg'
+G_ccg_dict = remove_gabor(G_ccg_dict)
+G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+n = 4
+S_ccg_dict = add_sign(G_ccg_dict)
+######### split G_dict into pos and neg
+pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
+
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
   xcorr=np.zeros((N,N))
@@ -1829,7 +1843,7 @@ measure = 'ccg'
 ################# save area dict
 save_area_speed(session_ids, stimulus_names, visual_regions)
 #%%
-################# save aactive neuron inds
+################# save active neuron inds
 min_FR = 0.002 # 2 Hz
 stimulus_names = ['spontaneous', 'flashes',
         'drifting_gratings', 'static_gratings',
@@ -1839,22 +1853,6 @@ save_active_inds(min_FR, session_ids, stimulus_names)
 ################# save active area dict
 area_dict = load_area_dict(session_ids)
 save_active_area_dict(area_dict)
-#%%
-area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
-if not os.path.exists(path):
-  os.makedirs(path)
-G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
-measure = 'ccg'
-#%%
-G_ccg_dict = remove_gabor(G_ccg_dict)
-G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
-n = 4
-S_ccg_dict = add_sign(G_ccg_dict)
-#%%
-######### split G_dict into pos and neg
-pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 #%%
 # active_areas = get_all_active_areas(G_ccg_dict, area_dict)
 # print(active_areas)
@@ -3364,13 +3362,21 @@ corr_pos_neg_weight(pos_G_dict, neg_G_dict)
 # %%
 ################## plot census of signed triads for each mouse given each stimulus
 all_triads = get_all_signed_triads(S_ccg_dict)
+allmice_triad_count = allmice_triad_census(all_triads)
+meanmice_triad_percent = meanmice_triad_census(all_triads)
 triad_count = triad_census(all_triads)
 signed_triad_count = signed_triad_census(all_triads)
-plot_multi_bar_census(signed_triad_count, measure, n)
+allmice_signed_triad_count = allmice_signed_triad_census(all_triads)
+meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
+#%%
+# plot_multi_bar_census(signed_triad_count, measure, n)
 #%%
 tran_triad_census = ['030T', '120D', '120U', '300']
 triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
 plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(allmice_triad_count, tran_triad_census, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(meanmice_triad_percent, tran_triad_census, triad_colormap, measure, n, False)
+#%%
 signs = [
   ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---'],
   ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----'],
@@ -3379,6 +3385,9 @@ signs = [
 ]
 signed_tran_triad_census = [x+y for x in tran_triad_census for y in signs[tran_triad_census.index(x)][::-1]] # reverse order so that more positive signs have darker value
 plot_multi_pie_chart_census(signed_triad_count, signed_tran_triad_census, triad_colormap, measure, n, True)
+plot_multi_pie_chart_census(allmice_signed_triad_count, signed_tran_triad_census, triad_colormap, measure, n, True)
+plot_multi_pie_chart_census(meanmice_signed_triad_percent, signed_tran_triad_census, triad_colormap, measure, n, True)
+#%%
 #%%
 rows, cols = get_rowcol(S_ccg_dict)
 t_balance, num_balance, num_imbalance = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
