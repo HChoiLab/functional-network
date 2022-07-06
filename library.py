@@ -1913,6 +1913,39 @@ def plot_region_size(G_dict, area_dict, regions, measure, n, sign):
   figname = './plots/region_size_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(sign, measure, n))
 
+def plot_region_size_box(G_dict, area_dict, regions, measure, n, sign):
+  rows, cols = get_rowcol(G_dict)
+  region_size = np.zeros((len(rows), len(cols), len(regions)))
+  # fig = plt.figure(figsize=(5*num_col, 25))
+  fig = plt.figure(figsize=(24, 3))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      nodes = list(G.nodes())
+      for r_ind, r in enumerate(regions):
+        r_nodes = [n for n in nodes if area_dict[row][n] == r]
+        region_size[row_ind, col_ind, r_ind] = len(r_nodes)
+  for col_ind, col in enumerate(cols):
+    plt.subplot(1, len(cols), col_ind + 1)
+    data = []
+    # df = pd.DataFrame(columns=regions)
+    for r_ind, r in enumerate(regions):
+      data.append([region_size[row_ind, col_ind, r_ind] for row_ind in range(len(rows))])
+      # r_degree = np.mean([nx.degree(G, n) for n in r_nodes])
+      # data.append(r_degree)
+    # data = data_dict[row][col]
+    plt.boxplot(data)
+    plt.xticks([1, 2, 3, 4, 5, 6], regions, rotation=0)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    plt.ylabel('size')
+    plt.title(col, size=20)
+  plt.tight_layout()
+  figname = './plots/region_size_box_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(sign, measure, n))
+
 def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
   ind = 1
   rows, cols = get_rowcol(G_dict)
