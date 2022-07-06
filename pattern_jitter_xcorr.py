@@ -1902,14 +1902,16 @@ with open('pos_neg_random_metrics.pkl', 'rb') as f:
 plot_modularity_resolution(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
 plot_modularity_resolution(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
 #%%
-plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
-plot_region_size(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
-plot_region_size(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
+# plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
+# plot_region_size(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
+# plot_region_size(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
+################# boxplot of region size
 plot_region_size_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_size_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_size_box(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
+################# boxplot of region degree
 plot_region_degree(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
@@ -1926,12 +1928,18 @@ abs_neg_G_dict = get_abs_weight(neg_G_dict)
 region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg', weight=False)
 region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg', weight=True)
 #%%
+################# purity VS community size
 plot_comm_size_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False)
 plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=False)
 plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=True)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=False)
 plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=True)
+#%%
+plot_top_comm_purity(G_ccg_dict, 1, area_dict, measure, n, 'total', weight=False)
+plot_top_comm_purity(G_ccg_dict, 3, area_dict, measure, n, 'total', weight=False)
+plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, 'total', weight=False)
+plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, 'total', weight=False)
 #%%w
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
 plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
