@@ -3141,7 +3141,154 @@ def signed_triad_census(all_triads):
         signed_triad_count[row][col][triad_type + sign] = signed_triad_count[row][col].get(triad_type + sign, 0) + 1 
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_count
-  
+
+def allmice_triad_census(all_triads):
+  rows, cols = get_rowcol(all_triads)
+  allmice_triad_count = {}
+  allmice_triad_count['all'] = {}
+  for row in rows:
+    print(row)
+    for col in cols:
+      if col not in allmice_triad_count['all']:
+        allmice_triad_count['all'][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        allmice_triad_count['all'][col][triad_type] = allmice_triad_count['all'][col].get(triad_type, 0) + 1 
+      allmice_triad_count['all'][col] = dict(sorted(allmice_triad_count['all'][col].items(), key=lambda x:x[1], reverse=True))
+  return allmice_triad_count
+
+def allmice_signed_triad_census(all_triads):
+  rows, cols = get_rowcol(all_triads)
+  allmice_signed_triad_count = {}
+  for row in rows:
+    print(row)
+    allmice_signed_triad_count['all'] = {}
+    for col in cols:
+      if col not in allmice_signed_triad_count['all']:
+        allmice_signed_triad_count['all'][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        sign = [triad_sign[edge] for edge in edge_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        if triad_type == '120D' or triad_type == '120U':
+          sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+        elif triad_type == '300':
+          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+        allmice_signed_triad_count['all'][col][triad_type + sign] = allmice_signed_triad_count['all'][col].get(triad_type + sign, 0) + 1 
+      allmice_signed_triad_count['all'][col] = dict(sorted(allmice_signed_triad_count['all'][col].items(), key=lambda x:x[1], reverse=True))
+  return allmice_signed_triad_count
+
+################# mean of percentage (each mouse has the same effect)
+def meanmice_triad_census(all_triads):
+  rows, cols = get_rowcol(all_triads)
+  meanmice_triad_percent = {}
+  meanmice_triad_percent['mean'] = {}
+  for col in cols:
+    print(col)
+    meantriad_percent = {}
+    num_nonzero = 0
+    meanmice_triad_percent['mean'][col] = {}
+    for row in rows:
+      print(row)
+      triad_percent = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        triad_percent[triad_type] = triad_percent.get(triad_type, 0) + 1
+      triad_percent = {k:v/sum(triad_percent.values()) for k, v in triad_percent.items()}
+      if len(triad_percent):
+        num_nonzero += 1
+        assert np.isclose(sum(triad_percent.values()), 1)
+      meantriad_percent = {k:meantriad_percent.get(k, 0)+triad_percent.get(k, 0) for k in np.unique(list(triad_percent.keys()) + list(meantriad_percent.keys()))}
+    meanmice_triad_percent['mean'][col] = {k:v/num_nonzero for k, v in meantriad_percent.items()}
+    meanmice_triad_percent['mean'][col] = dict(sorted(meanmice_triad_percent['mean'][col].items(), key=lambda x:x[1], reverse=True))
+  return meanmice_triad_percent
+
+def meanmice_signed_triad_census(all_triads):
+  rows, cols = get_rowcol(all_triads)
+  meanmice_signed_triad_percent = {}
+  meanmice_signed_triad_percent['mean'] = {}
+  for col in cols:
+    print(col)
+    meantriad_percent = {}
+    num_nonzero = 0
+    meanmice_signed_triad_percent['mean'][col] = {}
+    for row in rows:
+      triad_percent = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        sign = [triad_sign[edge] for edge in edge_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        if triad_type == '120D' or triad_type == '120U':
+          sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+        elif triad_type == '300':
+          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+        
+        triad_percent[triad_type + sign] = triad_percent.get(triad_type + sign, 0) + 1
+      triad_percent = {k:v/sum(triad_percent.values()) for k, v in triad_percent.items()}
+      if len(triad_percent):
+        num_nonzero += 1
+        assert np.isclose(sum(triad_percent.values()), 1)
+      meantriad_percent = {k:meantriad_percent.get(k, 0)+triad_percent.get(k, 0) for k in np.unique(list(triad_percent.keys()) + list(meantriad_percent.keys()))}
+    meanmice_signed_triad_percent['mean'][col] = {k:v/num_nonzero for k, v in meantriad_percent.items()}
+    meanmice_signed_triad_percent['mean'][col] = dict(sorted(meanmice_signed_triad_percent['mean'][col].items(), key=lambda x:x[1], reverse=True))
+  return meanmice_signed_triad_percent
+
 def plot_multi_bar_census(signed_triad_count, measure, n):
   rows, cols = get_rowcol(signed_triad_count)
   num_row, num_col = len(rows), len(cols)
@@ -3214,6 +3361,11 @@ def plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, 
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
   fname = './plots/pie_chart_triad_census_{}_{}fold.jpg' if not sign else './plots/pie_chart_signed_triad_census_{}_{}fold.jpg'
+  if len(rows) == 1:
+    if rows[0] == 'all':
+      fname = fname.replace('triad', 'allmice_triad')
+    elif rows[0] == 'mean':
+      fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
 
 #################### micro level structural balance
