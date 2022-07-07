@@ -27,6 +27,7 @@ from scipy import signal
 from plfit import plfit
 from scipy import sparse
 import collections
+from collections import defaultdict
 import multiprocessing
 # from gurobipy import *
 import gurobipy as gp
@@ -3134,8 +3135,8 @@ def calculate_traid_balance(G_new):
     tb = len(balances)/(len(balances) + len(imbalances)) if len(balances) + len(imbalances) > 0 else 0
     return balances, imbalances, tb, len(balances), len(imbalances), count_lists(balances), count_lists(imbalances)
 
-# Get census of all signed triads
-def get_all_signed_triads(G_dict):
+# Get census of all signed transitive triads
+def get_all_signed_transitive_triads(G_dict):
   rows, cols = get_rowcol(G_dict)
   all_triads = {}
   for row in rows:
@@ -3145,7 +3146,7 @@ def get_all_signed_triads(G_dict):
       triad_class = {}
       all_triads[row][col] = []
       ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
-      non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '021', '111U', '111D', '201', '030C', '120C', '210']
+      non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '111U', '111D', '201', '030C', '120C', '210'] # , '021'
       G = G_dict[row][col]
       iter_g = search_triangles(G)
       for iter_t in iter_g:
@@ -3164,13 +3165,161 @@ def get_all_signed_triads(G_dict):
         all_triads[row][col].append([all_directed_triads, value[0]])
   return all_triads
 
+# Get census of all signed triads
+def get_all_signed_triads(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  all_triads = {}
+  for row in rows:
+    all_triads[row] = {}
+    for col in cols:
+      triad_dict = {}
+      triad_class = {}
+      all_triads[row][col] = []
+      G = G_dict[row][col]
+      iter_g = search_triangles(G)
+      for iter_t in iter_g:
+        for ta in list(iter_t):
+          tt = ",".join([str(x) for x in sorted(set(ta))])
+          triad_dict[tt] = True     
+      for val in triad_dict.keys():
+        nodes = [int(x) for x in val.split(",")]
+        census = [k for k, v in nx.triads.triadic_census(G.subgraph(nodes)).items() if v][0]
+        sign = nx.get_edge_attributes(G.subgraph(nodes),'sign')
+        triad_class[val] = [census, sign]
+        #map_census_edges(G, val, triad_class)     
+      for key, value in triad_class.items():
+        all_directed_triads = list(get_directed_triads(value[1]))
+        all_triads[row][col].append([all_directed_triads, value[0]])
+  return all_triads
+
+def triadic_census(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  triad_count = {}
+  for row in rows:
+    print(row)
+    triad_count[row] = {}
+    for  col in cols:
+      G = G_dict[row][col]
+      triad_count[row][col] = nx.triads.triadic_census(G)
+      triad_count[row][col] = dict(sorted(triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return triad_count
+  
+def count_triplet_connection_p(G):
+  num0, num1, num2 = 0, 0, 0
+  nodes = list(G.nodes())
+  for node_i in range(len(nodes)):
+    for node_j in range(len(nodes)):
+      if node_i != node_j:
+        if G.has_edge(nodes[node_i], nodes[node_j]) or G.has_edge(nodes[node_j], nodes[node_i]):
+          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
+            num2 += 1
+          else:
+            num1 += 1
+        else:
+          num0 += 1
+  assert num0 + num1 + num2 == len(nodes) * (len(nodes) - 1)
+  assert num1 / 2 + num2 == G.number_of_edges()
+  p0, p1, p2 = num0 / (num0 + num1 + num2), num1 / (2 * (num0 + num1 + num2)), num2 / (num0 + num1 + num2)
+  return p0, p1, p2
+
+def plot_pair_relative_count(G_dict, p_pair_func, measure, n, scale = True):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ylim = 0
+  for col in cols:
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
+  for col in cols:
+    print(col)
+    plt.subplot(1, 7, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_pair_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      all_pair_count['0'].append(p0 / p_pair_func['0'](p))
+      all_pair_count['1'].append(p1 / p_pair_func['1'](p))
+      all_pair_count['2'].append(p2 / p_pair_func['2'](p))
+    
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    plt.boxplot(triad_counts)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+    # plt.hlines(1, color='r', linestyles='--')
+    if scale:
+      plt.ylim(0, ylim)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    # plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all pairs', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_allpair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_allpair_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(measure, n))
+
+def plot_triad_relative_count(G_dict, p_triad_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
+    plt.boxplot(triad_counts)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all triads', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_alltriad_{}_{}fold.jpg'.format(measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
   triad_count = {}
-  for row_ind, row in enumerate(rows):
+  for row in rows:
     print(row)
     triad_count[row] = {}
-    for col_ind, col in enumerate(cols):
+    for  col in cols:
       triad_count[row][col] = {}
       for triad in all_triads[row][col]:
         triad_type = triad[1]
@@ -3394,7 +3543,7 @@ def plot_multi_bar_census(signed_triad_count, measure, n):
   figname = './plots/signed_triad_region_census_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
 
-def plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, measure, n, sign=False):
+def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measure, n, sign=False):
   ind = 1
   rows, cols = get_rowcol(triad_count)
   hub_num = np.zeros((len(rows), len(cols)))
@@ -3422,17 +3571,17 @@ def plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, 
       sizes = triad_count[row][col].values()
       hub_num[row_ind][col_ind] = sum(sizes)
       explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
-      vmax = 1 if len(tran_triad_census) == 4 else 2.5
+      vmax = 1 if len(triad_types) == 4 else 2.5
       norm = mpl.colors.Normalize(vmin=-1, vmax=vmax)
       specific_triad_colormap = {}
       for triad_type in triad_colormap:
         cmap = getattr(cm, triad_colormap[triad_type])
         m = cm.ScalarMappable(norm=norm, cmap=cmap)
-        all_triad = [t for t in tran_triad_census if triad_type in t]
+        all_triad = [t for t in triad_types if triad_type in t]
         for st_ind in range(len(all_triad)):
           specific_triad_colormap[all_triad[st_ind]] = m.to_rgba(st_ind / (len(all_triad)-1)) if len(all_triad)-1 else m.to_rgba(0)
       colors = [specific_triad_colormap[l] for l in labels]
-      # colors = [customPalette[tran_triad_census.index(l)] for l in labels]
+      # colors = [customPalette[triad_types.index(l)] for l in labels]
       patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
               shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
       for i, patch in enumerate(patches):
@@ -3440,11 +3589,15 @@ def plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, 
       # for i in range(len(p[0])):
       #   p[0][i].set_alpha(0.6)
       ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-  suptitle = 'transitive triads distribution' if not sign else 'signed transitive triads distribution'
+  suptitle = 'triads distribution' if not sign else 'signed triads distribution'
+  if set(triad_types) == set(['030T', '120D', '120U', '300']):
+    suptitle = suptitle.replace('triads', 'transitive triads')
   plt.suptitle(suptitle, size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
-  fname = './plots/pie_chart_triad_census_{}_{}fold.jpg' if not sign else './plots/pie_chart_signed_triad_census_{}_{}fold.jpg'
+  fname = './plots/pie_chart_all_triad_census_{}_{}fold.jpg' if not sign else './plots/pie_chart_signed_all_triad_census_{}_{}fold.jpg'
+  if set(triad_types) == set(['030T', '120D', '120U', '300']):
+    fname = fname.replace('all_triad', 'tran_triad')
   if len(rows) == 1:
     if rows[0] == 'all':
       fname = fname.replace('triad', 'allmice_triad')
