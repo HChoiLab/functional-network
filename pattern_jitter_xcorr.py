@@ -3373,21 +3373,67 @@ corr_pos_neg_weight(pos_G_dict, neg_G_dict)
 # frustrated_edges, colors = dnx.structural_imbalance(S)
 # %%
 ################## plot census of signed triads for each mouse given each stimulus
-all_triads = get_all_signed_triads(S_ccg_dict)
+all_triads = get_all_signed_transitive_triads(S_ccg_dict)
+triad_count = triad_census(all_triads)
 allmice_triad_count = allmice_triad_census(all_triads)
 meanmice_triad_percent = meanmice_triad_census(all_triads)
-triad_count = triad_census(all_triads)
 signed_triad_count = signed_triad_census(all_triads)
 allmice_signed_triad_count = allmice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 #%%
+all_triads = get_all_signed_triads(S_ccg_dict)
+#%%
+triad_count = triadic_census(S_ccg_dict)
+#%%
+triad_types = ['003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+colormaps = ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
+                      'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
+                      'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn']
+triad_colormap = {k:v for k,v in zip(triad_types, colormaps)}
+plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measure, n, sign=False)
+#%%
+# result = p_triad_func['003'](p0, p1, p2)
+# def plot_triad_relative_count():
+#   for col in cols:
+#     for row in rows:
+#       S = S_ccg_dict[row][col]
+#       p0, p1, p2 = count_triplet_connection_p(S)
+p_pair_func = {
+  '0': lambda p: (1 - p)**2,
+  '1': lambda p: 2 * (p * (1-p)),
+  '2': lambda p: p**2,
+}
+plot_pair_relative_count(S_ccg_dict, p_pair_func, measure, n, scale=False)
+plot_pair_relative_count(S_ccg_dict, p_pair_func, measure, n, scale=True)
+#%%
+p_triad_func = {
+  '003': lambda p0, p1, p2: p0**3,
+  '012': lambda p0, p1, p2: 6 * (p0**2 * p1),
+  '102': lambda p0, p1, p2: 3 * (p0**2 * p2),
+  '021D': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021U': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021C': lambda p0, p1, p2: 6 * (p0 * p1**2),
+  '111D': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '111U': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '030T': lambda p0, p1, p2: 6 * (p1**3),
+  '030C': lambda p0, p1, p2: 2 * (p1**3),
+  '201': lambda p0, p1, p2: 3 * (p0 * p2**2),
+  '120D': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120U': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120C': lambda p0, p1, p2: 6 * (p1**2 * p2),
+  '210': lambda p0, p1, p2: 6 * (p1 * p2**2),
+  '300': lambda p0, p1, p2: p2**3,
+}
+
+plot_triad_relative_count(S_ccg_dict, p_triad_func, measure, n)
+#%%
 # plot_multi_bar_census(signed_triad_count, measure, n)
 #%%
-tran_triad_census = ['030T', '120D', '120U', '300']
+tran_triad_types = ['030T', '120D', '120U', '300']
 triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
-plot_multi_pie_chart_census(triad_count, tran_triad_census, triad_colormap, measure, n, False)
-plot_multi_pie_chart_census(allmice_triad_count, tran_triad_census, triad_colormap, measure, n, False)
-plot_multi_pie_chart_census(meanmice_triad_percent, tran_triad_census, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(triad_count, tran_triad_types, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(allmice_triad_count, tran_triad_types, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(meanmice_triad_percent, tran_triad_types, triad_colormap, measure, n, False)
 #%%
 signs = [
   ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---'],
@@ -3395,10 +3441,10 @@ signs = [
   ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----'],
   ['++++++', '+++++-', '++++--', '+++---', '++----', '+-----', '------']
 ]
-signed_tran_triad_census = [x+y for x in tran_triad_census for y in signs[tran_triad_census.index(x)][::-1]] # reverse order so that more positive signs have darker value
-plot_multi_pie_chart_census(signed_triad_count, signed_tran_triad_census, triad_colormap, measure, n, True)
-plot_multi_pie_chart_census(allmice_signed_triad_count, signed_tran_triad_census, triad_colormap, measure, n, True)
-plot_multi_pie_chart_census(meanmice_signed_triad_percent, signed_tran_triad_census, triad_colormap, measure, n, True)
+signed_tran_triad_types = [x+y for x in tran_triad_types for y in signs[tran_triad_types.index(x)][::-1]] # reverse order so that more positive signs have darker value
+plot_multi_pie_chart_census(signed_triad_count, signed_tran_triad_types, triad_colormap, measure, n, True)
+plot_multi_pie_chart_census(allmice_signed_triad_count, signed_tran_triad_types, triad_colormap, measure, n, True)
+plot_multi_pie_chart_census(meanmice_signed_triad_percent, signed_tran_triad_types, triad_colormap, measure, n, True)
 #%%
 #%%
 rows, cols = get_rowcol(S_ccg_dict)
@@ -3415,11 +3461,11 @@ for row_ind, row in enumerate(rows):
 # %%
 plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure)
 # %%
-tran_triad_census = ['030T', '120D', '120U', '300']
-plot_balance_pie_chart(balance_t_counts, 'balance', tran_triad_census)
-plot_balance_pie_chart(imbalance_t_counts, 'imbalance', tran_triad_census)
+tran_triad_types = ['030T', '120D', '120U', '300']
+plot_balance_pie_chart(balance_t_counts, 'balance', tran_triad_types)
+plot_balance_pie_chart(imbalance_t_counts, 'imbalance', tran_triad_types)
 # %%
-for triad_type in tran_triad_census:
+for triad_type in tran_triad_types:
   triad_region_census(balance_triads, triad_type, area_dict, visual_regions, measure, n, 'balance')
   triad_region_census(imbalance_triads, triad_type, area_dict, visual_regions, measure, n, 'imbalance')
 # %%
@@ -3649,7 +3695,6 @@ def plot_meso_macro_balance(c_mat, d_mat, fi_mat, F_mat, rows, cols, measure, n)
   # plt.show()
   figname = './plots/stat_meso_macro_balance_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
-
 
 plot_meso_macro_balance(c_mat, d_mat, fi_mat, F_mat, rows, cols, measure, n)
 # %%
