@@ -28,6 +28,7 @@ from plfit import plfit
 from scipy import sparse
 import collections
 from collections import defaultdict
+from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
 # from gurobipy import *
 import gurobipy as gp
@@ -1791,7 +1792,7 @@ def get_random_modularity(G, num_rewire, algorithm, weight='weight', resolution=
     random_modularity[random_ind] = get_modularity(random_G, weight=weight, resolution=resolution)
   return random_modularity
 
-def modular_resolution(pos_G_dict, resolution_list, num_rewire, measure, n, neg_G_dict=None):
+def modular_resolution(pos_G_dict, resolution_list, num_rewire, neg_G_dict=None):
   rows, cols = get_rowcol(pos_G_dict)
   pos_w_modularity, neg_w_modularity, \
   pos_uw_modularity, neg_uw_modularity = [np.full([len(rows), len(cols), len(resolution_list)], np.nan) for _ in range(4)]
@@ -1880,6 +1881,31 @@ def plot_modularity_resolution(rows, cols, resolution_list, metrics, random_metr
     figname = './plots/{}_{}_{}fold.jpg'
     # plt.show()
     plt.savefig(figname.format(k.replace(' ', '_'), measure, n))
+
+def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
+  rows, cols = get_rowcol(G_dict)
+  comms_dict = {}
+  uw_modularity = np.full([len(rows), len(cols), len(resolution_list)], np.nan)
+  gnm_uw_modularity, swap_uw_modularity = [np.full([len(rows), len(cols), len(resolution_list), num_rewire], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    comms_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      comms_dict[row][col] = {}
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      for resolution_ind, resolution in enumerate(resolution_list):      
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+        comms = nx_comm.louvain_communities(G, weight='weight', resolution=resolution)
+        comms_dict[row][col][resolution] = comms
+        uw_modularity[row_ind, col_ind, resolution_ind] = get_modularity(G, weight='weight', resolution=resolution, comms=comms)
+        gnm_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+        swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)   
+  metrics = {'total unweighted modularity':uw_modularity, 'total Gnm unweighted modularity':gnm_uw_modularity, 'total swap unweighted modularity':swap_uw_modularity}
+  return comms_dict, metrics
 
 def plot_region_size(G_dict, area_dict, regions, measure, n, sign):
   rows, cols = get_rowcol(G_dict)
