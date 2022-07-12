@@ -1,4 +1,5 @@
 #%%
+from unittest.mock import NonCallableMagicMock
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
@@ -1538,8 +1539,10 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   figname = './plots/stats_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stats_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
 
-def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
+def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(pos_G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   pos_w_num_comm, neg_w_num_comm, pos_w_modularity, neg_w_modularity, \
   pos_uw_num_comm, neg_uw_num_comm, pos_uw_modularity, neg_uw_modularity, \
   pos_w_num_lcomm, neg_uw_num_lcomm, neg_w_num_lcomm, pos_uw_num_lcomm, \
@@ -1579,7 +1582,7 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
         assert neg_G.number_of_nodes() == count.sum()
       unweight = {(i, j):1 for i,j in pos_G.edges()}
       nx.set_edge_attributes(pos_G, unweight, 'weight')
-      comms = nx_comm.louvain_communities(pos_G, weight='weight')
+      comms = nx_comm.louvain_communities(pos_G, weight='weight', resolution=max_reso[row_ind, col_ind])
       pos_uw_num_comm[row_ind, col_ind] = len(comms)
       pos_uw_modularity[row_ind, col_ind] = get_modularity(pos_G, weight='weight', comms=comms)
       count = np.array([len(comm) for comm in comms])
@@ -1622,8 +1625,8 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None):
         labelbottom=False) # labels along the bottom edge are off
     plt.tight_layout()
   # plt.show()
-  figname = './plots/stat_modular_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stat_modular_total_{}_{}fold.jpg'
-  plt.savefig(figname.format(measure, n))
+  figname = './plots/stat_modular_pos_neg_{}_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stat_modular_total_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
 
 def comm2histogram(comms, density=True, binning=False):
     if type(comms) == dict:
@@ -1644,8 +1647,10 @@ def comm2histogram(comms, density=True, binning=False):
       data_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
     return data_seq, freq
 
-def size_of_each_community(G_dict, sign, measure, n):
+def size_of_each_community(G_dict, sign, measure, n, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -1672,7 +1677,7 @@ def size_of_each_community(G_dict, sign, measure, n):
       
       unweight = {(i, j):1 for i,j in G.edges()}
       nx.set_edge_attributes(G, unweight, 'weight')
-      comms = nx_comm.louvain_communities(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
       # part = community.best_partition(G, weight='weight')
       # metric = community.modularity(part, G, weight='weight')
       number, freq = comm2histogram(comms, density=False, binning=False)
@@ -1687,11 +1692,13 @@ def size_of_each_community(G_dict, sign, measure, n):
   # plt.show()
   plt.suptitle('{} size of each community'.format(sign), size=25)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/size_of_each_community_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  image_name = './plots/size_of_each_community_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
   plt.savefig(image_name)
 
-def distribution_community_size(G_dict, sign, measure, n):
+def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -1717,7 +1724,7 @@ def distribution_community_size(G_dict, sign, measure, n):
         G = G.to_undirected()
       unweight = {(i, j):1 for i,j in G.edges()}
       nx.set_edge_attributes(G, unweight, 'weight')
-      comms = nx_comm.louvain_communities(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
       # part = community.best_partition(G, weight='weight')
       # metric = community.modularity(part, G, weight='weight')
       _, freq = comm2histogram(comms, density=False, binning=False)
@@ -1733,7 +1740,7 @@ def distribution_community_size(G_dict, sign, measure, n):
   # plt.show()
   plt.suptitle('{} community size distribution'.format(sign), size=25)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  image_name = './plots/comm_distribution_size_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
   plt.savefig(image_name)
 
 def random_graph_generator(G, num_rewire, algorithm, cc=False, Q=100):
@@ -1906,6 +1913,18 @@ def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
         swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)   
   metrics = {'total unweighted modularity':uw_modularity, 'total Gnm unweighted modularity':gnm_uw_modularity, 'total swap unweighted modularity':swap_uw_modularity}
   return comms_dict, metrics
+
+def get_max_resolution(rows, cols, resolution_list, metrics): 
+  max_reso_gnm, max_reso_swap = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
+  uw_modularity, gnm_uw_modularity, swap_uw_modularity = metrics['total unweighted modularity'], metrics['total Gnm unweighted modularity'], metrics['total swap unweighted modularity']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      metric_gnm = gnm_uw_modularity[row_ind, col_ind].mean(-1)
+      metric_swap = swap_uw_modularity[row_ind, col_ind].mean(-1)
+      max_reso_gnm[row_ind, col_ind] = resolution_list[np.argmax(uw_modularity[row_ind, col_ind] - metric_gnm)]
+      max_reso_swap[row_ind, col_ind] = resolution_list[np.argmax(uw_modularity[row_ind, col_ind] - metric_swap)]
+  return max_reso_gnm, max_reso_swap
 
 def comm2label(comms):
   return [p for n, p in sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0])]
@@ -2099,8 +2118,10 @@ def plot_region_degree(G_dict, area_dict, regions, measure, n, sign):
   # plt.show()
   plt.savefig(image_name)
 
-def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=None):
+def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(pos_G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   pos_w_frac_lcomm, neg_uw_frac_lcomm, neg_w_frac_lcomm, pos_uw_frac_lcomm = [np.full([len(rows), len(cols), len(regions)], np.nan) for _ in range(4)]
   for row_ind, row in enumerate(rows):
     print(row)
@@ -2109,7 +2130,7 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
       if nx.is_directed(pos_G):
         pos_G = pos_G.to_undirected()
       if neg_G_dict is not None:
-        comms = nx_comm.louvain_communities(pos_G, weight='weight')
+        comms = nx_comm.louvain_communities(pos_G, weight='weight', resolution=max_reso[row_ind, col_ind])
         lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
         lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(pos_G.nodes())
@@ -2120,7 +2141,7 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
         neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
         if nx.is_directed(neg_G):
           neg_G = neg_G.to_undirected()
-        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        comms = nx_comm.louvain_communities(neg_G, weight='weight', resolution=max_reso[row_ind, col_ind])
         lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
         lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(neg_G.nodes())
@@ -2130,7 +2151,7 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
           neg_w_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
         unweight = {(i, j):1 for i,j in neg_G.edges()}
         nx.set_edge_attributes(neg_G, unweight, 'weight')
-        comms = nx_comm.louvain_communities(neg_G, weight='weight')
+        comms = nx_comm.louvain_communities(neg_G, weight='weight', resolution=max_reso[row_ind, col_ind])
         lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
         lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
         nodes = list(neg_G.nodes())
@@ -2140,7 +2161,7 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
           neg_uw_frac_lcomm[row_ind, col_ind, r_ind] = len(lcomm_r_nodes) / len(r_nodes) if len(r_nodes) else 0
       unweight = {(i, j):1 for i,j in pos_G.edges()}
       nx.set_edge_attributes(pos_G, unweight, 'weight')
-      comms = nx_comm.louvain_communities(pos_G, weight='weight')
+      comms = nx_comm.louvain_communities(pos_G, weight='weight', resolution=max_reso[row_ind, col_ind])
       lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
       lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
       nodes = list(pos_G.nodes())
@@ -2194,11 +2215,13 @@ def region_large_comm(pos_G_dict, area_dict, regions, measure, n, neg_G_dict=Non
   # plt.suptitle(k, fontsize=14, rotation=0)
   # plt.show()
   sign = 'pos_neg' if neg_G_dict is not None else 'total'
-  figname = './plots/region_large_comm_{}_{}_{}fold.jpg'
-  plt.savefig(figname.format(sign, measure, n))
+  figname = './plots/region_large_comm_{}_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(sign, max_method, measure, n))
 
-def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=False):
+def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   frac_lcomm = pd.DataFrame(columns=['stimulus', 'fraction', 'region'])
   for row_ind, row in enumerate(rows):
     print(row)
@@ -2212,7 +2235,7 @@ def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=Fa
         nx.set_edge_attributes(G, unweight, 'weight')
       else:
         name = '{}_w'.format(sign)
-      comms = nx_comm.louvain_communities(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
       lcomm_nodes = [list(comm) for comm in comms if len(comm) >= 4]
       lcomm_nodes = [item for sublist in lcomm_nodes for item in sublist]
       nodes = list(G.nodes())
@@ -2225,12 +2248,14 @@ def region_larg_comm_box(G_dict, area_dict, regions, measure, n, sign, weight=Fa
   ax = sns.boxplot(x="stimulus", y="fraction", hue="region", data=frac_lcomm, palette="Set3")
   ax.set(xlabel=None)
   plt.title(name + ' percentage of region in large communities', size=15)
-  plt.savefig('./plots/region_large_comm_box_{}_{}_{}fold.jpg'.format(name, measure, n))
+  plt.savefig('./plots/region_large_comm_box_{}_{}_{}_{}fold.jpg'.format(name, max_method, measure, n))
   # plt.show()
 
-def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False):
+def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   ind = 1
   rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   fig = plt.figure(figsize=(23, 9))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -2253,7 +2278,7 @@ def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False):
         nx.set_edge_attributes(G, unweight, 'weight')
       else:
         name = '{}_w'.format(sign)
-      comms = nx_comm.louvain_communities(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
       sizes = [len(comm) for comm in comms]
       # part = community.best_partition(G, weight='weight')
       # comms, sizes = np.unique(list(part.values()), return_counts=True)
@@ -2277,13 +2302,15 @@ def plot_comm_size_purity(G_dict, area_dict, measure, n, sign, weight=False):
     plt.ylabel('purity')
   plt.suptitle(name + ' community purity VS size', size=30)
   plt.tight_layout()
-  image_name = './plots/comm_size_purity_{}_{}_{}fold.jpg'.format(name, measure, n)
+  image_name = './plots/comm_size_purity_{}_{}_{}_{}fold.jpg'.format(name, max_method, measure, n)
   # plt.show()
   plt.savefig(image_name)
 
-def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, sign, weight=False):
+def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   ind = 1
   rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
   fig = plt.figure(figsize=(7, 4))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -2303,7 +2330,7 @@ def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, sign, weight=Fa
         nx.set_edge_attributes(G, unweight, 'weight')
       else:
         name = '{}_w'.format(sign)
-      comms = nx_comm.louvain_communities(G, weight='weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
       sizes = [len(comm) for comm in comms]
       # part = community.best_partition(G, weight='weight')
       # comms, sizes = np.unique(list(part.values()), return_counts=True)
@@ -2328,7 +2355,60 @@ def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, sign, weight=Fa
   plt.ylabel('purity')
   plt.title(name + ' top {} largest community purity'.format(num_top), size=18)
   plt.tight_layout()
-  image_name = './plots/top_{}_comm_purity_{}_{}_{}fold.jpg'.format(num_top, name, measure, n)
+  image_name = './plots/top_{}_comm_purity_{}_{}_{}_{}fold.jpg'.format(num_top, name, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+def plot_all_comm_purity(G_dict, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  all_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)], [v for k,v in sorted(data.items(), reverse=True)]
+    # c_purity = [x for xs in c_purity for x in xs]
+    all_purity.append([np.mean(xs) for xs in c_purity])
+  plt.boxplot(all_purity)
+  plt.xticks(list(range(1, len(all_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(name + ' all community purity', size=18)
+  plt.tight_layout()
+  image_name = './plots/all_comm_purity_{}_{}_{}_{}fold.jpg'.format(name, max_method, measure, n)
   # plt.show()
   plt.savefig(image_name)
 
