@@ -1907,6 +1907,88 @@ def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
   metrics = {'total unweighted modularity':uw_modularity, 'total Gnm unweighted modularity':gnm_uw_modularity, 'total swap unweighted modularity':swap_uw_modularity}
   return comms_dict, metrics
 
+def comm2label(comms):
+  return [p for n, p in sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0])]
+  
+def variation_of_information(X, Y):
+  n = float(sum([len(x) for x in X]))
+  sigma = 0.0
+  for x in X:
+    p = len(x) / n
+    for y in Y:
+      q = len(y) / n
+      r = len(set(x) & set(y)) / n
+      if r > 0.0:
+        sigma += r * (np.log2(r / p) + np.log2(r / q))
+  return abs(sigma)
+
+def normalized_variation_of_information(X, Y):
+  return variation_of_information(X, Y) / np.log2(len([x for xs in X for x in xs]))
+
+def plot_comm_diff_resolution(rows, cols, resolution_list, comms_dict, metrics, measure, n): 
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(7*num_col, 5*num_row))
+  ind = 1
+  uw_modularity, gnm_uw_modularity, swap_uw_modularity = metrics['total unweighted modularity'], metrics['total Gnm unweighted modularity'], metrics['total swap unweighted modularity']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax1 = plt.subplot(num_row, num_col, ind)
+      metric_swap = swap_uw_modularity[row_ind, col_ind].mean(-1)
+      metric_gnm = gnm_uw_modularity[row_ind, col_ind].mean(-1)
+      max_reso_swap = resolution_list[np.argmax(uw_modularity[row_ind, col_ind] - metric_swap)]
+      max_reso_gnm = resolution_list[np.argmax(uw_modularity[row_ind, col_ind] - metric_gnm)]
+      comm_best_swap = comms_dict[row][col][max_reso_swap]
+      comm_best_gnm = comms_dict[row][col][max_reso_gnm]
+      VI_swap, VI_gnm, ARS_swap, ARS_gnm = [], [], [], []
+      for reso in resolution_list:
+        comms = comms_dict[row][col][reso]
+        VI_swap.append(variation_of_information(comm_best_swap, comms))
+        VI_gnm.append(variation_of_information(comm_best_gnm, comms))
+        ARS_swap.append(adjusted_rand_score(comm2label(comm_best_swap), comm2label(comms)))
+        ARS_gnm.append(adjusted_rand_score(comm2label(comm_best_gnm), comm2label(comms)))
+      ax2 = ax1.twinx()
+      lns1 = ax1.plot(resolution_list, VI_swap, color='tab:blue', label='variation of information (swap)', alpha=0.6)
+      lns2 = ax1.plot(resolution_list, VI_gnm, color='tab:red', label=r'variation of information ($G_{nm}$)', alpha=0.6)
+      lns3 = ax2.plot(resolution_list, ARS_swap, color='tab:cyan', label='adjusted rand score (swap)', alpha=0.6)
+      lns4 = ax2.plot(resolution_list, ARS_gnm, color='tab:orange', label=r'adjusted rand score ($G_{nm}$)', alpha=0.6)
+      lns5 = ax1.axvline(x=max_reso_swap, color='tab:blue', label=r'resolution with max $Q - Q_{swap}$', linestyle='--', alpha=0.6)
+      lns6 = ax1.axvline(x=max_reso_gnm, color='tab:red', label=r'resolution with max $Q - Q_{G_{nm}}$', linestyle='--', alpha=0.6)
+      # plt.gca().set_title(k, fontsize=14, rotation=0)
+      plt.xticks(rotation=0)
+      ax1.set_ylabel('variation of information')
+      ax2.set_ylabel('adjusted rand score')
+      
+      # plt.yscale('symlog')
+      if ind == 1:
+        # print(type(lns1), type(lns2),type(lns3),type(lns4),type(lns5),type(lns6))
+        # print(lns5.get_label())
+        # print(lns1.get_label())
+        lns = lns1+lns2+lns3+lns4+[lns5,lns6]
+        
+        labs = [l.get_label() for l in lns]
+        ax1.legend(lns, labs, loc=0, fontsize=16)
+        # plt.legend(fontsize=16)
+      if row_ind == 0:
+        plt.title(col, size=25)
+      if row_ind < num_row -1 :
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affectedrandom_metrics
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+      else:
+        plt.xlabel(r'$\gamma$', size=20)
+      ind += 1
+  # plt.suptitle('community partition difference', size=30)
+  # plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/comm_diff_resolution_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(figname.format(measure, n))
+
 def plot_region_size(G_dict, area_dict, regions, measure, n, sign):
   rows, cols = get_rowcol(G_dict)
   region_size = np.zeros((len(rows), len(cols), len(regions)))
