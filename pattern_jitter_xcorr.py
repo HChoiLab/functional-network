@@ -1860,30 +1860,50 @@ save_active_area_dict(area_dict)
 print_stat(G_ccg_dict)
 #%%
 plot_stat(G_ccg_dict, n, measure=measure)
+# %%
+################## save community partitions and modularity VS resolution
+start_time = time.time()
+num_rewire = 10
+resolution_list = np.arange(0, 2.1, 0.1)
+comms_dict, metrics = comms_modularity_resolution(G_ccg_dict, resolution_list, num_rewire)
+with open('comms_dict.pkl', 'wb') as f:
+  pickle.dump(comms_dict, f)
+with open('metrics.pkl', 'wb') as f:
+  pickle.dump(metrics, f)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+################# get optimal resolution that maximizes delta Q
+rows, cols = get_rowcol(G_ccg_dict)
+with open('metrics.pkl', 'rb') as f:
+  metrics = pickle.load(f)
+max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
 #%%
 ############### community structure
-stat_modular_structure(G_ccg_dict, measure, n)
+stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
+stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_swap, max_method='swap')
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 stat_modular_structure(pos_G_dict, measure, n, abs_neg_G_dict)
 #%%
-size_of_each_community(G_ccg_dict, 'total', measure, n)
+size_of_each_community(G_ccg_dict, 'total', measure, n, max_reso=max_reso_gnm, max_method='gnm')
+size_of_each_community(G_ccg_dict, 'total', measure, n, max_reso=max_reso_swap, max_method='swap')
 size_of_each_community(pos_G_dict, 'positive', measure, n)
 size_of_each_community(neg_G_dict, 'negative', measure, n)
 #%%
-distribution_community_size(G_ccg_dict, 'total', measure, n)
+distribution_community_size(G_ccg_dict, 'total', measure, n, max_reso=max_reso_gnm, max_method='gnm')
+distribution_community_size(G_ccg_dict, 'total', measure, n, max_reso=max_reso_swap, max_method='swap')
 distribution_community_size(pos_G_dict, 'positive', measure, n)
 distribution_community_size(neg_G_dict, 'negative', measure, n)
 #%%
 start_time = time.time()
 num_rewire = 10
 resolution_list = np.arange(0, 2.1, 0.1)
-total_metrics, total_random_metrics = modular_resolution(G_ccg_dict, resolution_list, num_rewire, measure, n)
+total_metrics, total_random_metrics = modular_resolution(G_ccg_dict, resolution_list, num_rewire)
 with open('total_metrics.pkl', 'wb') as f:
     pickle.dump(total_metrics, f)
 with open('total_random_metrics.pkl', 'wb') as f:
     pickle.dump(total_random_metrics, f)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
-pos_neg_metrics, pos_neg_random_metrics = modular_resolution(pos_G_dict, resolution_list, num_rewire, measure, n, abs_neg_G_dict)
+pos_neg_metrics, pos_neg_random_metrics = modular_resolution(pos_G_dict, resolution_list, num_rewire, abs_neg_G_dict)
 with open('pos_neg_metrics.pkl', 'wb') as f:
     pickle.dump(pos_neg_metrics, f)
 with open('pos_neg_random_metrics.pkl', 'wb') as f:
@@ -1902,6 +1922,13 @@ with open('pos_neg_random_metrics.pkl', 'rb') as f:
 plot_modularity_resolution(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
 plot_modularity_resolution(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
 #%%
+rows, cols = get_rowcol(G_ccg_dict)
+with open('comms_dict.pkl', 'rb') as f:
+    comms_dict = pickle.load(f)
+with open('metrics.pkl', 'rb') as f:
+    metrics = pickle.load(f)
+plot_comm_diff_resolution(rows, cols, resolution_list, comms_dict, metrics, measure, n)
+#%%
 # plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
 # plot_region_size(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 # plot_region_size(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
@@ -1917,11 +1944,13 @@ plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
 ############### percentage of region in large communities
-region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n)
+region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_gnm, max_method='gnm')
+region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_swap, max_method='swap')
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 region_large_comm(pos_G_dict, area_dict, visual_regions, measure, n, abs_neg_G_dict)
 #%%
-region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False)
+region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
 region_larg_comm_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos', weight=False)
 region_larg_comm_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos', weight=True)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
@@ -1929,17 +1958,25 @@ region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg
 region_larg_comm_box(abs_neg_G_dict, area_dict, visual_regions, measure, n, 'neg', weight=True)
 #%%
 ################# purity VS community size
-plot_comm_size_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False)
+plot_comm_size_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_comm_size_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
 plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=False)
 plot_comm_size_purity(pos_G_dict, area_dict, measure, n, 'pos', weight=True)
 abs_neg_G_dict = get_abs_weight(neg_G_dict)
 plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=False)
 plot_comm_size_purity(abs_neg_G_dict, area_dict, measure, n, 'neg', weight=True)
 #%%
-plot_top_comm_purity(G_ccg_dict, 1, area_dict, measure, n, 'total', weight=False)
-plot_top_comm_purity(G_ccg_dict, 3, area_dict, measure, n, 'total', weight=False)
-plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, 'total', weight=False)
-plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, 'total', weight=False)
+plot_top_comm_purity(G_ccg_dict, 1, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_top_comm_purity(G_ccg_dict, 1, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
+plot_top_comm_purity(G_ccg_dict, 3, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_top_comm_purity(G_ccg_dict, 3, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
+plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
+plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
+#%%
+plot_all_comm_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+plot_all_comm_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
 #%%w
 G_ccg_lcc_dict = get_lcc(G_ccg_dict)
 plot_size_lcc(G_ccg_dict, G_ccg_lcc_dict)
@@ -3752,3 +3789,15 @@ def plot_bipartisan(ng_dict, rows, cols, area_dict, regions, measure, n):
 
 plot_bipartisan(ng_dict, rows, cols, area_dict, visual_regions, measure, n)
 # %%
+G = G_ccg_dict['719161530']['flashes'].copy()
+unweight = {(i, j):1 for i,j in G.edges()}
+nx.set_edge_attributes(G, unweight, 'weight')
+#%%
+comms = nx_comm.louvain_communities(G, weight='weight', resolution=1)
+comms2 = nx_comm.louvain_communities(G, weight='weight', resolution=2)
+# %%
+variation_of_information(comms2, comms) / np.log2(G.number_of_nodes())
+# %%
+adjusted_rand_score(comm2label(comms), comm2label(comms2))
+# %%
+
