@@ -2136,6 +2136,14 @@ plot_group_size_stimulus(pos_lscc_size, neg_lscc_size, 'LSCC', measure, n)
 plot_intra_inter_density(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
 plot_intra_inter_density(pos_G_dict, 'positive', area_dict, visual_regions, measure)
 plot_intra_inter_density(neg_G_dict, 'negative', area_dict, visual_regions, measure)
+#%%
+plot_intra_inter_connection(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
+plot_intra_inter_connection(pos_G_dict, 'positive', area_dict, visual_regions, measure)
+plot_intra_inter_connection(neg_G_dict, 'negative', area_dict, visual_regions, measure)
+#%%
+plot_intra_inter_ratio(G_ccg_dict, 'whole', area_dict, visual_regions, measure)
+plot_intra_inter_ratio(pos_G_dict, 'positive', area_dict, visual_regions, measure)
+plot_intra_inter_ratio(neg_G_dict, 'negative', area_dict, visual_regions, measure)
 # %%
 # G_ccg_dict = get_lcc(G_ccg_dict)
 # # %%
@@ -3464,6 +3472,141 @@ p_triad_func = {
 
 plot_triad_relative_count(S_ccg_dict, p_triad_func, measure, n)
 #%%
+p_pair_func = {
+  '0': lambda p: (1 - p)**2,
+  '1': lambda p: 2 * (p * (1-p)),
+  '2': lambda p: p**2,
+}
+for region in visual_regions:
+  print(region)
+  plot_singleregion_pair_relative_count(S_ccg_dict, area_dict, region, p_pair_func, measure, n, scale=False)
+  plot_singleregion_pair_relative_count(S_ccg_dict, area_dict, region, p_pair_func, measure, n, scale=True)
+#%%
+def plot_singleregion_triad_relative_count(G_dict, area_dict, area, p_triad_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = safe_division(G_triad_count[triad_type], num_triplet * p_triad_func[triad_type](p0, p1, p2))
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
+    plt.boxplot(triad_counts, showfliers=False)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    # plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all triads in {}'.format(area), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_{}_alltriad_{}_{}fold.jpg'.format(area, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+p_triad_func = {
+  '003': lambda p0, p1, p2: p0**3,
+  '012': lambda p0, p1, p2: 6 * (p0**2 * p1),
+  '102': lambda p0, p1, p2: 3 * (p0**2 * p2),
+  '021D': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021U': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021C': lambda p0, p1, p2: 6 * (p0 * p1**2),
+  '111D': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '111U': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '030T': lambda p0, p1, p2: 6 * (p1**3),
+  '030C': lambda p0, p1, p2: 2 * (p1**3),
+  '201': lambda p0, p1, p2: 3 * (p0 * p2**2),
+  '120D': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120U': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120C': lambda p0, p1, p2: 6 * (p1**2 * p2),
+  '210': lambda p0, p1, p2: 6 * (p1 * p2**2),
+  '300': lambda p0, p1, p2: p2**3,
+}
+
+for region in visual_regions:
+  print(region)
+  plot_singleregion_triad_relative_count(S_ccg_dict, area_dict, region, p_triad_func, measure, n)
+
+
+triad_count_df = pd.concat([pd.DataFrame(np.concatenate((triad_count, np.array([triad_type] * len(triad_count))), 1), columns=['relative count', 'type']) for triad_type, triad_count in all_triad_count.items()], ignore_index=True)
+ax = sns.violinplot(x='type', y='relative count', data=triad_count_df, color=sns.color_palette("Set2")[0])
+ax.set(xlabel=None)
+ax.set(ylabel=None)
+#%%
+def plot_singleregion_triad_relative_count_violin(G_dict, area_dict, area, p_triad_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = safe_division(G_triad_count[triad_type], num_triplet * p_triad_func[triad_type](p0, p1, p2))
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_count_df = pd.concat([pd.DataFrame(np.concatenate((np.array(triad_count)[:, None], np.array([triad_type] * len(triad_count))[:, None]), 1), columns=['relative count', 'type']) for triad_type, triad_count in all_triad_count.items()], ignore_index=True)
+    triad_count_df['relative count'] = pd.to_numeric(triad_count_df['relative count'])
+    ax = sns.violinplot(x='type', y='relative count', data=triad_count_df, color=sns.color_palette("Set2")[0])
+    ax.set(xlabel=None)
+    ax.set(ylabel=None)
+    
+    # triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
+    # plt.boxplot(triad_counts, showfliers=False)
+    # plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    # plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all triads in {}'.format(area), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_violin_{}_alltriad_{}_{}fold.jpg'.format(area, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+for region in visual_regions:
+  print(region)
+  plot_singleregion_triad_relative_count_violin(S_ccg_dict, area_dict, region, p_triad_func, measure, n)
+#%%
 # plot_multi_bar_census(signed_triad_count, measure, n)
 #%%
 tran_triad_types = ['030T', '120D', '120U', '300']
@@ -3788,16 +3931,3 @@ def plot_bipartisan(ng_dict, rows, cols, area_dict, regions, measure, n):
   plt.savefig(figname.format(measure, n))
 
 plot_bipartisan(ng_dict, rows, cols, area_dict, visual_regions, measure, n)
-# %%
-G = G_ccg_dict['719161530']['flashes'].copy()
-unweight = {(i, j):1 for i,j in G.edges()}
-nx.set_edge_attributes(G, unweight, 'weight')
-#%%
-comms = nx_comm.louvain_communities(G, weight='weight', resolution=1)
-comms2 = nx_comm.louvain_communities(G, weight='weight', resolution=2)
-# %%
-variation_of_information(comms2, comms) / np.log2(G.number_of_nodes())
-# %%
-adjusted_rand_score(comm2label(comms), comm2label(comms2))
-# %%
-
