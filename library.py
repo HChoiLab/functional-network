@@ -3501,6 +3501,103 @@ def plot_triad_relative_count(G_dict, p_triad_func, measure, n):
   # plt.show()
   plt.savefig(image_name)
 
+def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, measure, n, scale = True):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ylim = 0
+  for col in cols:
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
+  for col in cols:
+    print(col)
+    plt.subplot(1, 7, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_pair_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      all_pair_count['0'].append(p0 / p_pair_func['0'](p))
+      all_pair_count['1'].append(p1 / p_pair_func['1'](p))
+      all_pair_count['2'].append(p2 / p_pair_func['2'](p))
+    
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    plt.boxplot(triad_counts)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+    # plt.hlines(1, color='r', linestyles='--')
+    if scale:
+      plt.ylim(0, ylim)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    # plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all pairs in {}'.format(area), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_{}_allpair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_{}_allpair_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(area, measure, n))
+
+def plot_singleregion_triad_relative_count(G_dict, area_dict, area, p_triad_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
+    plt.boxplot(triad_counts)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all triads in {}'.format(area), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_{}_alltriad_{}_{}fold.jpg'.format(area, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
   triad_count = {}
