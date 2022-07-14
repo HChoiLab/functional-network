@@ -43,6 +43,10 @@ session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989,
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+
+def safe_division(n, d):
+    return n / d if d else 0
+
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
         super(pattern_jitter,self).__init__()
@@ -3135,7 +3139,7 @@ def plot_directed_hub_pie_chart(region_counts, sign, direction, regions, weight)
 
 def plot_intra_inter_density(G_dict, sign, area_dict, regions, measure):
   rows, cols = get_rowcol(G_dict)
-  metric = np.zeros((len(rows), len(cols), 2))
+  metric = np.zeros((len(rows), len(cols), 3))
   region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
   for row_ind, row in enumerate(rows):
     print(row)
@@ -3145,46 +3149,137 @@ def plot_intra_inter_density(G_dict, sign, area_dict, regions, measure):
         nodes = list(G.nodes())
         node_area = {key: area_dict[row][key] for key in nodes}
         areas = list(node_area.values())
-        active_areas = np.unique(areas)
         area_size = [areas.count(r) for r in regions]
         intra_num = sum(map(lambda x : x * (x-1), area_size)) 
         inter_num = len(nodes) * (len(nodes) - 1) - intra_num
         A = nx.to_numpy_array(G)
         A[A.nonzero()] = 1
         for region_ind_i, region_i in enumerate(regions):
-          if region_i in active_areas:
-            for region_ind_j, region_j in enumerate(regions):
-              if region_j in active_areas:
-                region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-                region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-                region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-                assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            if len(region_indices_i) and len(region_indices_j):
+              region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
         
         diag_indx = np.eye(len(regions),dtype=bool)
         metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx]) / intra_num
         metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx]) / inter_num
-  metric_names = ['intra-region density', 'inter-region density']
+        metric[row_ind, col_ind, 2] = nx.density(G)
+  metric_names = ['intra-region density', 'inter-region density', 'density']
   metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-  for metric_ind, metric_name in enumerate(metric_names):
-    df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
-    df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
-    df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
-    df['metric'] = metric_name
-    df['stimulus'] = cols
-    metric_stimulus = metric_stimulus.append(df, ignore_index=True)
+  # for metric_ind, metric_name in enumerate(metric_names):
+  #   df = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+  #   df['mean'] = np.nanmean(metric[:, :, metric_ind], axis=0)
+  #   df['std'] = np.nanstd(metric[:, :, metric_ind], axis=0)
+  #   df['metric'] = metric_name
+  #   df['stimulus'] = cols
+  #   metric_stimulus = metric_stimulus.append(df, ignore_index=True)
   # print(metric_stimulus)
   fig = plt.figure(figsize=[6, 6])
-  for i, m in metric_stimulus.groupby("metric"):
-    plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
-    plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, metric[row_ind, :, 0], color='#1f77b4', alpha=0.6)
+    plt.plot(cols, metric[row_ind, :, 1], color='#ff7f0e', alpha=0.6)
+    plt.plot(cols, metric[row_ind, :, 2], color='#2ca02c', alpha=0.6)
+  # for i, m in metric_stimulus.groupby("metric"):
+  #   plt.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['metric'].iloc[0])
+  #   print(m['mean'], m['mean'] - m['std'], m['mean'] + m['std'])
+  #   plt.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], alpha=0.2)
   plt.title('{} network'.format(sign), size=20)
+  plt.plot([], [], color='#1f77b4', alpha=0.6, label=metric_names[0])
+  plt.plot([], [], color='#ff7f0e', alpha=0.6, label=metric_names[1])
+  plt.plot([], [], color='#2ca02c', alpha=0.6, label=metric_names[2])
   plt.legend()
+  plt.ylabel('density')
   plt.xticks(rotation=90)
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/intra_inter_density_{}_{}.jpg'.format(sign, measure))
+
+def plot_intra_inter_connection(G_dict, sign, area_dict, regions, measure):
+  rows, cols = get_rowcol(G_dict)
+  metric = np.zeros((len(rows), len(cols), 3))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        node_area = {key: area_dict[row][key] for key in nodes}
+        areas = list(node_area.values())
+        area_size = [areas.count(r) for r in regions]
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            if len(region_indices_i) and len(region_indices_j):
+              region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+        
+        diag_indx = np.eye(len(regions),dtype=bool)
+        metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+        metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+        metric[row_ind, col_ind, 2] = nx.density(G)
+  metric_names = ['intra-region connection', 'inter-region connection']
+  metric_stimulus = pd.DataFrame(columns=['stimulus', 'metric', 'mean', 'std'])
+  fig = plt.figure(figsize=[6, 6])
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, metric[row_ind, :, 0], color='#1f77b4', alpha=0.6)
+    plt.plot(cols, metric[row_ind, :, 1], color='#ff7f0e', alpha=0.6)
+  plt.title('{} network'.format(sign), size=20)
+  plt.plot([], [], color='#1f77b4', alpha=0.6, label=metric_names[0])
+  plt.plot([], [], color='#ff7f0e', alpha=0.6, label=metric_names[1])
+  plt.legend()
+  plt.ylabel('number of connections')
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/intra_inter_connection_{}_{}.jpg'.format(sign, measure))
+
+def plot_intra_inter_ratio(G_dict, sign, area_dict, regions, measure):
+  rows, cols = get_rowcol(G_dict)
+  metric = np.zeros((len(rows), len(cols)))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        node_area = {key: area_dict[row][key] for key in nodes}
+        areas = list(node_area.values())
+        area_size = [areas.count(r) for r in regions]
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            if len(region_indices_i) and len(region_indices_j):
+              region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+        
+        diag_indx = np.eye(len(regions),dtype=bool)
+        metric[row_ind, col_ind] =  np.sum(region_connection[row_ind, col_ind][diag_indx]) / np.sum(region_connection[row_ind, col_ind][~diag_indx])
+  fig = plt.figure(figsize=[6, 6])
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, metric[row_ind, :], alpha=0.6, label=row)
+  plt.title('{} network'.format(sign), size=20)
+  plt.legend()
+  plt.ylabel('intra/inter ratio')
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/intra_inter_ratio_{}_{}.jpg'.format(sign, measure))
 
 def add_sign(G_dict):
   rows, cols = get_rowcol(G_dict)
@@ -3407,7 +3502,7 @@ def count_triplet_connection_p(G):
           num0 += 1
   assert num0 + num1 + num2 == len(nodes) * (len(nodes) - 1)
   assert num1 / 2 + num2 == G.number_of_edges()
-  p0, p1, p2 = num0 / (num0 + num1 + num2), num1 / (2 * (num0 + num1 + num2)), num2 / (num0 + num1 + num2)
+  p0, p1, p2 = safe_division(num0, num0 + num1 + num2), safe_division(num1, num0 + num1 + num2), safe_division(num2, num0 + num1 + num2)
   return p0, p1, p2
 
 def plot_pair_relative_count(G_dict, p_pair_func, measure, n, scale = True):
@@ -3517,7 +3612,7 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
       G = nx.subgraph(G, area_nodes)
       p = nx.density(G)
       p0, p1, p2 = count_triplet_connection_p(G)
-      ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
+      ylim = max(ylim, safe_division(p0, p_pair_func['0'](p)), safe_division(p1, p_pair_func['1'](p)), safe_division(p2, p_pair_func['2'](p)))
   for col in cols:
     print(col)
     plt.subplot(1, 7, ind)
@@ -3531,9 +3626,9 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
       G = nx.subgraph(G, area_nodes)
       p = nx.density(G)
       p0, p1, p2 = count_triplet_connection_p(G)
-      all_pair_count['0'].append(p0 / p_pair_func['0'](p))
-      all_pair_count['1'].append(p1 / p_pair_func['1'](p))
-      all_pair_count['2'].append(p2 / p_pair_func['2'](p))
+      all_pair_count['0'].append(safe_division(p0, p_pair_func['0'](p)))
+      all_pair_count['1'].append(safe_division(p1, p_pair_func['1'](p)))
+      all_pair_count['2'].append(safe_division(p2, p_pair_func['2'](p)))
     
     triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
     plt.boxplot(triad_counts)
@@ -3554,49 +3649,6 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
   image_name = './plots/relative_count_{}_allpair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_{}_allpair_{}_{}fold.jpg'
   # plt.show()
   plt.savefig(image_name.format(area, measure, n))
-
-def plot_singleregion_triad_relative_count(G_dict, area_dict, area, p_triad_func, measure, n):
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(23, 15))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for col in cols:
-    print(col)
-    plt.subplot(4, 2, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    all_triad_count = defaultdict(lambda: [])
-    for row in rows:
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
-      G = nx.subgraph(G, area_nodes)
-      G_triad_count = nx.triads.triadic_census(G)
-      num_triplet = sum(G_triad_count.values())
-      p0, p1, p2 = count_triplet_connection_p(G)
-      for triad_type in G_triad_count:
-        relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
-        all_triad_count[triad_type].append(relative_c)
-    
-    triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
-    plt.boxplot(triad_counts)
-    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
-    left, right = plt.xlim()
-    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
-    # plt.hist(data.flatten(), bins=12, density=True)
-    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-    # plt.xlabel('region')
-    # plt.xlabel('size')
-    plt.yscale('log')
-    plt.ylabel('relative count')
-  plt.suptitle('Relative count of all triads in {}'.format(area), size=30)
-  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/relative_count_{}_alltriad_{}_{}fold.jpg'.format(area, measure, n)
-  # plt.show()
-  plt.savefig(image_name)
 
 def triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
