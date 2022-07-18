@@ -1054,27 +1054,38 @@ def find_highland_new(corr, min_spike=50,duration=6, maxlag=12, n=7):
   ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
   pos_fold = ccg_mat_extreme > mu + n * sigma
   neg_fold = ccg_mat_extreme < mu - n * sigma
+  c_level = (ccg_mat_extreme - mu) / sigma
   indx = np.logical_or(pos_fold, neg_fold)
   highland_ccg[indx] = ccg_mat_extreme[indx]
-  # find the double count 0 time lag in significant edges
-  double_0 = (extreme_offset==0) & (extreme_offset.T==0) & indx
-  if np.sum(double_0):
-    highland_ccg[double_0] = np.nan
-    extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, :, -2]
-    ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
-    pos_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & pos_fold
-    neg_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & neg_fold
-    pos_remove_0 = (ccg_mat_extreme_2nd >= ccg_mat_extreme_2nd.T) and pos_double_0
-    neg_remove_0 = (ccg_mat_extreme_2nd <= ccg_mat_extreme_2nd.T) and neg_double_0
-    # for i, j in zip(*np.where(np.triu(double_0, 1))):
-    #     if (ccg_mat_extreme_2nd[i, j] >= ccg_mat_extreme_2nd[j, i]) and  (ccg_mat_extreme_2nd[i, j] >= mu):
-    pos_fold_2nd = (ccg_mat_extreme_2nd > mu + n * sigma) and pos_remove_0
-    neg_fold_2nd = (ccg_mat_extreme_2nd < mu - n * sigma) and neg_remove_0
-    indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
-    indx_2nd = np.logical_and(indx_2nd, double_0)
-    highland_ccg[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd]
   confidence_level[indx] = c_level[indx]
   offset[indx] = extreme_offset[indx]
+  # find the double count 0 time lag in significant edges
+  pos_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & (pos_fold==pos_fold.T) & pos_fold
+  neg_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & (neg_fold==neg_fold.T) & neg_fold
+  double_0 = np.logical_or(pos_double_0, neg_double_0)
+  if np.sum(double_0):
+    extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, :, -2]
+    ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+    c_level_2nd = (ccg_mat_extreme_2nd - mu) / sigma
+    
+    # pos_keep_0 = (ccg_mat_extreme_2nd < ccg_mat_extreme_2nd.T) and pos_double_0
+    # neg_keep_0 = (ccg_mat_extreme_2nd > ccg_mat_extreme_2nd.T) and neg_double_0
+    # keep_0 = np.logical_or(pos_keep_0, neg_keep_0)
+    
+    pos_remove_0 = np.logical_and(ccg_mat_extreme_2nd >= ccg_mat_extreme_2nd.T, pos_double_0)
+    neg_remove_0 = np.logical_and(ccg_mat_extreme_2nd <= ccg_mat_extreme_2nd.T, neg_double_0)
+    remove_0 = np.logical_or(pos_remove_0, neg_remove_0)
+    highland_ccg[remove_0], confidence_level[remove_0], offset[remove_0], indx[remove_0] = np.nan, 0, np.nan, False
+    
+    # for i, j in zip(*np.where(np.triu(double_0, 1))):
+    #     if (ccg_mat_extreme_2nd[i, j] >= ccg_mat_extreme_2nd[j, i]) and  (ccg_mat_extreme_2nd[i, j] >= mu):
+    pos_fold_2nd = np.logical_and(ccg_mat_extreme_2nd > mu + n * sigma, pos_remove_0)
+    neg_fold_2nd = np.logical_and(ccg_mat_extreme_2nd < mu - n * sigma, neg_remove_0)
+    indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
+    indx_2nd = np.logical_and(indx_2nd, remove_0)
+    highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], ccg_mat_extreme_2nd[indx_2nd]
+
+  indx = np.logical_or(indx, indx_2nd)
   return highland_ccg, confidence_level, offset, indx
 
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
