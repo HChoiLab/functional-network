@@ -1040,6 +1040,43 @@ def find_highland(corr, min_spike=50,duration=6, maxlag=12, n=7):
   offset[indx] = extreme_offset[indx]
   return highland_ccg, confidence_level, offset, indx
 
+########## remove double count of 0 time lag peak (compare 2nd peak)
+def find_highland_new(corr, min_spike=50,duration=6, maxlag=12, n=7):
+  num_nodes = corr.shape[0]
+  highland_ccg,offset,confidence_level=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
+  highland_ccg[:] = np.nan
+  offset[:] = np.nan
+  filter = np.array([[[1]]]).repeat(duration+1, axis=2) # sum instead of mean
+  corr_integral = signal.convolve(corr, filter, mode='valid', method='fft')
+  mu, sigma = np.nanmean(corr_integral, -1), np.nanstd(corr_integral, -1)
+  abs_deviation = np.abs(corr_integral[:, :, :maxlag-duration+1] - mu[:,:,None])
+  extreme_offset = np.argmax(abs_deviation, -1)
+  ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+  pos_fold = ccg_mat_extreme > mu + n * sigma
+  neg_fold = ccg_mat_extreme < mu - n * sigma
+  indx = np.logical_or(pos_fold, neg_fold)
+  highland_ccg[indx] = ccg_mat_extreme[indx]
+  # find the double count 0 time lag in significant edges
+  double_0 = (extreme_offset==0) & (extreme_offset.T==0) & indx
+  if np.sum(double_0):
+    highland_ccg[double_0] = np.nan
+    extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, :, -2]
+    ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+    pos_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & pos_fold
+    neg_double_0 = (extreme_offset==0) & (extreme_offset.T==0) & neg_fold
+    pos_remove_0 = (ccg_mat_extreme_2nd >= ccg_mat_extreme_2nd.T) and pos_double_0
+    neg_remove_0 = (ccg_mat_extreme_2nd <= ccg_mat_extreme_2nd.T) and neg_double_0
+    # for i, j in zip(*np.where(np.triu(double_0, 1))):
+    #     if (ccg_mat_extreme_2nd[i, j] >= ccg_mat_extreme_2nd[j, i]) and  (ccg_mat_extreme_2nd[i, j] >= mu):
+    pos_fold_2nd = (ccg_mat_extreme_2nd > mu + n * sigma) and pos_remove_0
+    neg_fold_2nd = (ccg_mat_extreme_2nd < mu - n * sigma) and neg_remove_0
+    indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
+    indx_2nd = np.logical_and(indx_2nd, double_0)
+    highland_ccg[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd]
+  confidence_level[indx] = c_level[indx]
+  offset[indx] = extreme_offset[indx]
+  return highland_ccg, confidence_level, offset, indx
+
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
   path = directory.replace(measure, measure+'_highland')
   if not os.path.exists(path):
