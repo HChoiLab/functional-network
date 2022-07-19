@@ -1083,9 +1083,30 @@ def find_highland_new(corr, min_spike=50,duration=6, maxlag=12, n=7):
     neg_fold_2nd = np.logical_and(ccg_mat_extreme_2nd < mu - n * sigma, neg_remove_0)
     indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
     indx_2nd = np.logical_and(indx_2nd, remove_0)
-    highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], ccg_mat_extreme_2nd[indx_2nd]
+    highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], extreme_offset_2nd[indx_2nd]
     indx = np.logical_or(indx, indx_2nd)
   return highland_ccg, confidence_level, offset, indx
+
+############### find 2nd largest highland for double-count edges to remove
+def find_2nd_highland(corr, duration=6, maxlag=12, n=7):
+  num_pairs = corr.shape[0]
+  highland_ccg_2nd,offset_2nd,confidence_level_2nd=np.zeros(num_pairs),np.zeros(num_pairs),np.zeros(num_pairs)
+  highland_ccg_2nd[:] = np.nan
+  offset_2nd[:] = np.nan
+  filter = np.array([[1]]).repeat(duration+1, axis=1) # sum instead of mean
+  corr_integral = signal.convolve(corr, filter, mode='valid', method='fft')
+  mu, sigma = np.nanmean(corr_integral, -1), np.nanstd(corr_integral, -1)
+  abs_deviation = np.abs(corr_integral[:, :maxlag-duration+1] - mu[:,None])
+  extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, -2]
+  ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :maxlag-duration+1], -1, 0))
+  c_level_2nd = (ccg_mat_extreme_2nd - mu) / sigma
+  pos_fold_2nd = ccg_mat_extreme_2nd > mu + n * sigma
+  neg_fold_2nd = ccg_mat_extreme_2nd < mu - n * sigma
+  c_level_2nd = (ccg_mat_extreme_2nd - mu) / sigma
+  indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
+  highland_ccg_2nd[indx_2nd], confidence_level_2nd[indx_2nd], offset_2nd[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], extreme_offset_2nd[indx_2nd]
+
+  return highland_ccg_2nd, confidence_level_2nd, offset_2nd, indx_2nd
 
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
   path = directory.replace(measure, measure+'_highland')
@@ -1163,30 +1184,18 @@ def save_ccg_corrected_highland_new(directory, measure, min_spike=50, max_durati
           significant_offset[indx] = offset[indx]
           significant_duration[indx] = duration
       double_0 = (significant_offset==0) & (significant_offset.T==0) & (~np.isnan(significant_ccg)) & (~np.isnan(significant_ccg.T))
+      print('Number of cross duration double-count edges: {}'.format(np.sum(double_0)))
       if np.sum(double_0):
-        extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, :, -2]
-        ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
-        c_level_2nd = (ccg_mat_extreme_2nd - mu) / sigma
-        
-        # pos_keep_0 = (ccg_mat_extreme_2nd < ccg_mat_extreme_2nd.T) and pos_double_0
-        # neg_keep_0 = (ccg_mat_extreme_2nd > ccg_mat_extreme_2nd.T) and neg_double_0
-        # keep_0 = np.logical_or(pos_keep_0, neg_keep_0)
-        
-        pos_remove_0 = np.logical_and(ccg_mat_extreme_2nd >= ccg_mat_extreme_2nd.T, pos_double_0)
-        neg_remove_0 = np.logical_and(ccg_mat_extreme_2nd <= ccg_mat_extreme_2nd.T, neg_double_0)
-        remove_0 = np.logical_or(pos_remove_0, neg_remove_0)
-        highland_ccg[remove_0], confidence_level[remove_0], offset[remove_0], indx[remove_0] = np.nan, 0, np.nan, False
-        
-        # for i, j in zip(*np.where(np.triu(double_0, 1))):
-        #     if (ccg_mat_extreme_2nd[i, j] >= ccg_mat_extreme_2nd[j, i]) and  (ccg_mat_extreme_2nd[i, j] >= mu):
-        pos_fold_2nd = np.logical_and(ccg_mat_extreme_2nd > mu + n * sigma, pos_remove_0)
-        neg_fold_2nd = np.logical_and(ccg_mat_extreme_2nd < mu - n * sigma, neg_remove_0)
-        indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
-        indx_2nd = np.logical_and(indx_2nd, remove_0)
-        highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], ccg_mat_extreme_2nd[indx_2nd]
-        indx = np.logical_or(indx, indx_2nd)
-      
-      
+        remove_0 = (significant_duration >= significant_duration.T) & double_0
+        significant_ccg[remove_0], significant_confidence[remove_0], significant_offset[remove_0], significant_duration[remove_0] = np.nan, np.nan, np.nan, np.nan
+        for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
+          highland_ccg_2nd, confidence_level_2nd, offset_2nd, indx_2nd =  find_2nd_highland(ccg_corrected[remove_0], duration, maxlag, n)
+          if np.sum(indx_2nd):
+            significant_ccg[remove_0][indx_2nd] = highland_ccg_2nd[indx_2nd]
+            significant_confidence[remove_0][indx_2nd] = confidence_level_2nd[indx_2nd]
+            significant_offset[remove_0][indx_2nd] = offset_2nd[indx_2nd]
+            significant_duration[remove_0][indx_2nd] = duration
+
       print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
       save_npz(significant_ccg, os.path.join(path, file))
       save_npz(significant_confidence, os.path.join(path, file.replace('.npz', '_confidence.npz')))
