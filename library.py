@@ -1084,15 +1084,14 @@ def find_highland_new(corr, min_spike=50,duration=6, maxlag=12, n=7):
     indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
     indx_2nd = np.logical_and(indx_2nd, remove_0)
     highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], ccg_mat_extreme_2nd[indx_2nd]
-
-  indx = np.logical_or(indx, indx_2nd)
+    indx = np.logical_or(indx, indx_2nd)
   return highland_ccg, confidence_level, offset, indx
 
 def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
   path = directory.replace(measure, measure+'_highland')
   if not os.path.exists(path):
     os.makedirs(path)
-  files = os.listdir(directory)
+  files = os.listdir(directory)########## remove double count of 0 time lag peak (compare 2nd peak)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
     if '_bl' not in file:
@@ -1128,6 +1127,72 @@ def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6
       save_npz(significant_offset, os.path.join(path, file.replace('.npz', '_offset.npz')))
       save_npz(significant_duration, os.path.join(path, file.replace('.npz', '_duration.npz')))
 
+########## remove double count of 0 time lag peak (compare 2nd peak)
+def save_ccg_corrected_highland_new(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=3):
+  path = directory.replace(measure, measure+'_highland')
+  if not os.path.exists(path):
+    os.makedirs(path)
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if '_bl' not in file:
+      print(file)
+      try: 
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      num_nodes = ccg.shape[0]
+      significant_ccg,significant_confidence,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
+      significant_ccg[:] = np.nan
+      significant_confidence[:] = np.nan
+      significant_offset[:] = np.nan
+      significant_duration[:] = np.nan
+      ccg_corrected = ccg - ccg_jittered
+      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
+      for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
+        print('duration {}'.format(duration))
+        highland_ccg, confidence_level, offset, indx = find_highland_new(ccg_corrected, min_spike, duration, maxlag, n)
+        # highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+        if np.sum(indx):
+          significant_ccg[indx] = highland_ccg[indx]
+          significant_confidence[indx] = confidence_level[indx]
+          significant_offset[indx] = offset[indx]
+          significant_duration[indx] = duration
+      double_0 = (significant_offset==0) & (significant_offset.T==0) & (~np.isnan(significant_ccg)) & (~np.isnan(significant_ccg.T))
+      if np.sum(double_0):
+        extreme_offset_2nd = np.argpartition(abs_deviation, -2, axis=-1)[:, :, -2]
+        ccg_mat_extreme_2nd = np.choose(extreme_offset_2nd, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+        c_level_2nd = (ccg_mat_extreme_2nd - mu) / sigma
+        
+        # pos_keep_0 = (ccg_mat_extreme_2nd < ccg_mat_extreme_2nd.T) and pos_double_0
+        # neg_keep_0 = (ccg_mat_extreme_2nd > ccg_mat_extreme_2nd.T) and neg_double_0
+        # keep_0 = np.logical_or(pos_keep_0, neg_keep_0)
+        
+        pos_remove_0 = np.logical_and(ccg_mat_extreme_2nd >= ccg_mat_extreme_2nd.T, pos_double_0)
+        neg_remove_0 = np.logical_and(ccg_mat_extreme_2nd <= ccg_mat_extreme_2nd.T, neg_double_0)
+        remove_0 = np.logical_or(pos_remove_0, neg_remove_0)
+        highland_ccg[remove_0], confidence_level[remove_0], offset[remove_0], indx[remove_0] = np.nan, 0, np.nan, False
+        
+        # for i, j in zip(*np.where(np.triu(double_0, 1))):
+        #     if (ccg_mat_extreme_2nd[i, j] >= ccg_mat_extreme_2nd[j, i]) and  (ccg_mat_extreme_2nd[i, j] >= mu):
+        pos_fold_2nd = np.logical_and(ccg_mat_extreme_2nd > mu + n * sigma, pos_remove_0)
+        neg_fold_2nd = np.logical_and(ccg_mat_extreme_2nd < mu - n * sigma, neg_remove_0)
+        indx_2nd = np.logical_or(pos_fold_2nd, neg_fold_2nd)
+        indx_2nd = np.logical_and(indx_2nd, remove_0)
+        highland_ccg[indx_2nd], confidence_level[indx_2nd], offset[indx_2nd] = ccg_mat_extreme_2nd[indx_2nd], c_level_2nd[indx_2nd], ccg_mat_extreme_2nd[indx_2nd]
+        indx = np.logical_or(indx, indx_2nd)
+      
+      
+      print('{} significant edges'.format(np.sum(~np.isnan(significant_ccg))))
+      save_npz(significant_ccg, os.path.join(path, file))
+      save_npz(significant_confidence, os.path.join(path, file.replace('.npz', '_confidence.npz')))
+      save_npz(significant_offset, os.path.join(path, file.replace('.npz', '_offset.npz')))
+      save_npz(significant_duration, os.path.join(path, file.replace('.npz', '_duration.npz')))
+      
 ############ save significant xcorr for sharp peaks
 def save_xcorr_sharp_peak(directory, sign, measure, maxlag=12, alpha=0.01, n=3):
   path = directory.replace(measure, sign+'_'+measure+'_sharp_peak')
