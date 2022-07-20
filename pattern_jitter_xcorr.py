@@ -11,8 +11,11 @@ if not os.path.exists(path):
   os.makedirs(path)
 G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
 measure = 'ccg'
+
 G_ccg_dict = remove_gabor(G_ccg_dict)
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
+active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
 n = 4
 S_ccg_dict = add_sign(G_ccg_dict)
 ######### split G_dict into pos and neg
@@ -1876,6 +1879,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 rows, cols = get_rowcol(G_ccg_dict)
 with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
+resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
 #%%
 ############### community structure
@@ -1894,39 +1898,40 @@ distribution_community_size(G_ccg_dict, 'total', measure, n, max_reso=max_reso_s
 distribution_community_size(pos_G_dict, 'positive', measure, n)
 distribution_community_size(neg_G_dict, 'negative', measure, n)
 #%%
-start_time = time.time()
-num_rewire = 10
-resolution_list = np.arange(0, 2.1, 0.1)
-total_metrics, total_random_metrics = modular_resolution(G_ccg_dict, resolution_list, num_rewire)
-with open('total_metrics.pkl', 'wb') as f:
-    pickle.dump(total_metrics, f)
-with open('total_random_metrics.pkl', 'wb') as f:
-    pickle.dump(total_random_metrics, f)
-abs_neg_G_dict = get_abs_weight(neg_G_dict)
-pos_neg_metrics, pos_neg_random_metrics = modular_resolution(pos_G_dict, resolution_list, num_rewire, abs_neg_G_dict)
-with open('pos_neg_metrics.pkl', 'wb') as f:
-    pickle.dump(pos_neg_metrics, f)
-with open('pos_neg_random_metrics.pkl', 'wb') as f:
-    pickle.dump(pos_neg_random_metrics, f)
-print("--- %s minutes" % ((time.time() - start_time)/60))
+# start_time = time.time()
+# num_rewire = 10
+# resolution_list = np.arange(0, 2.1, 0.1)
+# total_metrics, total_random_metrics = modular_resolution(G_ccg_dict, resolution_list, num_rewire)
+# with open('total_metrics.pkl', 'wb') as f:
+#     pickle.dump(total_metrics, f)
+# with open('total_random_metrics.pkl', 'wb') as f:
+#     pickle.dump(total_random_metrics, f)
+# abs_neg_G_dict = get_abs_weight(neg_G_dict)
+# pos_neg_metrics, pos_neg_random_metrics = modular_resolution(pos_G_dict, resolution_list, num_rewire, abs_neg_G_dict)
+# with open('pos_neg_metrics.pkl', 'wb') as f:
+#     pickle.dump(pos_neg_metrics, f)
+# with open('pos_neg_random_metrics.pkl', 'wb') as f:
+#     pickle.dump(pos_neg_random_metrics, f)
+# print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-rows, cols = get_rowcol(G_ccg_dict)
-with open('total_metrics.pkl', 'rb') as f:
-    total_metrics = pickle.load(f)
-with open('total_random_metrics.pkl', 'rb') as f:
-    total_random_metrics = pickle.load(f)
-with open('pos_neg_metrics.pkl', 'rb') as f:
-    pos_neg_metrics = pickle.load(f)
-with open('pos_neg_random_metrics.pkl', 'rb') as f:
-    pos_neg_random_metrics = pickle.load(f)
-plot_modularity_resolution(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
-plot_modularity_resolution(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
+# rows, cols = get_rowcol(G_ccg_dict)
+# with open('total_metrics.pkl', 'rb') as f:
+#     total_metrics = pickle.load(f)
+# with open('total_random_metrics.pkl', 'rb') as f:
+#     total_random_metrics = pickle.load(f)
+# with open('pos_neg_metrics.pkl', 'rb') as f:
+#     pos_neg_metrics = pickle.load(f)
+# with open('pos_neg_random_metrics.pkl', 'rb') as f:
+#     pos_neg_random_metrics = pickle.load(f)
+# plot_modularity_resolution_rand(rows, cols, resolution_list, total_metrics, total_random_metrics, measure, n)
+# plot_modularity_resolution_rand(rows, cols, resolution_list, pos_neg_metrics, pos_neg_random_metrics, measure, n)
 #%%
 rows, cols = get_rowcol(G_ccg_dict)
 with open('comms_dict.pkl', 'rb') as f:
     comms_dict = pickle.load(f)
 with open('metrics.pkl', 'rb') as f:
     metrics = pickle.load(f)
+plot_modularity_resolution(rows, cols, resolution_list, metrics, measure, n)
 plot_comm_diff_resolution(rows, cols, resolution_list, comms_dict, metrics, measure, n)
 #%%
 # plot_region_size(G_ccg_dict, area_dict, visual_regions, measure, n, 'total')
@@ -1944,11 +1949,12 @@ plot_region_degree(pos_G_dict, area_dict, visual_regions, measure, n, 'pos')
 plot_region_degree(neg_G_dict, area_dict, visual_regions, measure, n, 'neg')
 #%%
 ############### percentage of region in large communities
-region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_gnm, max_method='gnm')
-region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_swap, max_method='swap')
-abs_neg_G_dict = get_abs_weight(neg_G_dict)
-region_large_comm(pos_G_dict, area_dict, visual_regions, measure, n, abs_neg_G_dict)
+# region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_gnm, max_method='gnm')
+# region_large_comm(G_ccg_dict, area_dict, visual_regions, measure, n, max_reso=max_reso_swap, max_method='swap')
+# abs_neg_G_dict = get_abs_weight(neg_G_dict)
+# region_large_comm(pos_G_dict, area_dict, visual_regions, measure, n, abs_neg_G_dict)
 #%%
+############### boxplot percentage of region in large communities
 region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
 region_larg_comm_box(G_ccg_dict, area_dict, visual_regions, measure, n, 'total', weight=False, max_reso=max_reso_swap, max_method='swap')
 region_larg_comm_box(pos_G_dict, area_dict, visual_regions, measure, n, 'pos', weight=False)
@@ -1997,7 +2003,7 @@ plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(G_ccg_dict, 'total', area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, max_reso_gnm, offset_dict, 'total', area_dict, active_area_dict, measure, n, cc=cc)
 #%%
 ########### LSCC distribution
 lscc_region_counts, lscc_size = get_lscc_region_count(G_ccg_dict, area_dict, visual_regions)
