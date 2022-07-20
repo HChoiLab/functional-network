@@ -217,8 +217,8 @@ def spike_timing2train(T, spikeTrain):
     return spikeData
 
 class CommunityLayout():
-  def __init__(self):
-    super(CommunityLayout,self).__init__()
+  # def __init__(self):
+  #   super(CommunityLayout,self).__init__()
   def get_community_layout(self, g, partition):
     """
     Compute the layout for a modular graph.
@@ -1112,7 +1112,7 @@ def save_ccg_corrected_highland(directory, measure, min_spike=50, max_duration=6
   path = directory.replace(measure, measure+'_highland')
   if not os.path.exists(path):
     os.makedirs(path)
-  files = os.listdir(directory)########## remove double count of 0 time lag peak (compare 2nd peak)
+  files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
     if '_bl' not in file:
@@ -1507,6 +1507,64 @@ def load_highland_xcorr(directory, active_area_dict, weight):
       duration_dict[mouseID][stimulus_name] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
   return G_dict, offset_dict, duration_dict
 
+########### plot time offset distribution of reciprocal edge
+def double0_edge_heatmap(data_dict, max_duration, name, measure, n):
+  rows, cols = get_rowcol(data_dict)
+  scale = np.zeros(len(rows))
+  data_mat = np.zeros((len(rows), len(cols), max_duration+2, max_duration+2))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      data = data_dict[row][col]
+      unidirectional_edge0_mask = (~np.isnan(data)) & (np.isnan(data.T))
+      if np.sum(unidirectional_edge0_mask) and not 'bidirectional' in name:
+        for row_i, row_j in zip(*np.where(unidirectional_edge0_mask)):
+          data_A, data_B = int(data[row_i, row_j])+1, 0
+          data_mat[row_ind, col_ind, data_A, data_B] += 1
+      unidirectional_edge1_mask = (np.isnan(data)) & (~np.isnan(data.T))
+      if np.sum(unidirectional_edge1_mask) and not 'bidirectional' in name:
+        for row_i, row_j in zip(*np.where(unidirectional_edge1_mask)):
+          data_A, data_B = 0, int(data[row_j, row_i])+1
+          data_mat[row_ind, col_ind, data_A, data_B] += 1
+      bidirectional_edge_mask = (~np.isnan(data)) & (~np.isnan(data.T))
+      if np.sum(bidirectional_edge_mask):
+        for row_i, row_j in zip(*np.where(bidirectional_edge_mask)):
+          data_A, data_B = int(data[row_i, row_j])+1, int(data[row_j, row_i])+1
+          data_mat[row_ind, col_ind, data_A, data_B] += 1
+          data_mat[row_ind, col_ind, data_B, data_A] += 1
+      data_mat[row_ind, col_ind, :, :] = safe_division(data_mat[row_ind, col_ind, :, :], data_mat[row_ind, col_ind, :, :].sum())
+    scale[row_ind] = data_mat[row_ind, :, :, :].max()
+  ind = 1
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap(data_mat[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r", norm=colors.LogNorm())# cmap="YlGnBu"
+      sns_plot.set_xticks(np.arange(max_duration+2)+0.5)
+      sns_plot.set_xticklabels(['N/A']+list(range(max_duration+1)), rotation=90)
+      sns_plot.set_yticks(np.arange(max_duration+2)+0.5)
+      sns_plot.set_yticklabels(['N/A']+list(range(max_duration+1)), rotation=0)
+      sns_plot.invert_yaxis()
+  plt.suptitle('{} distribution'.format(name), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  plt.savefig('./plots/{}_{}_{}fold.jpg'.format(name.replace(' ', '_'), measure, n))
+
 def remove_gabor(G_dict):
   for key in G_dict:
     G_dict[key].pop('gabors', None)
@@ -1520,6 +1578,14 @@ def remove_thalamic(G_dict, area_dict, regions):
       nodes = [n for n in G.nodes() if area_dict[row][n] in regions]
       G_dict[row][col] = G.subgraph(nodes)
   return G_dict
+
+def remove_thalamic_area(active_area_dict, regions):
+  rows = list(active_area_dict.keys())
+  for row in rows:
+    active_area = active_area_dict[row]
+    new_active_area = {n:a for n,a in active_area_dict.items() if a in regions}
+    active_area_dict[row] = new_active_area
+  return active_area_dict
 
 ############### regular network statistics
 def split_pos_neg(G_dict, measure):
@@ -1974,7 +2040,7 @@ def modular_resolution(pos_G_dict, resolution_list, num_rewire, neg_G_dict=None)
     'positive swap unweighted modularity':pos_swap_uw_modularity, 'negative swap unweighted modularity':neg_swap_uw_modularity}
   return metrics, random_metrics
 
-def plot_modularity_resolution(rows, cols, resolution_list, metrics, random_metrics, measure, n): 
+def plot_modularity_resolution_rand(rows, cols, resolution_list, metrics, random_metrics, measure, n): 
   num_row, num_col = len(rows), len(cols)
   for i, k in enumerate(metrics):
     fig = plt.figure(figsize=(5*num_col, 5*num_row))
@@ -2040,6 +2106,47 @@ def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
   metrics = {'total unweighted modularity':uw_modularity, 'total Gnm unweighted modularity':gnm_uw_modularity, 'total swap unweighted modularity':swap_uw_modularity}
   return comms_dict, metrics
 
+def plot_modularity_resolution(rows, cols, resolution_list, metrics, measure, n): 
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(num_row, num_col, ind)
+      ind += 1
+      metric = metrics['total unweighted modularity']
+      plt.plot(resolution_list, metric[row_ind, col_ind], label=r'$Q$', alpha=0.6)
+      metric_swap = metrics['total swap unweighted modularity'][row_ind, col_ind].mean(-1)
+      metric_gnm = metrics['total Gnm unweighted modularity'][row_ind, col_ind].mean(-1)
+      plt.plot(resolution_list, metric_swap, color='r', label=r'$Q_{swap}$', alpha=0.6)
+      plt.plot(resolution_list, metric_gnm, color='g', label=r'$Q_{Gnm}$', alpha=0.6)
+      plt.plot(resolution_list, metric[row_ind, col_ind] - metric_swap, 'r--', label=r'$Q-Q_{swap}$', alpha=0.8)
+      plt.plot(resolution_list, metric[row_ind, col_ind] - metric_gnm, 'g--', label=r'$Q-Q_{Gnm}$', alpha=0.8)
+      # plt.gca().set_title(k, fontsize=14, rotation=0)
+      plt.xticks(rotation=0)
+      
+      # plt.yscale('symlog')
+      if ind == num_row*num_col+1:
+        plt.legend(fontsize=20)
+      if row_ind == 0:
+        plt.title(col, size=25)
+      if row_ind < num_row -1 :
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affectedrandom_metrics
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+      else:
+        plt.xlabel(r'$\gamma$', size=20)
+  plt.suptitle('total unweighted modularity', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  figname = './plots/{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(figname.format('total_unweighted_modularity', measure, n))
+
 def get_max_resolution(rows, cols, resolution_list, metrics): 
   max_reso_gnm, max_reso_swap = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
   uw_modularity, gnm_uw_modularity, swap_uw_modularity = metrics['total unweighted modularity'], metrics['total Gnm unweighted modularity'], metrics['total swap unweighted modularity']
@@ -2055,6 +2162,9 @@ def get_max_resolution(rows, cols, resolution_list, metrics):
 def comm2label(comms):
   return [p for n, p in sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0])]
   
+def comm2partition(comms):
+  return dict(sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0]))
+
 def variation_of_information(X, Y):
   n = float(sum([len(x) for x in X]))
   sigma = 0.0
@@ -2799,84 +2909,6 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n
   plt.savefig(figname)
   # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
-def plot_multi_graphs_color(G_dict, sign, area_dict, measure, n, cc=False):
-  com = CommunityLayout()
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  G_sample = G_dict[rows[0]][cols[0]]
-  dire = True if nx.is_directed(G_sample) else False
-  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      plt.subplot(len(rows), len(cols), ind)
-      if row_ind == 0:
-        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
-      if col_ind == 0:
-        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
-        horizontalalignment='left',
-        verticalalignment='center',
-        # rotation='vertical',
-        transform=plt.gca().transAxes, fontsize=30, rotation=90)
-      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ind += 1
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      nx.set_node_attributes(G, area_dict[row], "area")
-      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
-        if cc:
-          if nx.is_directed(G):
-            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-          else:
-            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
-            G = G.subgraph(Gcc[0])
-        try:
-          edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
-          weights = np.abs(weights)
-        except:
-          edges = nx.edges(G)
-          weights = np.ones(len(edges))
-        degrees = dict(G.degree)
-        try:
-          if nx.is_directed(G):
-            G = G.to_undirected()
-          # weight cannot be negative
-          if sum([n<0 for n in nx.get_edge_attributes(G, "weight").values()]):
-            print('Edge weight cannot be negative for weighted modularity, setting to unweighted...')
-            unweight = {(i, j):1 for i,j in G.edges()}
-            nx.set_edge_attributes(G, unweight, 'weight')
-          partition = community.best_partition(G, weight='weight')
-          pos = com.get_community_layout(G, partition)
-          metric = community.modularity(partition, G, weight='weight')
-          print('Modularity: {}'.format(metric))
-        except:
-          print('Community detection unsuccessful!')
-          pos = nx.spring_layout(G)
-        areas = [G.nodes[n]['area'] for n in G.nodes()]
-        areas_uniq = list(set(areas))
-        colors = [customPalette[areas_uniq.index(area)] for area in areas]
-        # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
-        # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
-        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
-        node_color=colors, alpha=0.4)
-      if row_ind == col_ind == 0:
-        areas = [G.nodes[n]['area'] for n in G.nodes()]
-        areas_uniq = list(set(areas))
-        for index, a in enumerate(areas_uniq):
-          plt.scatter([],[], c=customPalette[index], label=a, s=30)
-        legend = plt.legend(loc='upper center', fontsize=20)
-  for handle in legend.legendHandles:
-    handle.set_sizes([60.0])
-  plt.tight_layout()
-  image_name = './plots/graphs_region_color_cc_{}_{}_{}fold.jpg'.format(sign, measure, n) if cc else './plots/graphs_region_color_{}_{}_{}fold.jpg'.format(sign, measure, n)
-  plt.savefig(image_name)
-  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
-  # plt.show()
 
 
 def func_powerlaw(x, m, c):
