@@ -2927,7 +2927,7 @@ def plot_multi_graphs_color(G_dict, max_reso, offset_dict, sign, area_dict, acti
   rows, cols = get_rowcol(G_dict)
   G_sample = G_dict[rows[0]][cols[0]]
   dire = True if nx.is_directed(G_sample) else False
-  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+  fig = plt.figure(figsize=(9*len(cols), 6*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
   right = left + width
@@ -2970,8 +2970,10 @@ def plot_multi_graphs_color(G_dict, max_reso, offset_dict, sign, area_dict, acti
         degrees = dict(G.degree)
         
         # use offset as edge weight (color)
-        ### remove thalamic from offset_mat !!!!!!!!
         weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+        norm = mpl.colors.Normalize(vmin=-1, vmax=11)
+        m= cm.ScalarMappable(norm=norm, cmap=cm.Greens)
+        edge_colors = [m.to_rgba(w) for w in weights]
         # weights = [offset_mat[reverse_mapping[edge[0]], reverse_mapping[edge[1]]] for edge in edges]
         try:
           if nx.is_directed(G):
@@ -2999,7 +3001,7 @@ def plot_multi_graphs_color(G_dict, max_reso, offset_dict, sign, area_dict, acti
         areas_uniq = list(set(areas))
         colors = [customPalette[areas_uniq.index(area)] for area in areas]
         # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
+        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.9) # , edge_cmap=plt.cm.Greens
         # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
         nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
         node_color=colors, alpha=0.4)
@@ -3016,6 +3018,43 @@ def plot_multi_graphs_color(G_dict, max_reso, offset_dict, sign, area_dict, acti
   plt.savefig(image_name)
   # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
+
+# intra/inter region offset/duration
+def plot_intra_inter_data(data_dict, G_dict, sign, name, density, active_area_dict, measure, n):
+  rows, cols = get_rowcol(data_dict)
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 3*num_row))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      intra_data, inter_data = [], []
+      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      for i, j in zip(*np.where(~np.isnan(mat))):
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_data.append(mat[i, j])
+        else:
+          inter_data.append(mat[i, j])
+      ax = plt.subplot(num_row, num_col, row_ind*num_col+col_ind+1)
+      plt.hist(intra_data, 13, density=density, facecolor='g', alpha=0.3, label='intra-region {}'.format(name))
+      plt.hist(inter_data, 13, density=density, facecolor='b', alpha=0.3, label='inter-region {}'.format(name))
+      plt.axvline(x=np.nanmean(intra_data), color='g', linestyle='--', alpha=0.3)
+      plt.axvline(x=np.nanmean(inter_data), color='b', linestyle='--', alpha=0.3)
+      if density:
+        plt.ylabel('Probability')
+      else:
+        plt.ylabel('Count')
+      if row_ind == 0:
+        plt.title(col, size=25)
+      if row_ind == len(rows)-1:
+        plt.xlabel(r'time lag $\tau$')
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_density_{}_{}_{}_{}fold.jpg' if density else './plots/intra_inter_count_{}_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, sign, measure, n))
 
 def func_powerlaw(x, m, c):
   return x**m * c
