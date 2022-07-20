@@ -15,11 +15,19 @@ measure = 'ccg'
 G_ccg_dict = remove_gabor(G_ccg_dict)
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
+duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regions)
 active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
 n = 4
 S_ccg_dict = add_sign(G_ccg_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
+
+################# get optimal resolution that maximizes delta Q
+rows, cols = get_rowcol(G_ccg_dict)
+with open('metrics.pkl', 'rb') as f:
+  metrics = pickle.load(f)
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
 
 def n_cross_correlation6(matrix, maxlag, disable): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from time window average
   N, M =matrix.shape
@@ -1875,13 +1883,6 @@ with open('metrics.pkl', 'wb') as f:
   pickle.dump(metrics, f)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-################# get optimal resolution that maximizes delta Q
-rows, cols = get_rowcol(G_ccg_dict)
-with open('metrics.pkl', 'rb') as f:
-  metrics = pickle.load(f)
-resolution_list = np.arange(0, 2.1, 0.1)
-max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
-#%%
 ############### community structure
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_swap, max_method='swap')
@@ -2003,7 +2004,16 @@ plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight
 # %%
 ############# plot all graphs with community layout and color as region #################
 cc = True
-plot_multi_graphs_color(G_ccg_dict, max_reso_gnm, offset_dict, 'total', area_dict, active_area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, max_reso_gnm, offset_dict, 'total_offset_gnm', area_dict, active_area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, max_reso_swap, offset_dict, 'total_offset_swap', area_dict, active_area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, max_reso_gnm, duration_dict, 'total_duration_gnm', area_dict, active_area_dict, measure, n, cc=cc)
+plot_multi_graphs_color(G_ccg_dict, max_reso_swap, duration_dict, 'total_duration_swap', area_dict, active_area_dict, measure, n, cc=cc)
+#%%
+############ plot distribution of intra/inter offset/duration
+plot_intra_inter_data(offset_dict, G_ccg_dict, 'total', 'offset', True, active_area_dict, measure, n)
+plot_intra_inter_data(offset_dict, G_ccg_dict, 'total', 'offset', False, active_area_dict, measure, n)
+plot_intra_inter_data(duration_dict, G_ccg_dict, 'total', 'duration', True, active_area_dict, measure, n)
+plot_intra_inter_data(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
 #%%
 ########### LSCC distribution
 lscc_region_counts, lscc_size = get_lscc_region_count(G_ccg_dict, area_dict, visual_regions)
@@ -3725,7 +3735,7 @@ for i in range(0,S.number_of_nodes()):
 index = 0
 weighted_edges=nx.get_edge_attributes(S, 'sign')
 sorted_weighted_edges=[]
-sorted_weighted_edges.append({})
+sorted_weighted_edges.appeplt.cm.Greensnd({})
 for (u,v) in weighted_edges:
     (sorted_weighted_edges[index])[(u,v)] = weighted_edges[(u,v)]
 z={}    
