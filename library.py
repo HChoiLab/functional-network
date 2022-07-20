@@ -1579,11 +1579,23 @@ def remove_thalamic(G_dict, area_dict, regions):
       G_dict[row][col] = G.subgraph(nodes)
   return G_dict
 
+def remove_thalamic_mat(data_dict, active_area_dict, regions):
+  rows, cols = get_rowcol(data_dict)
+  for row in rows:
+    for col in cols:
+      mat = data_dict[row][col].copy()
+      active_area = active_area_dict[row]
+      all_node_idx = sorted(list(active_area.keys()))
+      active_node_idx = sorted([n for n in active_area if active_area[n] in regions])
+      mat_idx = np.array([all_node_idx.index(n) for n in active_node_idx])
+      data_dict[row][col] = mat[mat_idx[:, None], mat_idx]
+  return data_dict
+
 def remove_thalamic_area(active_area_dict, regions):
   rows = list(active_area_dict.keys())
   for row in rows:
     active_area = active_area_dict[row]
-    new_active_area = {n:a for n,a in active_area_dict.items() if a in regions}
+    new_active_area = {n:a for n,a in active_area.items() if a in regions}
     active_area_dict[row] = new_active_area
   return active_area_dict
 
