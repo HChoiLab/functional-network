@@ -1574,7 +1574,7 @@ def remove_thalamic(G_dict, area_dict, regions):
   rows, cols = get_rowcol(G_dict)
   for row in rows:
     for col in cols:
-      G = G_dict[row][col]
+      G = G_dict[row][col].copy()
       nodes = [n for n in G.nodes() if area_dict[row][n] in regions]
       G_dict[row][col] = G.subgraph(nodes)
   return G_dict
@@ -1594,7 +1594,7 @@ def remove_thalamic_mat(data_dict, active_area_dict, regions):
 def remove_thalamic_area(active_area_dict, regions):
   rows = list(active_area_dict.keys())
   for row in rows:
-    active_area = active_area_dict[row]
+    active_area = active_area_dict[row].copy()
     new_active_area = {n:a for n,a in active_area.items() if a in regions}
     active_area_dict[row] = new_active_area
   return active_area_dict
@@ -2921,7 +2921,101 @@ def region_connection_delta_heatmap(G_dict, sign, area_dict, regions, measure, n
   plt.savefig(figname)
   # plt.savefig('./plots/region_connection_delta_scale_{}_{}.pdf'.format(measure, num), transparent=True)
 
-
+def plot_multi_graphs_color(G_dict, max_reso, offset_dict, sign, area_dict, active_area_dict, measure, n, cc=False):
+  com = CommunityLayout()
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  G_sample = G_dict[rows[0]][cols[0]]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(6*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      offset_mat = offset_dict[row][col]
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      nx.set_node_attributes(G, area_dict[row], "area")
+      if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+        if cc:
+          if nx.is_directed(G):
+            Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+          else:
+            Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+            G = G.subgraph(Gcc[0])
+        node_idx = sorted(active_area_dict[row].keys())
+        reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+        G = nx.relabel_nodes(G, reverse_mapping)
+        try:
+          edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
+          weights = np.abs(weights)
+        except:
+          edges = nx.edges(G)
+          weights = np.ones(len(edges))
+        degrees = dict(G.degree)
+        
+        # use offset as edge weight (color)
+        ### remove thalamic from offset_mat !!!!!!!!
+        weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+        # weights = [offset_mat[reverse_mapping[edge[0]], reverse_mapping[edge[1]]] for edge in edges]
+        try:
+          if nx.is_directed(G):
+            G = G.to_undirected()
+          # weight cannot be negative
+          if sum([n<0 for n in nx.get_edge_attributes(G, "weight").values()]):
+            print('Edge weight cannot be negative for weighted modularity, setting to unweighted...')
+            unweight = {(i, j):1 for i,j in G.edges()}
+            nx.set_edge_attributes(G, unweight, 'weight')
+          
+          unweight = {(i, j):1 for i,j in G.edges()}
+          nx.set_edge_attributes(G, unweight, 'weight')
+          comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
+          pos = com.get_community_layout(G, comm2partition(comms))
+          metric = nx_comm.modularity(G, comms, weight='weight', resolution=max_reso[row_ind, col_ind])
+          # partition = community.best_partition(G, weight='weight')
+          # pos = com.get_community_layout(G, partition)
+          # metric = community.modularity(partition, G, weight='weight')
+          print('Modularity: {}'.format(metric))
+        except:
+          print('Community detection unsuccessful!')
+          pos = nx.spring_layout(G)
+        
+        areas = [G.nodes[n]['area'] for n in G.nodes()]
+        areas_uniq = list(set(areas))
+        colors = [customPalette[areas_uniq.index(area)] for area in areas]
+        # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+        nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=weights, width=3.0, edge_cmap=plt.cm.Greens, alpha=0.9)
+        # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+        nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
+        node_color=colors, alpha=0.4)
+      if row_ind == col_ind == 0:
+        areas = [G.nodes[n]['area'] for n in G.nodes()]
+        areas_uniq = list(set(areas))
+        for index, a in enumerate(areas_uniq):
+          plt.scatter([],[], c=customPalette[index], label=a, s=30)
+        legend = plt.legend(loc='upper center', fontsize=20)
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/graphs_region_color_cc_{}_{}_{}fold.jpg'.format(sign, measure, n) if cc else './plots/graphs_region_color_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  plt.savefig(image_name)
+  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+  # plt.show()
 
 def func_powerlaw(x, m, c):
   return x**m * c
