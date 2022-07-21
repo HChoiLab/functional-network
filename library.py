@@ -2723,6 +2723,68 @@ def plot_top_comm_purity_kstest(G_dict, num_top, area_dict, measure, n, sign, we
   # plt.show()
   plt.savefig(image_name)
 
+def find_close_elements(l, t, e):
+  return [i for i in l if abs(i-t)<=e]
+
+def plot_similar_purity(G_dict, area_dict, error, measure, n, sign, weight=False, max_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  all_purity = {}
+  min_size = 10000
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    # c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)], [v for k,v in sorted(data.items(), reverse=True)]
+    # c_purity = [x for xs in c_purity for x in xs]
+    all_purity[col] = dict(sorted(data.items(), reverse=True))
+    min_size = max(data.keys()) if max(data.keys()) < min_size else min_size
+  print('Min size is {}'.format(min_size))
+  similar_size = [find_close_elements(list(all_purity[col].keys()), min_size, error) for col in cols]
+  print(similar_size)
+  similar_purity = [[i for s in size for i in all_purity[cols[similar_size.index(size)]][s]] for size in similar_size]
+  plt.boxplot(similar_purity)
+  plt.xticks(list(range(1, len(cols)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(name + r' similar community size purity (${}\pm{}$)'.format(min_size, error), size=18)
+  plt.tight_layout()
+  image_name = './plots/similar_size_error{}_purity_{}_{}_{}_{}fold.jpg'.format(error, name, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
   plt.figure(figsize=(7,6))
