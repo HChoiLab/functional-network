@@ -25,8 +25,9 @@ import seaborn as sns
 from numpy.lib.stride_tricks import as_strided
 from scipy.ndimage.filters import uniform_filter1d
 from scipy import signal
-from plfit import plfit
+from scipy import stats
 from scipy import sparse
+from plfit import plfit
 import collections
 from collections import defaultdict
 from sklearn.metrics.cluster import adjusted_rand_score
@@ -2660,6 +2661,68 @@ def plot_all_comm_purity(G_dict, area_dict, measure, n, sign, weight=False, max_
   # plt.show()
   plt.savefig(image_name)
 
+def plot_top_comm_purity_kstest(G_dict, num_top, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 5.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  all_purity = {}
+  stimulus_pvalue = np.zeros((len(cols), len(cols)))
+  stimulus_pvalue[:] = np.nan
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
+    # c_purity = [x for xs in c_purity for x in xs]
+    all_purity[col] = [x for xs in c_purity for x in xs]
+  for col_ind1, col1 in enumerate(cols):
+    for col_ind2, col2 in enumerate(cols):
+      if not col1 == col2:
+        stimulus_pvalue[col_ind1, col_ind2] = stats.ks_2samp(all_purity[col1], all_purity[col2])[1]
+        # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
+  # print(stimulus_pvalue)
+  sns_plot = sns.heatmap(stimulus_pvalue.astype(float),cmap="RdBu",norm=colors.LogNorm(0.0025, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level
+  # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+  sns_plot.set_xticks(np.arange(len(cols))+0.5)
+  sns_plot.set_xticklabels(cols, rotation=90)
+  sns_plot.set_yticks(np.arange(len(cols))+0.5)
+  sns_plot.set_yticklabels(cols, rotation=0)
+  sns_plot.invert_yaxis()
+  plt.title('p-value ' + name + ' top {} largest community purity'.format(num_top), size=18)
+  plt.tight_layout()
+  image_name = './plots/top_{}_comm_purity_{}_{}_{}_{}fold.jpg'.format(num_top, name, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def plot_size_lcc(G_dict, G_lcc_dict):
   rows, cols = get_rowcol(G_lcc_dict)
   plt.figure(figsize=(7,6))
@@ -4064,6 +4127,49 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
   # plt.show()
   plt.savefig(image_name.format(area, measure, n))
 
+def plot_singleregion_triad_relative_count(G_dict, area_dict, area, p_triad_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      area_nodes = [k  for k, v in area_dict[row].items() if v == area]
+      G = nx.subgraph(G, area_nodes)
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = safe_division(G_triad_count[triad_type], num_triplet * p_triad_func[triad_type](p0, p1, p2))
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_types, triad_counts = [k for k,v in all_triad_count.items()], [v for k,v in all_triad_count.items()]
+    plt.boxplot(triad_counts, showfliers=False)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    # plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all triads in {}'.format(area), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_{}_alltriad_{}_{}fold.jpg'.format(area, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
   triad_count = {}
@@ -4355,6 +4461,64 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
     elif rows[0] == 'mean':
       fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
+
+def triad300_bidirectional_edge_census(data_dict, G_dict, active_area_dict, max_duration):
+  rows, cols = get_rowcol(data_dict)
+  scale = np.zeros(len(rows))
+  data_mat = np.zeros((len(rows), len(cols), max_duration+1, max_duration+1))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    for col_ind, col in enumerate(cols):
+      print(col)
+      data, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      G_all_triads = nx.all_triads(G)
+      for triad in G_all_triads:
+        if nx.triad_type(triad) == '300':
+          t_nodes = list(triad.nodes())
+          active_idx = np.array([node_idx.index(n) for n in t_nodes])
+          for node_i, node_j in itertools.combinations(active_idx, 2):
+            data_A, data_B = int(data[node_i, node_j]), int(data[node_j, node_i])
+            data_mat[row_ind, col_ind, data_A, data_B] += 1
+            data_mat[row_ind, col_ind, data_B, data_A] += 1
+      data_mat[row_ind, col_ind, :, :] = safe_division(data_mat[row_ind, col_ind, :, :], data_mat[row_ind, col_ind, :, :].sum())
+    scale[row_ind] = data_mat[row_ind, :, :, :].max()
+  return scale, data_mat
+
+def plot_data_heatmap(scale, data_mat, max_duration, rows, cols, name, measure, n):
+  ind = 1
+  fig = plt.figure(figsize=(3.2*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      cbar = True if col_ind == len(cols) - 1 else False
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap(data_mat[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],center=0,cmap="RdBu_r", cbar=cbar)# cmap="YlGnBu" , norm=colors.LogNorm()
+      sns_plot.set_xticks(np.arange(max_duration+1)+0.5)
+      sns_plot.set_xticklabels(list(range(max_duration+1)), rotation=90)
+      sns_plot.set_yticks(np.arange(max_duration+1)+0.5)
+      sns_plot.set_yticklabels(list(range(max_duration+1)), rotation=0)
+      sns_plot.invert_yaxis()
+  plt.suptitle('triad 300 {} distribution'.format(name), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  plt.savefig('./plots/triad300_{}_{}_{}fold.jpg'.format(name.replace(' ', '_'), measure, n))
 
 #################### micro level structural balance
 def plot_balance_stat(rows, cols, t_balance, num_balance, num_imbalance, n, measure='xcorr'):
