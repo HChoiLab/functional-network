@@ -3056,6 +3056,121 @@ def plot_intra_inter_data(data_dict, G_dict, sign, name, density, active_area_di
   figname = './plots/intra_inter_density_{}_{}_{}_{}fold.jpg' if density else './plots/intra_inter_count_{}_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(name, sign, measure, n))
 
+############ violin plot of intra/inter offset/duration
+def plot_intra_inter_data_violin(data_dict, G_dict, sign, name, split, active_area_dict, measure, n):
+  rows, cols = get_rowcol(data_dict)
+  fig = plt.figure(figsize=(12, 6))
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_data, inter_data = [], []
+    for row_ind, row in enumerate(rows):
+      active_area = active_area_dict[row]
+      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      for i, j in zip(*np.where(~np.isnan(mat))):
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_data.append(mat[i, j])
+        else:
+          inter_data.append(mat[i, j])
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(['intra region'] * len(intra_data))[:,None], np.array([col] * len(intra_data))[:,None]), 1), columns=[name, 'type', 'stimulus']), pd.DataFrame(np.concatenate((np.array(inter_data)[:,None], np.array(['inter region'] * len(inter_data))[:,None], np.array([col] * len(inter_data))[:,None]), 1), columns=[name, 'type', 'stimulus'])], ignore_index=True)
+  df[name] = pd.to_numeric(df[name])
+  ax = sns.violinplot(x='stimulus', y=name, hue="type", data=df, palette="muted", split=split)
+  # plt.legend()
+  plt.xticks(rotation=90)
+  # plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_violin_split_{}_{}_{}_{}fold.jpg' if split else './plots/intra_inter_violin_{}_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, sign, measure, n))
+
+############ plot region distribution of offset/duration
+def region_data_heatmap(data_dict, G_dict, sign, name, active_area_dict, regions, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  scale = np.zeros(len(rows))
+  region_data = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  region_data[:] = np.nan
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      region_dict = {key: defaultdict(lambda: []) for key in regions}
+      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      for i, j in zip(*np.where(~np.isnan(mat))):
+        region_dict[active_area[nodes[i]]][active_area[nodes[j]]].append(mat[i, j])
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_data[row_ind, col_ind, region_ind_i, region_ind_j] = np.mean(region_dict[region_i][region_j]) if len(region_dict[region_i][region_j]) else np.nan
+      
+    scale[row_ind] = np.nanmax(region_data[row_ind, :, :, :])
+  ind = 1
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns_plot = sns.heatmap(region_data[row_ind, col_ind, :, :].astype(float), vmin=0, vmax=scale[row_ind],cmap="summer_r")# cmap="YlGnBu"
+      # sns_plot = sns.heatmap(region_data.astype(float), vmin=0, cmap="YlGnBu")
+      sns_plot.set_xticks(np.arange(len(regions))+0.5)
+      sns_plot.set_xticklabels(regions, rotation=90)
+      sns_plot.set_yticks(np.arange(len(regions))+0.5)
+      sns_plot.set_yticklabels(regions, rotation=0)
+      sns_plot.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/region_{}_scale_{}_{}_{}fold.jpg'.format(name, sign, measure, n))
+
+# intra/inter region offset/duration
+def plot_violin_intra_inter_data(data_dict, G_dict, sign, name, density, active_area_dict, measure, n):
+  rows, cols = get_rowcol(data_dict)
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 3*num_row))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      intra_data, inter_data = [], []
+      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      for i, j in zip(*np.where(~np.isnan(mat))):
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_data.append(mat[i, j])
+        else:
+          inter_data.append(mat[i, j])
+      ax = plt.subplot(num_row, num_col, row_ind*num_col+col_ind+1)
+      plt.hist(intra_data, 13, density=density, facecolor='g', alpha=0.3, label='intra-region {}'.format(name))
+      plt.hist(inter_data, 13, density=density, facecolor='b', alpha=0.3, label='inter-region {}'.format(name))
+      plt.axvline(x=np.nanmean(intra_data), color='g', linestyle='--', alpha=0.3)
+      plt.axvline(x=np.nanmean(inter_data), color='b', linestyle='--', alpha=0.3)
+      if density:
+        plt.ylabel('Probability')
+      else:
+        plt.ylabel('Count')
+      if row_ind == 0:
+        plt.title(col, size=25)
+      if row_ind == len(rows)-1:
+        plt.xlabel(r'time lag $\tau$')
+  plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_density_{}_{}_{}_{}fold.jpg' if density else './plots/intra_inter_count_{}_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, sign, measure, n))
+
 def func_powerlaw(x, m, c):
   return x**m * c
 
