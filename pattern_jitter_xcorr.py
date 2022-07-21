@@ -2015,6 +2015,14 @@ plot_intra_inter_data(offset_dict, G_ccg_dict, 'total', 'offset', False, active_
 plot_intra_inter_data(duration_dict, G_ccg_dict, 'total', 'duration', True, active_area_dict, measure, n)
 plot_intra_inter_data(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
 #%%
+plot_intra_inter_data_violin(offset_dict, G_ccg_dict, 'total', 'offset', True, active_area_dict, measure, n)
+plot_intra_inter_data_violin(offset_dict, G_ccg_dict, 'total', 'offset', False, active_area_dict, measure, n)
+plot_intra_inter_data_violin(duration_dict, G_ccg_dict, 'total', 'duration', True, active_area_dict, measure, n)
+plot_intra_inter_data_violin(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
+#%%
+region_data_heatmap(offset_dict, G_ccg_dict, 'total', 'offset', active_area_dict, visual_regions, measure, n)
+region_data_heatmap(duration_dict, G_ccg_dict, 'total', 'duration', active_area_dict, visual_regions, measure, n)
+#%%
 ########### LSCC distribution
 lscc_region_counts, lscc_size = get_lscc_region_count(G_ccg_dict, area_dict, visual_regions)
 #%%
