@@ -2707,10 +2707,12 @@ def plot_top_comm_purity_kstest(G_dict, num_top, area_dict, measure, n, sign, we
   for col_ind1, col1 in enumerate(cols):
     for col_ind2, col2 in enumerate(cols):
       if not col1 == col2:
-        stimulus_pvalue[col_ind1, col_ind2] = stats.ks_2samp(all_purity[col1], all_purity[col2])[1]
+        p_less = stats.ks_2samp(all_purity[col1], all_purity[col2], alternative='less')[1]
+        p_greater = stats.ks_2samp(all_purity[col1], all_purity[col2], alternative='greater')[1]
+        stimulus_pvalue[col_ind1, col_ind2] = min(p_less, p_greater)
         # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
   # print(stimulus_pvalue)
-  sns_plot = sns.heatmap(stimulus_pvalue.astype(float),cmap="RdBu",norm=colors.LogNorm(0.0025, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level
+  sns_plot = sns.heatmap(stimulus_pvalue.astype(float),cmap="RdBu",norm=colors.LogNorm(5.668934240362814e-06, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
   # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
   sns_plot.set_xticks(np.arange(len(cols))+0.5)
   sns_plot.set_xticklabels(cols, rotation=90)
