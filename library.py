@@ -4526,6 +4526,54 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
       fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
 
+def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(triad_count)
+  hub_num = np.zeros((len(rows), len(cols)))
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      ax = plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      type_count = dict([(k, v) for k, v in triad_count[row][col].items() if '030T' in k])
+      labels = type_count.keys()
+      sizes = [i / sum(type_count.values()) for i in type_count.values()]
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[triad_types.index(l)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, colors=colors, labels=labels, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+  suptitle = 'signed 030T distribution'
+  plt.suptitle(suptitle, size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  fname = './plots/pie_chart_signed_030T_census_{}_{}fold.jpg'
+  if len(rows) == 1:
+    if rows[0] == 'all':
+      fname = fname.replace('030T', 'allmice_030T')
+    elif rows[0] == 'mean':
+      fname = fname.replace('030T', 'meanmice_030T')
+  plt.savefig(fname.format(measure, n))
+
 def triad300_bidirectional_edge_census(data_dict, G_dict, active_area_dict, max_duration):
   rows, cols = get_rowcol(data_dict)
   scale = np.zeros(len(rows))
