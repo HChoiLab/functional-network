@@ -4574,6 +4574,79 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n):
       fname = fname.replace('030T', 'meanmice_030T')
   plt.savefig(fname.format(measure, n))
 
+def count_sign_p(G):
+  num_pos, num_neg = 0, 0
+  edges = list(G.edges())
+  for edge in edges:
+    if G.get_edge_data(*edge)['sign'] == 1:
+      num_pos += 1
+    elif G.get_edge_data(*edge)['sign'] == -1:
+      num_neg += 1
+    else:
+      sys.exit(G.get_edge_data(*edge)['sign'])
+  assert num_pos + num_neg == len(edges)
+  p_pos, p_neg = safe_division(num_pos, len(edges)), safe_division(num_neg, len(edges))
+  return p_pos, p_neg
+
+def count_030T_sign_p(G):
+  all_signs = []
+  G_all_triads = nx.all_triads(G)
+  for triad in G_all_triads:
+    if nx.triad_type(triad) == '030T':
+      t_nodes = list(triad.nodes())
+      edge_sign = nx.get_edge_attributes(G.subgraph(t_nodes),'sign')
+      signs = list(edge_sign.values())
+      assert len(signs) == 3
+      all_signs += signs
+  num_pos, num_neg = all_signs.count(1), all_signs.count(-1)
+  assert num_pos + num_neg == len(all_signs)
+  p_pos, p_neg = safe_division(num_pos, len(all_signs)), safe_division(num_neg, len(all_signs))
+  return p_pos, p_neg
+
+def plot_030T_relative_count(G_dict, signed_triad_count, signed_030T_triad_types, p_sign_func, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      print(row)
+      type_count = dict([(k, v) for k, v in signed_triad_count[row][col].items() if '030T' in k])
+      type_count = dict([(k, v/sum(type_count.values())) for k, v in type_count.items()])
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      p_pos, p_neg = count_030T_sign_p(G)
+      for signed_triad_type in type_count:
+        relative_c = safe_division(type_count[signed_triad_type], p_sign_func[signed_triad_type](p_pos, p_neg))
+        all_triad_count[signed_triad_type].append(relative_c)
+    
+    avalaible_signed_030T_triad_types = [t for t in signed_030T_triad_types if t in all_triad_count]
+    triad_types, triad_counts = avalaible_signed_030T_triad_types, [all_triad_count[k] for k in avalaible_signed_030T_triad_types]
+    plt.boxplot(triad_counts)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5, alpha=0.6)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    if max([i for x in triad_counts for i in x]) > 20:
+      plt.yscale('log')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all signed 030T', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_030T_{}_{}fold.jpg'.format(measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def triad300_bidirectional_edge_census(data_dict, G_dict, active_area_dict, max_duration):
   rows, cols = get_rowcol(data_dict)
   scale = np.zeros(len(rows))
