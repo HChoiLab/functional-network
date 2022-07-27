@@ -4526,7 +4526,7 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
       fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
 
-def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n):
+def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoherent=False):
   ind = 1
   rows, cols = get_rowcol(triad_count)
   hub_num = np.zeros((len(rows), len(cols)))
@@ -4551,6 +4551,8 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n):
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       type_count = dict([(k, v) for k, v in triad_count[row][col].items() if '030T' in k])
+      if incoherent:
+        type_count = dict([(k, v) for k, v in type_count.items() if '+++' not in k])
       labels = type_count.keys()
       sizes = [i / sum(type_count.values()) for i in type_count.values()]
       explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
@@ -4566,7 +4568,7 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n):
   plt.suptitle(suptitle, size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
-  fname = './plots/pie_chart_signed_030T_census_{}_{}fold.jpg'
+  fname = './plots/pie_chart_signed_030T_census_{}_{}fold.jpg' if not incoherent else './plots/pie_chart_signed_incoherent_030T_census_{}_{}fold.jpg'
   if len(rows) == 1:
     if rows[0] == 'all':
       fname = fname.replace('030T', 'allmice_030T')
