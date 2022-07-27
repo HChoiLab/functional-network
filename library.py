@@ -4441,6 +4441,56 @@ def meanmice_signed_triad_census(all_triads):
     meanmice_signed_triad_percent['mean'][col] = dict(sorted(meanmice_signed_triad_percent['mean'][col].items(), key=lambda x:x[1], reverse=True))
   return meanmice_signed_triad_percent
 
+def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure, n):
+  rows, cols = get_rowcol(triad_count)
+  metric = np.zeros((len(rows), len(cols), len(tran_triad_types)))
+  fig = plt.figure(figsize=(10, 8))
+  # fig = plt.figure(figsize=(20, 10))
+  for triad_ind, triad_type in enumerate(tran_triad_types):
+    for row_ind, row in enumerate(rows):
+      for col_ind, col in enumerate(cols):
+        metric[row_ind, col_ind, triad_ind] = triad_count[row][col].get(triad_type, 0)
+  metric_stimulus = pd.DataFrame(columns=['stimulus', 'type', 'mean', 'std'])
+  for triad_ind, triad_type in enumerate(tran_triad_types):
+    df = pd.DataFrame(columns=['stimulus', 'type', 'mean', 'std'])
+    df['mean'] = np.nanmean(metric[:, :, triad_ind], axis=0)
+    df['std'] = np.nanstd(metric[:, :, triad_ind], axis=0)
+    df['type'] = triad_type
+    df['stimulus'] = cols
+    metric_stimulus = metric_stimulus.append(df, ignore_index=True)
+  fig = plt.figure(figsize=[10, 6])
+  axes1 = fig.add_subplot(111)
+  # set props for left y-axis here
+  axes2 = axes1.twinx()   # mirror them
+  # axes2.set_ylabel()
+  metric_stimulus['mean'] = metric_stimulus['mean'].astype('float')
+  metric_stimulus['std'] = metric_stimulus['std'].astype('float')
+  lns = []
+  for i, m in metric_stimulus.groupby("type"):
+    if m['type'].iloc[0] == '030T' or m['type'].iloc[0] == '030T+++':
+      ln = axes2.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['type'].iloc[0], color=triad_color[m['type'].iloc[0]])
+      axes2.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], color=triad_color[m['type'].iloc[0]], alpha=0.2)
+    else:
+      ln = axes1.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['type'].iloc[0], color=triad_color[m['type'].iloc[0]])
+      axes1.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], color=triad_color[m['type'].iloc[0]], alpha=0.2)
+    lns += ln
+  labs = [l.get_label() for l in lns]
+  axes1.legend(lns, labs, loc=0)
+  axes1.set_ylim(bottom=0)
+  axes2.set_ylim(bottom=0)
+  # plt.xticks(rotation=90)
+  axes1.tick_params(axis='x', labelrotation=90)
+  # plt.yscale('log')
+  axes1.set_ylabel('number of triads')
+  axes2.set_ylabel('number of 030T+++')
+  plt.tight_layout()
+  if set(tran_triad_types) == set(['030T', '120D', '120U', '300']):
+    triad_name = 'tran_triad'
+  else:
+    triad_name = '030T_triad'
+  figname = './plots/num_{}_stimulus_error_region_{}_{}_fold.jpg'.format(triad_name, measure, n)
+  plt.savefig(figname)
+
 def plot_multi_bar_census(signed_triad_count, measure, n):
   rows, cols = get_rowcol(signed_triad_count)
   num_row, num_col = len(rows), len(cols)
