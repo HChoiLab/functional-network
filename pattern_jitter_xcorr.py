@@ -3609,16 +3609,46 @@ for region in visual_regions:
 ################## plot census of signed triads for each mouse given each stimulus
 all_triads = get_all_signed_transitive_triads(S_ccg_dict)
 triad_count = triad_census(all_triads)
-allmice_triad_count = allmice_triad_census(all_triads)
+summice_triad_count = summice_triad_census(all_triads)
 meanmice_triad_percent = meanmice_triad_census(all_triads)
 signed_triad_count = signed_triad_census(all_triads)
-allmice_signed_triad_count = allmice_signed_triad_census(all_triads)
+summice_signed_triad_count = summice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
+#%%
+################## num of transitive triads VS stimulus
+def triad_stimulus_individual(triad_count, tran_triad_types, triad_color, measure, n):
+  rows, cols = get_rowcol(triad_count)
+  metric = np.zeros((len(rows), len(cols), len(tran_triad_types)))
+  fig = plt.figure(figsize=(10, 8))
+  # fig = plt.figure(figsize=(20, 10))
+  for triad_ind, triad_type in enumerate(tran_triad_types):
+    for row_ind, row in enumerate(rows):
+      for col_ind, col in enumerate(cols):
+        metric[row_ind, col_ind, triad_ind] = triad_count[row][col].get(triad_type, 0)
+  
+    data = [metric[:, col_ind, triad_ind].tolist() for col_ind in range(len(cols))]
+    # plt.boxplot(data, color=triad_color[triad_type])
+    sns.violinplot(data=data, color=triad_color[triad_type], label=triad_type, alpha=0.4)
+  plt.xticks(range(len(cols)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.yscale('log')
+  plt.ylabel('count')
+  
+  plt.legend()
+  plt.tight_layout()
+  figname = './plots/num_tran_triad_stimulus_individual_{}_{}_fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
+tran_triad_types = ['030T', '120D', '120U', '300']
+triad_color = {'030T':'Green', '120D':'Blue', '120U':'Red', '300':'Purple'}
+triad_stimulus_individual(triad_count, tran_triad_types, triad_color, measure, n)
 #%%
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
 plot_multi_pie_chart_census(triad_count, tran_triad_types, triad_colormap, measure, n, False)
-plot_multi_pie_chart_census(allmice_triad_count, tran_triad_types, triad_colormap, measure, n, False)
+plot_multi_pie_chart_census(summice_triad_count, tran_triad_types, triad_colormap, measure, n, False)
 plot_multi_pie_chart_census(meanmice_triad_percent, tran_triad_types, triad_colormap, measure, n, False)
 #%%
 signs = [
@@ -3629,14 +3659,17 @@ signs = [
 ]
 signed_tran_triad_types = [x+y for x in tran_triad_types for y in signs[tran_triad_types.index(x)][::-1]] # reverse order so that more positive signs have darker value
 plot_multi_pie_chart_census(signed_triad_count, signed_tran_triad_types, triad_colormap, measure, n, True)
-plot_multi_pie_chart_census(allmice_signed_triad_count, signed_tran_triad_types, triad_colormap, measure, n, True)
+plot_multi_pie_chart_census(summice_signed_triad_count, signed_tran_triad_types, triad_colormap, measure, n, True)
 plot_multi_pie_chart_census(meanmice_signed_triad_percent, signed_tran_triad_types, triad_colormap, measure, n, True)
 #%%
 ################ sign distribution for 030T triad
 tran_triad_type = '030T'
 signs = ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---']
 signed_030T_triad_types = [tran_triad_type+y for y in signs] # reverse order so that more positive signs have darker value
-plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n)
+# plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n, False)
+# plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n, True)
+plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, False)
+plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, True)
 #%%
 ################ sign relative count for 030T triad
 p_sign_func = {
