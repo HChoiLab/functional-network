@@ -4296,30 +4296,28 @@ def signed_triad_census(all_triads):
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_count
 
-def allmice_triad_census(all_triads):
+def summice_triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
-  allmice_triad_count = {}
-  allmice_triad_count['all'] = {}
-  for row in rows:
-    print(row)
-    for col in cols:
-      if col not in allmice_triad_count['all']:
-        allmice_triad_count['all'][col] = {}
+  summice_triad_count = {}
+  summice_triad_count['sum'] = {}
+  for col in cols:
+    print(col)
+    summice_triad_count['sum'][col] = {}
+    for row in rows:
       for triad in all_triads[row][col]:
         triad_type = triad[1]
-        allmice_triad_count['all'][col][triad_type] = allmice_triad_count['all'][col].get(triad_type, 0) + 1 
-      allmice_triad_count['all'][col] = dict(sorted(allmice_triad_count['all'][col].items(), key=lambda x:x[1], reverse=True))
-  return allmice_triad_count
+        summice_triad_count['sum'][col][triad_type] = summice_triad_count['sum'][col].get(triad_type, 0) + 1 
+      summice_triad_count['sum'][col] = dict(sorted(summice_triad_count['sum'][col].items(), key=lambda x:x[1], reverse=True))
+  return summice_triad_count
 
-def allmice_signed_triad_census(all_triads):
+def summice_signed_triad_census(all_triads):
   rows, cols = get_rowcol(all_triads)
-  allmice_signed_triad_count = {}
-  for row in rows:
-    print(row)
-    allmice_signed_triad_count['all'] = {}
-    for col in cols:
-      if col not in allmice_signed_triad_count['all']:
-        allmice_signed_triad_count['all'][col] = {}
+  summice_signed_triad_count = {}
+  summice_signed_triad_count['sum'] = {}
+  for col in cols:
+    print(col)
+    summice_signed_triad_count['sum'][col] = {}
+    for row in rows:
       for triad in all_triads[row][col]:
         triad_type = triad[1]
         if triad_type == '030T':
@@ -4356,9 +4354,9 @@ def allmice_signed_triad_census(all_triads):
           sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
         elif triad_type == '300':
           sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
-        allmice_signed_triad_count['all'][col][triad_type + sign] = allmice_signed_triad_count['all'][col].get(triad_type + sign, 0) + 1 
-      allmice_signed_triad_count['all'][col] = dict(sorted(allmice_signed_triad_count['all'][col].items(), key=lambda x:x[1], reverse=True))
-  return allmice_signed_triad_count
+        summice_signed_triad_count['sum'][col][triad_type + sign] = summice_signed_triad_count['sum'][col].get(triad_type + sign, 0) + 1 
+    summice_signed_triad_count['sum'][col] = dict(sorted(summice_signed_triad_count['sum'][col].items(), key=lambda x:x[1], reverse=True))
+  return summice_signed_triad_count
 
 ################# mean of percentage (each mouse has the same effect)
 def meanmice_triad_census(all_triads):
@@ -4520,8 +4518,8 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
   if set(triad_types) == set(['030T', '120D', '120U', '300']):
     fname = fname.replace('all_triad', 'tran_triad')
   if len(rows) == 1:
-    if rows[0] == 'all':
-      fname = fname.replace('triad', 'allmice_triad')
+    if rows[0] == 'sum':
+      fname = fname.replace('triad', 'summice_triad')
     elif rows[0] == 'mean':
       fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
@@ -4570,8 +4568,8 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoh
   # plt.show()
   fname = './plots/pie_chart_signed_030T_census_{}_{}fold.jpg' if not incoherent else './plots/pie_chart_signed_incoherent_030T_census_{}_{}fold.jpg'
   if len(rows) == 1:
-    if rows[0] == 'all':
-      fname = fname.replace('030T', 'allmice_030T')
+    if rows[0] == 'sum':
+      fname = fname.replace('030T', 'summice_030T')
     elif rows[0] == 'mean':
       fname = fname.replace('030T', 'meanmice_030T')
   plt.savefig(fname.format(measure, n))
