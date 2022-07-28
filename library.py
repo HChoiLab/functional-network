@@ -4488,14 +4488,14 @@ def right_temporal_order(edge_offset, triad_type):
       triads.append([edge_offset[0][:-1], edge_offset[2][:-1], edge_offset[5][:-1]])
   return triads
 
-def signed_030T_census(G_dict, all_triads):
+def signed_temporal_030T_census(G_dict, all_triads):
   rows, cols = get_rowcol(all_triads)
-  signed_030T_count = {}
+  signed_temporal_030T_count = {}
   for row_ind, row in enumerate(rows):
     print(row)
-    signed_030T_count[row] = {}
+    signed_temporal_030T_count[row] = {}
     for col_ind, col in enumerate(cols):
-      signed_030T_count[row][col] = {}
+      signed_temporal_030T_count[row][col] = {}
       G = G_dict[row][col]
       for triad in all_triads[row][col]:
         triad_type = triad[1]
@@ -4533,9 +4533,9 @@ def signed_030T_census(G_dict, all_triads):
         for e_order in triads:
           sign = [G.get_edge_data(*e)['sign'] for e in e_order]
           sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
-          signed_030T_count[row][col]['030T' + sign] = signed_030T_count[row][col].get('030T' + sign, 0) + 1 
-      signed_030T_count[row][col] = dict(sorted(signed_030T_count[row][col].items(), key=lambda x:x[1], reverse=True))
-  return signed_030T_count
+          signed_temporal_030T_count[row][col]['030T' + sign] = signed_temporal_030T_count[row][col].get('030T' + sign, 0) + 1 
+      signed_temporal_030T_count[row][col] = dict(sorted(signed_temporal_030T_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return signed_temporal_030T_count
 
 def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure, n, temporal=False):
   rows, cols = get_rowcol(triad_count)
@@ -4636,8 +4636,10 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
-      labels = triad_count[row][col].keys()
-      sizes = triad_count[row][col].values()
+      t_count = triad_count[row][col].copy()
+      t_count = dict(sorted(t_count.items(), key=lambda item: item[1], reverse=True))
+      labels = t_count.keys()
+      sizes = t_count.values()
       hub_num[row_ind][col_ind] = sum(sizes)
       explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
       vmax = 1 if len(triad_types) == 4 else 2.5
@@ -4674,7 +4676,17 @@ def plot_multi_pie_chart_census(triad_count, triad_types, triad_colormap, measur
       fname = fname.replace('triad', 'meanmice_triad')
   plt.savefig(fname.format(measure, n))
 
-def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoherent=False):
+def summice(triad_count):
+  summice_triad_count = {'sum':{}}
+  rows, cols = get_rowcol(triad_count)
+  for col in cols:
+    summice_triad_count['sum'][col] = {}
+    for row in rows:
+      for triad_type in triad_count[row][col]:
+        summice_triad_count['sum'][col][triad_type] = summice_triad_count['sum'][col].get(triad_type, 0) + triad_count[row][col][triad_type]
+  return summice_triad_count
+
+def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoherent=False, temporal=False):
   ind = 1
   rows, cols = get_rowcol(triad_count)
   hub_num = np.zeros((len(rows), len(cols)))
@@ -4699,6 +4711,7 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoh
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       ind += 1
       type_count = dict([(k, v) for k, v in triad_count[row][col].items() if '030T' in k])
+      type_count = dict(sorted(type_count.items(), key=lambda x: x[1], reverse=True))
       if incoherent:
         type_count = dict([(k, v) for k, v in type_count.items() if '+++' not in k])
       labels = type_count.keys()
@@ -4712,11 +4725,13 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoh
       # for i in range(len(p[0])):
       #   p[0][i].set_alpha(0.6)
       ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-  suptitle = 'signed 030T distribution'
+  suptitle = 'signed 030T distribution' if not temporal else 'signed temporal 030T distribution'
   plt.suptitle(suptitle, size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
   fname = './plots/pie_chart_signed_030T_census_{}_{}fold.jpg' if not incoherent else './plots/pie_chart_signed_incoherent_030T_census_{}_{}fold.jpg'
+  if temporal:
+    fname = fname.replace('030T', 'temporal_030T')
   if len(rows) == 1:
     if rows[0] == 'sum':
       fname = fname.replace('030T', 'summice_030T')
@@ -4778,7 +4793,62 @@ def signed_triad_region_census(all_triads, area_dict):
         signed_triad_region_count[row][col][st_type] = dict(sorted(signed_triad_region_count[row][col][st_type].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_region_count
 
-def plot_pie_chart_region_census_030T(signed_triad_region_count, triad_types, region_types, measure, n):
+def signed_temporal_030T_region_census(G_dict, all_triads, area_dict):
+  rows, cols = get_rowcol(all_triads)
+  signed_temporal_030T_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_temporal_030T_count[row] = {}
+    node_area = area_dict[row]
+    for col_ind, col in enumerate(cols):
+      signed_temporal_030T_count[row][col] = {}
+      G = G_dict[row][col]
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        edge_offset = []
+        for e in edge_order:
+          edge_offset.append((*e, G.get_edge_data(*e)['offset']))
+        triads = right_temporal_order(edge_offset, triad_type)
+        for e_order in triads:
+          sign = [G.get_edge_data(*e)['sign'] for e in e_order]
+          sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+          region = [node_area[n] for n in [e_order[0][0], e_order[1][1], e_order[0][1]]]
+          region = '_'.join(region)
+          if triad_type + sign not in signed_temporal_030T_count[row][col]:
+            signed_temporal_030T_count[row][col]['030T' + sign] = {}
+          signed_temporal_030T_count[row][col]['030T' + sign][region] = signed_temporal_030T_count[row][col]['030T' + sign].get(region, 0) + 1 
+      for st_type in signed_temporal_030T_count[row][col]:
+        signed_temporal_030T_count[row][col][st_type] = dict(sorted(signed_temporal_030T_count[row][col][st_type].items(), key=lambda x:x[1], reverse=True))
+  return signed_temporal_030T_count
+
+def plot_pie_chart_region_census_030T(signed_triad_region_count, triad_types, region_types, measure, n, temporal=False):
   rows, cols = get_rowcol(signed_triad_region_count)
   triad_region_dict = defaultdict(lambda: {})
   fig = plt.figure(figsize=(32,4))
@@ -4797,7 +4867,7 @@ def plot_pie_chart_region_census_030T(signed_triad_region_count, triad_types, re
     ax = plt.subplot(1, len(triad_types), t_ind+1)
     triad_region = triad_region_dict[triad_type]
     triad_region = dict(sorted(triad_region.items(), key=lambda item: item[1], reverse=True))
-    triad_region = {k:v for k,v in triad_region.items() if v >= 6} # remove region type that appears only once
+    triad_region = {k:v for k,v in triad_region.items() if v >= 2} # remove region type that appears only once
     labels = triad_region.keys()
     sizes = [i / sum(triad_region.values()) for i in triad_region.values()]
     explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
@@ -4810,11 +4880,11 @@ def plot_pie_chart_region_census_030T(signed_triad_region_count, triad_types, re
     #   p[0][i].set_alpha(0.6)
     ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
     plt.title(triad_type)
-  suptitle = 'signed 030T distribution'
+  suptitle = 'signed 030T distribution' if not temporal else 'signed temporal 030T distribution'
   plt.suptitle(suptitle, size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
-  fname = './plots/pie_chart_signed_030T_region_census_{}_{}fold.jpg'
+  fname = './plots/pie_chart_signed_030T_region_census_{}_{}fold.jpg' if not temporal else './plots/pie_chart_signed_temporal_030T_region_census_{}_{}fold.jpg'
   plt.savefig(fname.format(measure, n))
 
 def plot_stimulus_pie_chart_region_census_030T(signed_triad_region_count, triad_types, region_types, measure, n):
