@@ -19,9 +19,10 @@ duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regi
 active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
 n = 4
 S_ccg_dict = add_sign(G_ccg_dict)
+S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
-
+#%%
 ################# get optimal resolution that maximizes delta Q
 rows, cols = get_rowcol(G_ccg_dict)
 with open('metrics.pkl', 'rb') as f:
@@ -3615,6 +3616,14 @@ signed_triad_count = signed_triad_census(all_triads)
 summice_signed_triad_count = summice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 #%%
+################## add time lag limitation on 030T
+signed_030T_count = signed_030T_census(S_ccg_dict, all_triads)
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+triad_color = {i:customPalette[signed_030T_triad_types.index(i)] for i in signed_030T_triad_types}
+triad_stimulus_error_region(signed_030T_count, signed_030T_triad_types, triad_color, measure, n, True)
+#%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_color = {'030T':'Green', '120D':'Blue', '120U':'Red', '300':'Grey'}
@@ -3647,11 +3656,22 @@ plot_multi_pie_chart_census(meanmice_signed_triad_percent, signed_tran_triad_typ
 ################ sign distribution for 030T triad
 tran_triad_type = '030T'
 signs = ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---']
-signed_030T_triad_types = [tran_triad_type+y for y in signs] # reverse order so that more positive signs have darker value
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
 # plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n, False)
 # plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n, True)
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, False)
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, True)
+#%%
+################ region distribution for signed 030T triad
+signed_triad_region_count = signed_triad_region_census(all_triads, area_dict)
+#%%
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+region_types = ['_'.join([i,j,k]) for i in visual_regions for j in visual_regions for k in visual_regions]
+plot_pie_chart_region_census_030T(signed_triad_region_count, signed_030T_triad_types, region_types, measure, n)
+#%%
+plot_stimulus_pie_chart_region_census_030T(signed_triad_region_count, signed_030T_triad_types, region_types, measure, n)
 #%%
 ################ sign relative count for 030T triad
 p_sign_func = {
