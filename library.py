@@ -4624,6 +4624,62 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoh
       fname = fname.replace('030T', 'meanmice_030T')
   plt.savefig(fname.format(measure, n))
 
+def signed_triad_region_census(all_triads, area_dict):
+  rows, cols = get_rowcol(all_triads)
+  signed_triad_region_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_triad_region_count[row] = {}
+    node_area = area_dict[row]
+    for col_ind, col in enumerate(cols):
+      signed_triad_region_count[row][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        region = [node_area[n] for n in [node_P, node_O, node_X]]
+        region = '_'.join(region)
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        sign = [triad_sign[edge] for edge in edge_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        if triad_type == '120D' or triad_type == '120U':
+          sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+        elif triad_type == '300':
+          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+        if triad_type + sign not in signed_triad_region_count[row][col]:
+          signed_triad_region_count[row][col][triad_type + sign] = {}
+        signed_triad_region_count[row][col][triad_type + sign][region] = signed_triad_region_count[row][col][triad_type + sign].get(region, 0) + 1 
+      for st_type in signed_triad_region_count[row][col]:
+        signed_triad_region_count[row][col][st_type] = dict(sorted(signed_triad_region_count[row][col][st_type].items(), key=lambda x:x[1], reverse=True))
+  return signed_triad_region_count
+
+
+
 def count_sign_p(G):
   num_pos, num_neg = 0, 0
   edges = list(G.edges())
