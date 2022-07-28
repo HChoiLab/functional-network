@@ -4537,7 +4537,7 @@ def signed_030T_census(G_dict, all_triads):
       signed_030T_count[row][col] = dict(sorted(signed_030T_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_030T_count
 
-def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure, n):
+def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure, n, temporal=False):
   rows, cols = get_rowcol(triad_count)
   metric = np.zeros((len(rows), len(cols), len(tran_triad_types)))
   fig = plt.figure(figsize=(10, 8))
@@ -4564,7 +4564,7 @@ def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, meas
   lns = []
   for i, m in metric_stimulus.groupby("type"):
     if m['type'].iloc[0] == '030T' or m['type'].iloc[0] == '030T+++':
-      ln = axes2.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['type'].iloc[0], color=triad_color[m['type'].iloc[0]])
+      ln = axes2.plot(m['stimulus'], m['mean'], '--', alpha=0.6, label=m['type'].iloc[0], color=triad_color[m['type'].iloc[0]])
       axes2.fill_between(m['stimulus'], m['mean'] - m['std'], m['mean'] + m['std'], color=triad_color[m['type'].iloc[0]], alpha=0.2)
     else:
       ln = axes1.plot(m['stimulus'], m['mean'], alpha=0.6, label=m['type'].iloc[0], color=triad_color[m['type'].iloc[0]])
@@ -4579,11 +4579,15 @@ def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, meas
   # plt.yscale('log')
   axes1.set_ylabel('number of triads')
   axes2.set_ylabel('number of 030T+++')
-  plt.tight_layout()
+  
   if set(tran_triad_types) == set(['030T', '120D', '120U', '300']):
     triad_name = 'tran_triad'
   else:
     triad_name = '030T_triad'
+  if temporal:
+    triad_name = 'temporal_' + triad_name
+  plt.title(triad_name + ' VS stimulus')
+  plt.tight_layout()
   figname = './plots/num_{}_stimulus_error_region_{}_{}_fold.jpg'.format(triad_name, measure, n)
   plt.savefig(figname)
 
