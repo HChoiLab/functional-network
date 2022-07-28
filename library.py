@@ -4458,6 +4458,85 @@ def meanmice_signed_triad_census(all_triads):
     meanmice_signed_triad_percent['mean'][col] = dict(sorted(meanmice_signed_triad_percent['mean'][col].items(), key=lambda x:x[1], reverse=True))
   return meanmice_signed_triad_percent
 
+def right_temporal_order(edge_offset, triad_type):
+  triads = []
+  if triad_type == '030T':
+    if edge_offset[1][2] < edge_offset[2][2]:
+      triads.append([e[:-1] for e in edge_offset])
+  elif triad_type == '120D':
+    if edge_offset[0][2] < edge_offset[2][2]:
+      triads.append([edge_offset[1][:-1], edge_offset[0][:-1], edge_offset[2][:-1]])
+    if edge_offset[1][2] < edge_offset[3][2]:
+      triads.append([edge_offset[0][:-1], edge_offset[1][:-1], edge_offset[3][:-1]])
+  elif triad_type == '120U':
+    if edge_offset[1][2] > edge_offset[2][2]:
+      triads.append([edge_offset[0][:-1], edge_offset[2][:-1], edge_offset[1][:-1]])
+    if edge_offset[0][2] > edge_offset[3][2]:
+      triads.append([edge_offset[1][:-1], edge_offset[3][:-1], edge_offset[0][:-1]])
+  elif triad_type == '300':
+    if edge_offset[3][2] > edge_offset[4][2]: # P
+      triads.append([edge_offset[1][:-1], edge_offset[4][:-1], edge_offset[3][:-1]])
+    if edge_offset[2][2] > edge_offset[1][2]: # P
+      triads.append([edge_offset[4][:-1], edge_offset[1][:-1], edge_offset[2][:-1]])
+    if edge_offset[0][2] > edge_offset[3][2]: # O
+      triads.append([edge_offset[5][:-1], edge_offset[3][:-1], edge_offset[0][:-1]])
+    if edge_offset[1][2] > edge_offset[5][2]: # O
+      triads.append([edge_offset[3][:-1], edge_offset[5][:-1], edge_offset[1][:-1]])
+    if edge_offset[4][2] > edge_offset[0][2]: # X
+      triads.append([edge_offset[2][:-1], edge_offset[0][:-1], edge_offset[4][:-1]])
+    if edge_offset[5][2] > edge_offset[2][2]: # X
+      triads.append([edge_offset[0][:-1], edge_offset[2][:-1], edge_offset[5][:-1]])
+  return triads
+
+def signed_030T_census(G_dict, all_triads):
+  rows, cols = get_rowcol(all_triads)
+  signed_030T_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_030T_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      signed_030T_count[row][col] = {}
+      G = G_dict[row][col]
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        edge_offset = []
+        for e in edge_order:
+          edge_offset.append((*e, G.get_edge_data(*e)['offset']))
+        triads = right_temporal_order(edge_offset, triad_type)
+        for e_order in triads:
+          sign = [G.get_edge_data(*e)['sign'] for e in e_order]
+          sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+          signed_030T_count[row][col]['030T' + sign] = signed_030T_count[row][col].get('030T' + sign, 0) + 1 
+      signed_030T_count[row][col] = dict(sorted(signed_030T_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return signed_030T_count
+
 def triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure, n):
   rows, cols = get_rowcol(triad_count)
   metric = np.zeros((len(rows), len(cols), len(tran_triad_types)))
