@@ -4678,7 +4678,96 @@ def signed_triad_region_census(all_triads, area_dict):
         signed_triad_region_count[row][col][st_type] = dict(sorted(signed_triad_region_count[row][col][st_type].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_region_count
 
+def plot_pie_chart_region_census_030T(signed_triad_region_count, triad_types, region_types, measure, n):
+  rows, cols = get_rowcol(signed_triad_region_count)
+  triad_region_dict = defaultdict(lambda: {})
+  fig = plt.figure(figsize=(32,4))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      for triad_type in signed_triad_region_count[row][col]:
+        temp = signed_triad_region_count[row][col][triad_type]
+        for region in temp:
+          triad_region_dict[triad_type][region] = triad_region_dict[triad_type].get(region, 0) + temp[region]
+  all_regions = np.unique([i for x in [list(triad_region_dict[t].keys()) for t in triad_region_dict] for i in x])
+  region_rank_dict = {i:region_types.index(i) for i in all_regions}
+  region_rank_dict = dict(sorted(region_rank_dict.items(), key=lambda item: item[1]))
+  all_regions = list(region_rank_dict.keys())
+  for t_ind, triad_type in enumerate(triad_types):
+    ax = plt.subplot(1, len(triad_types), t_ind+1)
+    triad_region = triad_region_dict[triad_type]
+    triad_region = dict(sorted(triad_region.items(), key=lambda item: item[1], reverse=True))
+    triad_region = {k:v for k,v in triad_region.items() if v >= 6} # remove region type that appears only once
+    labels = triad_region.keys()
+    sizes = [i / sum(triad_region.values()) for i in triad_region.values()]
+    explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+    colors = [customPalette[all_regions.index(l)%len(customPalette)] for l in labels]
+    patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, colors=colors, labels=labels, autopct='%1.1f%%',
+            shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+    for i, patch in enumerate(patches):
+      texts[i].set_color(patch.get_facecolor())
+    # for i in range(len(p[0])):
+    #   p[0][i].set_alpha(0.6)
+    ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    plt.title(triad_type)
+  suptitle = 'signed 030T distribution'
+  plt.suptitle(suptitle, size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  fname = './plots/pie_chart_signed_030T_region_census_{}_{}fold.jpg'
+  plt.savefig(fname.format(measure, n))
 
+def plot_stimulus_pie_chart_region_census_030T(signed_triad_region_count, triad_types, region_types, measure, n):
+  rows, cols = get_rowcol(signed_triad_region_count)
+  triad_region_dict = {}
+  fig = plt.figure(figsize=(32,26))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col in cols:
+    print(col)
+    triad_region_dict[col] = defaultdict(lambda: {})
+    for row in rows:
+      for triad_type in signed_triad_region_count[row][col]:
+        temp = signed_triad_region_count[row][col][triad_type]
+        for region in temp:
+          triad_region_dict[col][triad_type][region] = triad_region_dict[col][triad_type].get(region, 0) + temp[region]
+  # return triad_region_dict
+  all_regions = np.unique([i for x in [list(triad_region_dict[col][t].keys()) for col in triad_region_dict for t in triad_region_dict[col]] for i in x])
+  region_rank_dict = {i:region_types.index(i) for i in all_regions}
+  region_rank_dict = dict(sorted(region_rank_dict.items(), key=lambda item: item[1]))
+  all_regions = list(region_rank_dict.keys())
+  for col_ind, col in enumerate(cols):
+    for t_ind, triad_type in enumerate(triad_types):
+      ax = plt.subplot(len(cols), len(triad_types), col_ind*len(triad_types)+t_ind+1)
+      triad_region = triad_region_dict[col][triad_type]
+      triad_region = dict(sorted(triad_region.items(), key=lambda item: item[1], reverse=True))
+      # triad_region = {k:v for k,v in triad_region.items() if v >= 6} # remove region type that appears only once
+      labels = triad_region.keys()
+      sizes = [i / sum(triad_region.values()) for i in triad_region.values()]
+      explode = np.zeros(len(labels))  # only "explode" the 2nd slice (i.e. 'Hogs')
+      colors = [customPalette[all_regions.index(l)%len(customPalette)] for l in labels]
+      patches, texts, pcts = plt.pie(sizes, radius=sum(sizes), explode=explode, colors=colors, labels=labels, autopct='%1.1f%%',
+              shadow=True, startangle=90, wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'})
+      for i, patch in enumerate(patches):
+        texts[i].set_color(patch.get_facecolor())
+      # for i in range(len(p[0])):
+      #   p[0][i].set_alpha(0.6)
+      ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+      plt.title(triad_type)
+      if t_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), col,
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+  suptitle = 'signed 030T region distribution'
+  plt.suptitle(suptitle, size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  fname = './plots/pie_chart_stimulus_signed_030T_region_census_{}_{}fold.jpg'
+  plt.savefig(fname.format(measure, n))
 
 def count_sign_p(G):
   num_pos, num_neg = 0, 0
