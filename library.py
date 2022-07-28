@@ -3845,6 +3845,23 @@ def add_sign(G_dict):
       S_dict[row][col] = S
   return S_dict
 
+def add_offset(G_dict, offset_dict):
+  rows, cols = get_rowcol(G_dict)
+  S_dict = {}
+  for row in rows:
+    S_dict[row] = {}
+    for col in cols:
+      offset_mat = offset_dict[row][col]
+      G = G_dict[row][col]
+      nodes = sorted(list(G.nodes()))
+      offset = {}
+      for edge in G.edges():
+        offset[edge] = offset_mat[nodes.index(edge[0]), nodes.index(edge[1])]
+      S = G.copy()
+      nx.set_edge_attributes(S, offset, 'offset')
+      S_dict[row][col] = S
+  return S_dict
+
 # This section calculates balace in triads with respect to direction.
 # We first extract the transitive triads, then we break the transitive triads to semi-cycles, and finally 
 # calculate balance in each semicycle. The triad is balance only if all its semicycles are balance. 
