@@ -3616,14 +3616,6 @@ signed_triad_count = signed_triad_census(all_triads)
 summice_signed_triad_count = summice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 #%%
-################## add time lag limitation on 030T
-signed_030T_count = signed_030T_census(S_ccg_dict, all_triads)
-tran_triad_type = '030T'
-signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
-signed_030T_triad_types = [tran_triad_type+y for y in signs]
-triad_color = {i:customPalette[signed_030T_triad_types.index(i)] for i in signed_030T_triad_types}
-triad_stimulus_error_region(signed_030T_count, signed_030T_triad_types, triad_color, measure, n, True)
-#%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_color = {'030T':'Green', '120D':'Blue', '120U':'Red', '300':'Grey'}
@@ -3632,7 +3624,7 @@ triad_stimulus_error_region(triad_count, tran_triad_types, triad_color, measure,
 ################## num of signed 030T triads VS stimulus
 tran_triad_type = '030T'
 signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
-signed_030T_triad_types = [tran_triad_type+y for y in signs]
+signed_030T_triad_types = [tran_triad_type+y for y in signs] # reverse order so that more positive signs have darker value
 triad_color = {i:customPalette[signed_030T_triad_types.index(i)] for i in signed_030T_triad_types}
 triad_stimulus_error_region(signed_triad_count, signed_030T_triad_types, triad_color, measure, n)
 #%%
@@ -3662,8 +3654,32 @@ signed_030T_triad_types = [tran_triad_type+y for y in signs]
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, False)
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, True)
 #%%
+################## add time lag limitation on 030T
+signed_temporal_030T_count = signed_temporal_030T_census(S_ccg_dict, all_triads)
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+triad_color = {i:customPalette[signed_030T_triad_types.index(i)] for i in signed_030T_triad_types}
+triad_stimulus_error_region(signed_temporal_030T_count, signed_030T_triad_types, triad_color, measure, n, True)
+#%%
+summice_signed_temporal_030T_count = summice(signed_temporal_030T_count)
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+plot_multi_pie_chart_census_030T(summice_signed_temporal_030T_count, signed_030T_triad_types, measure, n, False, True)
+plot_multi_pie_chart_census_030T(summice_signed_temporal_030T_count, signed_030T_triad_types, measure, n, True, True)
+#%%
 ################ region distribution for signed 030T triad
 signed_triad_region_count = signed_triad_region_census(all_triads, area_dict)
+#%%
+################ region distribution for signed temporal 030T triad
+signed_temporal_030T_count = signed_temporal_030T_region_census(S_ccg_dict, all_triads, area_dict)
+#%%
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+region_types = ['_'.join([i,j,k]) for i in visual_regions for j in visual_regions for k in visual_regions]
+plot_pie_chart_region_census_030T(signed_temporal_030T_count, signed_030T_triad_types, region_types, measure, n, True)
 #%%
 tran_triad_type = '030T'
 signs = ['+++', '++-', '+-+', '+--', '-++', '-+-', '--+', '---']
