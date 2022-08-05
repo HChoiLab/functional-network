@@ -1,21 +1,25 @@
 # %%
-import numpy as np
-import os
-import matplotlib
-from matplotlib.colors import LogNorm
-from matplotlib import pyplot as plt
+from library import *
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
-import networkx as nx
-import community
-import pickle
-import random
-from numpy.core.fromnumeric import size
-import pandas as pd
-import seaborn as sns
-from plfit import plfit
 
-customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
+area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
+measure = 'ccg'
+
+G_ccg_dict = remove_gabor(G_ccg_dict)
+G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
+duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regions)
+active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
+n = 4
+S_ccg_dict = add_sign(G_ccg_dict)
+S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
+# customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
 class CommunityLayout():
   def __init__(self):
@@ -183,25 +187,6 @@ def plot_example_graph(G_dict, area_dict, session_ids, stimulus_names, mouse_id,
   plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
 
-def get_rowcol(G_dict, measure):
-  rows = list(G_dict.keys())
-  cols = []
-  for row in rows:
-    cols += list(G_dict[row].keys())
-  cols = list(set(cols))
-  if 'drifting_gratings_contrast' in cols:
-    cols.remove('drifting_gratings_contrast')
-  # sort stimulus
-  if measure == 'ccg':
-    stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
-  else:
-    stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-        'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
-          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
-  return rows, cols
 
 def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
   rewired_G_dict = {}
@@ -593,3 +578,93 @@ for metric_ind, metric_name in enumerate(new_me_names):
 plt.tight_layout()
 plt.savefig('./plots/delta_metrics_threshold_{}.pdf'.format(measure), transparent=True)
 # %%
+def plot_kstest(data_dict, name, measure, n):
+  fig = plt.figure(figsize=(7, 5.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  keys = data_dict.keys()
+  stimulus_pvalue = np.zeros((len(keys), len(keys)))
+  stimulus_pvalue[:] = np.nan
+  for key_ind1, key1 in enumerate(keys):
+    for key_ind2, key2 in enumerate(keys):
+      if not key1 == key2:
+        p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
+        p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+        stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
+        # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
+  # print(stimulus_pvalue)
+  sns_plot = sns.heatmap(stimulus_pvalue.astype(float), annot=True,cmap="RdBu",norm=colors.LogNorm(5.668934240362814e-06, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
+  # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+  sns_plot.set_xticks(np.arange(len(cols))+0.5)
+  sns_plot.set_xticklabels(cols, rotation=90)
+  sns_plot.set_yticks(np.arange(len(cols))+0.5)
+  sns_plot.set_yticklabels(cols, rotation=0)
+  sns_plot.invert_yaxis()
+  plt.title('p-value of {}'.format(name), size=18)
+  plt.tight_layout()
+  image_name = './plots/pvalue_{}_{}_{}fold.jpg'.format(name, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+density_dict = {}
+rows, cols = get_rowcol(G_ccg_dict)
+for col in cols:
+  density_dict[col] = []
+  for row in rows:
+    density_dict[col].append(nx.density(G_ccg_dict[row][col]))
+plot_kstest(density_dict, 'density', measure, n)
+# %%
+# violin plot for 6 metrics
+def violin_data(data_dict):
+  session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
+  stimulus_names = ['spontaneous', 'flashes', 'gabors',
+          'drifting_gratings', 'static_gratings',
+            'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  rows, cols = session_ids, stimulus_names
+  num_sample = 10
+  density = np.zeros((len(rows), len(cols), num_sample))
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      for i in range(num_sample):
+        density[row_ind, col_ind, i] = nx.density(G_dict[str(row)][col][i])
+  a_file = open('./data/ecephys_cache_dir/sessions/0.012_100.pkl', 'rb')
+  stat_dict = pickle.load(a_file)
+  a_file.close()
+  stimulus_names = ['spontaneous', 'flashes', 'gabors',
+          'drifting gratings', 'static gratings',
+            'natural images', 'natural movies']
+  metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
+  metric_inds = [0, 2, 5, 6, 7]
+  new_me_names = ['density'] + [metric_names[i] for i in metric_inds]
+  delta_metrics = stat_dict['delta metrics'].squeeze()[:, :, :, metric_inds] # (len(rows), len(cols), num_rewire)
+  stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
+  # combine natural movie 1 and 3
+  stimuli_inds[stimulus_names[-1]] = [stimuli_inds[stimulus_names[-1]], stimuli_inds[stimulus_names[-1]] + 1]
+  fig = plt.figure(figsize=(20, 10))
+  for metric_ind, metric_name in enumerate(new_me_names):
+    print(metric_name)
+    plt.subplot(2, 3, metric_ind + 1)
+    if metric_ind == 0:
+      metric = pd.concat([pd.DataFrame(np.concatenate((density[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * density[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=[metric_name, 'type']) for s_type in stimuli_inds], ignore_index=True)
+    else:
+      metric = pd.concat([pd.DataFrame(np.concatenate((delta_metrics[:, stimuli_inds[s_type], :, metric_ind-1].flatten()[:, None], np.array([s_type] * delta_metrics[:, stimuli_inds[s_type], :, metric_ind-1].flatten().size)[:, None]), 1), columns=[metric_name, 'type']) for s_type in stimuli_inds], ignore_index=True)
+    metric[metric_name] = pd.to_numeric(metric[metric_name])
+    ax = sns.violinplot(x='type', y=metric_name, data=metric, color=sns.color_palette("Set2")[0])
+    ax.set(xlabel=None)
+    ax.set(ylabel=None)
+    if metric_ind < 3:
+      plt.xticks([])
+    else:
+      plt.xticks(fontsize=20, rotation=90)
+    if metric_ind > 0:
+      metric_name = r'$\Delta$' + metric_name
+    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+  plt.legend()
+  plt.tight_layout()
+  # plt.show()
+  num = threshold if measure=='pearson' else percentile
+  figname = './plots/violin_delta_metric_stimulus_weighted_{}_{}.jpg'.format(measure, num) if weight else './plots/violin_delta_metric_stimulus_{}_{}.jpg'.format(measure, num)
+  # plt.savefig(figname)
+  plt.savefig(figname.replace('.jpg', '.pdf'), transparent=True)
