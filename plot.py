@@ -3,6 +3,36 @@ from library import *
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
 
+def plot_kstest(data_dict, name, measure, n):
+  fig = plt.figure(figsize=(7, 5.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  keys = data_dict.keys()
+  stimulus_pvalue = np.zeros((len(keys), len(keys)))
+  stimulus_pvalue[:] = np.nan
+  for key_ind1, key1 in enumerate(keys):
+    for key_ind2, key2 in enumerate(keys):
+      if not key1 == key2:
+        p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
+        p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+        stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
+        # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
+  # print(stimulus_pvalue)
+  sns_plot = sns.heatmap(stimulus_pvalue.astype(float), annot=True,cmap="RdBu",norm=colors.LogNorm(5.668934240362814e-06, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
+  # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+  sns_plot.set_xticks(np.arange(len(cols))+0.5)
+  sns_plot.set_xticklabels(cols, rotation=90)
+  sns_plot.set_yticks(np.arange(len(cols))+0.5)
+  sns_plot.set_yticklabels(cols, rotation=0)
+  sns_plot.invert_yaxis()
+  plt.title('p-value of {}'.format(name), size=18)
+  plt.tight_layout()
+  image_name = './plots/pvalue_{}_{}_{}fold.jpg'.format(name, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
@@ -578,36 +608,6 @@ for metric_ind, metric_name in enumerate(new_me_names):
 plt.tight_layout()
 plt.savefig('./plots/delta_metrics_threshold_{}.pdf'.format(measure), transparent=True)
 # %%
-def plot_kstest(data_dict, name, measure, n):
-  fig = plt.figure(figsize=(7, 5.5))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  keys = data_dict.keys()
-  stimulus_pvalue = np.zeros((len(keys), len(keys)))
-  stimulus_pvalue[:] = np.nan
-  for key_ind1, key1 in enumerate(keys):
-    for key_ind2, key2 in enumerate(keys):
-      if not key1 == key2:
-        p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
-        p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
-        stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
-        # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
-  # print(stimulus_pvalue)
-  sns_plot = sns.heatmap(stimulus_pvalue.astype(float), annot=True,cmap="RdBu",norm=colors.LogNorm(5.668934240362814e-06, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
-  # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
-  sns_plot.set_xticks(np.arange(len(cols))+0.5)
-  sns_plot.set_xticklabels(cols, rotation=90)
-  sns_plot.set_yticks(np.arange(len(cols))+0.5)
-  sns_plot.set_yticklabels(cols, rotation=0)
-  sns_plot.invert_yaxis()
-  plt.title('p-value of {}'.format(name), size=18)
-  plt.tight_layout()
-  image_name = './plots/pvalue_{}_{}_{}fold.jpg'.format(name, measure, n)
-  # plt.show()
-  plt.savefig(image_name)
-
 density_dict = {}
 rows, cols = get_rowcol(G_ccg_dict)
 for col in cols:
@@ -616,55 +616,164 @@ for col in cols:
     density_dict[col].append(nx.density(G_ccg_dict[row][col]))
 plot_kstest(density_dict, 'density', measure, n)
 # %%
-# violin plot for 6 metrics
-def violin_data(data_dict):
-  session_ids = [719161530, 750749662, 755434585, 756029989, 791319847]
-  stimulus_names = ['spontaneous', 'flashes', 'gabors',
-          'drifting_gratings', 'static_gratings',
-            'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-  rows, cols = session_ids, stimulus_names
-  num_sample = 10
-  density = np.zeros((len(rows), len(cols), num_sample))
-  for row_ind, row in enumerate(rows):
-    for col_ind, col in enumerate(cols):
-      for i in range(num_sample):
-        density[row_ind, col_ind, i] = nx.density(G_dict[str(row)][col][i])
-  a_file = open('./data/ecephys_cache_dir/sessions/0.012_100.pkl', 'rb')
-  stat_dict = pickle.load(a_file)
-  a_file.close()
-  stimulus_names = ['spontaneous', 'flashes', 'gabors',
-          'drifting gratings', 'static gratings',
-            'natural images', 'natural movies']
-  metric_names = ['assortativity', 'betweenness', 'closeness', 'clustering', 'density', 'efficiency', 'modularity', 'transitivity']
-  metric_inds = [0, 2, 5, 6, 7]
-  new_me_names = ['density'] + [metric_names[i] for i in metric_inds]
-  delta_metrics = stat_dict['delta metrics'].squeeze()[:, :, :, metric_inds] # (len(rows), len(cols), num_rewire)
-  stimuli_inds = {s:stimulus_names.index(s) for s in stimulus_names}
-  # combine natural movie 1 and 3
-  stimuli_inds[stimulus_names[-1]] = [stimuli_inds[stimulus_names[-1]], stimuli_inds[stimulus_names[-1]] + 1]
-  fig = plt.figure(figsize=(20, 10))
-  for metric_ind, metric_name in enumerate(new_me_names):
-    print(metric_name)
-    plt.subplot(2, 3, metric_ind + 1)
-    if metric_ind == 0:
-      metric = pd.concat([pd.DataFrame(np.concatenate((density[:, stimuli_inds[s_type], :].flatten()[:, None], np.array([s_type] * density[:, stimuli_inds[s_type], :].flatten().size)[:, None]), 1), columns=[metric_name, 'type']) for s_type in stimuli_inds], ignore_index=True)
-    else:
-      metric = pd.concat([pd.DataFrame(np.concatenate((delta_metrics[:, stimuli_inds[s_type], :, metric_ind-1].flatten()[:, None], np.array([s_type] * delta_metrics[:, stimuli_inds[s_type], :, metric_ind-1].flatten().size)[:, None]), 1), columns=[metric_name, 'type']) for s_type in stimuli_inds], ignore_index=True)
-    metric[metric_name] = pd.to_numeric(metric[metric_name])
-    ax = sns.violinplot(x='type', y=metric_name, data=metric, color=sns.color_palette("Set2")[0])
-    ax.set(xlabel=None)
-    ax.set(ylabel=None)
-    if metric_ind < 3:
-      plt.xticks([])
-    else:
-      plt.xticks(fontsize=20, rotation=90)
-    if metric_ind > 0:
-      metric_name = r'$\Delta$' + metric_name
-    plt.gca().set_title(metric_name, fontsize=30, rotation=0)
-  plt.legend()
+# violin plot
+def violin_data(data_dict, name, measure, n):
+  keys = list(data_dict.keys())
+  fig = plt.figure(figsize=(5, 5))
+  data = [data_dict[key] for key in keys]
+  ax = sns.violinplot(data=data, color=sns.color_palette("Set2")[0], scale='width')
+  ax.set(xlabel=None)
+  ax.set(ylabel=None)
+  plt.xticks(range(len(keys)), keys, fontsize=10, rotation=90)
+  plt.gca().set_title(name, fontsize=30, rotation=0)
+  # plt.legend()
   plt.tight_layout()
   # plt.show()
-  num = threshold if measure=='pearson' else percentile
-  figname = './plots/violin_delta_metric_stimulus_weighted_{}_{}.jpg'.format(measure, num) if weight else './plots/violin_delta_metric_stimulus_{}_{}.jpg'.format(measure, num)
-  # plt.savefig(figname)
-  plt.savefig(figname.replace('.jpg', '.pdf'), transparent=True)
+  figname = './plots/violin_{}_{}_{}.jpg'.format(name, measure, n)
+  plt.savefig(figname)
+  # plt.savefig(figname.replace('.jpg', '.pdf'), transparent=True)
+
+violin_data(density_dict, 'density', measure, n)
+# %%
+# box plot
+def box_data(data_dict, name, measure, n):
+  keys = list(data_dict.keys())
+  fig = plt.figure(figsize=(5, 5))
+  data = [data_dict[key] for key in keys]
+  ax = sns.boxplot(data=data, color=sns.color_palette("Set2")[0])
+  ax.set(xlabel=None)
+  ax.set(ylabel=None)
+  plt.xticks(range(len(keys)), keys, fontsize=10, rotation=90)
+  plt.gca().set_title(name, fontsize=30, rotation=0)
+  # plt.legend()
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/box_{}_{}_{}.jpg'.format(name, measure, n)
+  plt.savefig(figname)
+  # plt.savefig(figname.replace('.jpg', '.pdf'), transparent=True)
+
+box_data(density_dict, 'density', measure, n)
+# %%
+################ violin plot of intra/inter region links
+df = pd.DataFrame()
+rows, cols = get_rowcol(G_ccg_dict)
+# metric = np.zeros((len(rows), len(cols), 3))
+region_connection = np.zeros((len(rows), len(cols), len(visual_regions), len(visual_regions)))
+for col_ind, col in enumerate(cols):
+  print(col)
+  intra_data, inter_data = [], []
+  for row_ind, row in enumerate(rows):
+    G = G_ccg_dict[row][col] if col in G_ccg_dict[row] else nx.Graph()
+    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[row][key] for key in nodes}
+      areas = list(node_area.values())
+      area_size = [areas.count(r) for r in visual_regions]
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(visual_regions):
+        for region_ind_j, region_j in enumerate(visual_regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(visual_regions),dtype=bool)
+      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+      intra_data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]))
+      inter_data.append(np.sum(region_connection[row_ind, col_ind][~diag_indx]))
+  df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(['intra-region'] * len(intra_data))[:,None], np.array([col] * len(intra_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+              pd.DataFrame(np.concatenate((np.array(inter_data)[:,None], np.array(['inter-region'] * len(inter_data))[:,None], np.array([col] * len(inter_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+  df['number of connections'] = pd.to_numeric(df['number of connections'])
+ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+plt.xticks(fontsize=10, rotation=90)
+ax.set(xlabel=None)
+plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+# %%
+def remove_outliers(data, m=2.):
+  data = np.array(data)
+  d = np.abs(data - np.median(data))
+  mdev = np.median(d)
+  s = d / (mdev if mdev else 1.)
+  return data[s < m]
+
+################ violin plot of intra-inter region links
+df = pd.DataFrame()
+rows, cols = get_rowcol(G_ccg_dict)
+# metric = np.zeros((len(rows), len(cols), 3))
+region_connection = np.zeros((len(rows), len(cols), len(visual_regions), len(visual_regions)))
+for col_ind, col in enumerate(cols):
+  print(col)
+  data = []
+  for row_ind, row in enumerate(rows):
+    G = G_ccg_dict[row][col] if col in G_ccg_dict[row] else nx.Graph()
+    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[row][key] for key in nodes}
+      areas = list(node_area.values())
+      area_size = [areas.count(r) for r in visual_regions]
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(visual_regions):
+        for region_ind_j, region_j in enumerate(visual_regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(visual_regions),dtype=bool)
+      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+      data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]) / np.sum(region_connection[row_ind, col_ind][~diag_indx]))
+  # data = remove_outliers(data, 3)
+  df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(data)[:,None], np.array([col] * len(data))[:,None]), 1), columns=['ratio', 'stimulus'])], ignore_index=True)
+  df['ratio'] = pd.to_numeric(df['ratio'])
+fig = plt.figure(figsize=(5, 5))
+# ax = sns.violinplot(x='stimulus', y='ratio', data=df, palette="muted", scale='count', cut=0)
+ax = sns.boxplot(x='stimulus', y='ratio', data=df, palette="muted")
+plt.xticks(fontsize=10, rotation=90)
+plt.title('intra-region / inter-region links')
+plt.yscale('log')
+ax.set(xlabel=None)
+# plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
+plt.savefig('./plots/box_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
+# %%
+################## p-value of intra/inter link ratio across stimulus
+rows, cols = get_rowcol(G_ccg_dict)
+intra_inter_ratio_dict = {}
+region_connection = np.zeros((len(rows), len(cols), len(visual_regions), len(visual_regions)))
+for col_ind, col in enumerate(cols):
+  print(col)
+  data = []
+  intra_inter_ratio_dict[col] = []
+  for row_ind, row in enumerate(rows):
+    G = G_ccg_dict[row][col] if col in G_ccg_dict[row] else nx.Graph()
+    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[row][key] for key in nodes}
+      areas = list(node_area.values())
+      area_size = [areas.count(r) for r in visual_regions]
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(visual_regions):
+        for region_ind_j, region_j in enumerate(visual_regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(visual_regions),dtype=bool)
+      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+      data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]) / np.sum(region_connection[row_ind, col_ind][~diag_indx]))
+  intra_inter_ratio_dict[col] = data
+
+plot_kstest(intra_inter_ratio_dict, 'intra_inter_ratio', measure, n)
+# %%
