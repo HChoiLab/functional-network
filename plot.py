@@ -42,7 +42,7 @@ def box_data(data_dict, name, measure, n):
   figname = './plots/box_{}_{}_{}.jpg'.format(name, measure, n)
   plt.savefig(figname)
 
-def plot_kstest(data_dict, name, measure, n):
+def plot_p_value(data_dict, name, measure, n, method='ks_test', logscale='True'):
   fig = plt.figure(figsize=(7, 5.5))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -54,21 +54,29 @@ def plot_kstest(data_dict, name, measure, n):
   for key_ind1, key1 in enumerate(keys):
     for key_ind2, key2 in enumerate(keys):
       if not key1 == key2:
-        p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
-        p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+        if method == 'ks_test':
+          p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
+          p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+        elif method == 'mwu_test':
+          p_less = stats.mannwhitneyu(ratio_dict['natural_movie_three'], ratio_dict['natural_movie_one'], alternative='less', method="asymptotic")[1]
+          p_greater = stats.mannwhitneyu(ratio_dict['natural_movie_three'], ratio_dict['natural_movie_one'], alternative='greater', method="asymptotic")[1]
         stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
         # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
   # print(stimulus_pvalue)
-  sns_plot = sns.heatmap(stimulus_pvalue.astype(float), annot=True,cmap="RdBu",norm=colors.LogNorm(5.668934240362814e-06, 1))# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
+  if logscale:
+    norm = colors.LogNorm(5.668934240362814e-06, 1)# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05
+  else:
+    norm = colors.Normalize(0.0, 1.0)
+  sns_plot = sns.heatmap(stimulus_pvalue.astype(float), annot=True,cmap="RdBu",norm=norm)
   # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
   sns_plot.set_xticks(np.arange(len(cols))+0.5)
   sns_plot.set_xticklabels(cols, rotation=90)
   sns_plot.set_yticks(np.arange(len(cols))+0.5)
   sns_plot.set_yticklabels(cols, rotation=0)
   sns_plot.invert_yaxis()
-  plt.title('p-value of {}'.format(name), size=18)
+  plt.title('{} p-value of {}'.format(method, name), size=18)
   plt.tight_layout()
-  image_name = './plots/pvalue_{}_{}_{}fold.jpg'.format(name, measure, n)
+  image_name = './plots/{}_pvalue_{}_{}_{}fold.jpg'.format(method, name, measure, n)
   # plt.show()
   plt.savefig(image_name)
 
@@ -177,6 +185,41 @@ def plot_intra_inter_scatter(data_dict, G_dict, sign, name, active_area_dict, me
   # plt.show()
   figname = './plots/intra_inter_scatter_{}_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(name, sign, measure, n))
+
+def plot_intra_inter_ratio_box(data_dict, G_dict, name, active_area_dict, measure, n, color_pa):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(data_dict)
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_data, inter_data = [], []
+    for row_ind, row in enumerate(rows):
+      active_area = active_area_dict[row]
+      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
+      nodes = sorted(list(G.nodes()))
+      for i, j in zip(*np.where(~np.isnan(mat))):
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_data.append(mat[i, j])
+        else:
+          inter_data.append(mat[i, j])
+    # print(np.isnan(intra_data).sum(), np.isnan(inter_data).sum())
+    # data = [d_i / d_j for d_i in np.random.choice(intra_data, 1000) for d_j in np.random.choice(inter_data, 1000)]
+    data = [d_j / d_i for d_i in intra_data for d_j in inter_data]
+    data = [x for x in data if not np.isnan(x)]
+    data = [x for x in data if not np.isinf(x)]
+    data = [x for x in data if not x==0]
+    # data = remove_outliers(data, 3)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(data)[:,None], np.array([col] * len(data))[:,None]), 1), columns=['ratio', 'stimulus'])], ignore_index=True)
+    df['ratio'] = pd.to_numeric(df['ratio'])
+  fig = plt.figure(figsize=(5, 5))
+  # ax = sns.violinplot(x='stimulus', y='ratio', data=df, palette="muted", scale='count', cut=0)
+  ax = sns.boxplot(x='stimulus', y='ratio', data=df, showfliers=False, palette=color_pa)
+  plt.xticks(fontsize=10, rotation=90)
+  plt.title('inter-region / intra-region {} ratio'.format(name))
+  # plt.yscale('log')
+  ax.set(xlabel=None)
+  plt.tight_layout()
+  # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/box_inter_intra_{}_ratio_{}_{}fold.jpg'.format(name, measure, n))
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -724,38 +767,34 @@ color_pa = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'india
 plot_intra_inter_scatter(offset_dict, G_ccg_dict, 'total', 'offset', active_area_dict, measure, n, color_pa)
 plot_intra_inter_scatter(duration_dict, G_ccg_dict, 'total', 'duration', active_area_dict, measure, n, color_pa)
 # %%
-################ box plot of intra inter region offset ratio
-def plot_intra_inter_ratio_box(data_dict, G_dict, name, active_area_dict, measure, n):
-  df = pd.DataFrame()
-  rows, cols = get_rowcol(G_ccg_dict)
-  for col_ind, col in enumerate(cols):
-    print(col)
-    intra_data, inter_data = [], []
-    for row_ind, row in enumerate(rows):
-      active_area = active_area_dict[row]
-      mat, G = data_dict[row][col].copy(), G_dict[row][col].copy()
-      nodes = sorted(list(G.nodes()))
-      for i, j in zip(*np.where(~np.isnan(mat))):
-        if active_area[nodes[i]] == active_area[nodes[j]]:
-          intra_data.append(mat[i, j])
-        else:
-          inter_data.append(mat[i, j])
-    # print(np.isnan(intra_data).sum(), np.isnan(inter_data).sum())
-    data = [d_i / d_j for d_i in inter_data for d_j in intra_data]
-    data = [x for x in data if not np.isnan(x)]
-    # data = remove_outliers(data, 3)
-    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(data)[:,None], np.array([col] * len(data))[:,None]), 1), columns=['ratio', 'stimulus'])], ignore_index=True)
-    df['ratio'] = pd.to_numeric(df['ratio'])
-  fig = plt.figure(figsize=(5, 5))
-  # ax = sns.violinplot(x='stimulus', y='ratio', data=df, palette="muted", scale='count', cut=0)
-  ax = sns.boxplot(x='stimulus', y='ratio', data=df, palette="muted")
-  plt.xticks(fontsize=10, rotation=90)
-  plt.title('inter-region / intra-region {} ratio'.format(name))
-  # plt.yscale('log')
-  ax.set(xlabel=None)
-  plt.tight_layout()
-  # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
-  plt.savefig('./plots/box_intra_inter_{}_ratio_{}_{}fold.jpg'.format(name, measure, n))
+################ box plot of inter intra region offset ratio
+color_pa = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+plot_intra_inter_ratio_box(offset_dict, G_ccg_dict, 'offset', active_area_dict, measure, n, color_pa)
+plot_intra_inter_ratio_box(duration_dict, G_ccg_dict, 'duration', active_area_dict, measure, n, color_pa)
+# %%
+################ p value of inter intra region offset ratio across stimulus
+ratio_dict = {}
+rows, cols = get_rowcol(G_ccg_dict)
+for col in cols:
+  print(col)
+  intra_data, inter_data = [], []
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    mat, G = offset_dict[row][col].copy(), G_ccg_dict[row][col].copy()
+    nodes = sorted(list(G.nodes()))
+    for i, j in zip(*np.where(~np.isnan(mat))):
+      if active_area[nodes[i]] == active_area[nodes[j]]:
+        intra_data.append(mat[i, j])
+      else:
+        inter_data.append(mat[i, j])
+  # print(np.isnan(intra_data).sum(), np.isnan(inter_data).sum())
+  # data = [d_i / d_j for d_i in np.random.choice(intra_data, 1000) for d_j in np.random.choice(inter_data, 1000)]
+  data = [d_j / d_i for d_i in intra_data for d_j in inter_data]
+  data = [x for x in data if not np.isnan(x)]
+  data = [x for x in data if not np.isinf(x)]
+  data = [x for x in data if not x==0]
+  ratio_dict[col] = data
 
-plot_intra_inter_ratio_box(offset_dict, G_ccg_dict, 'offset', active_area_dict, measure, n)
+plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'ks_test', False)
+plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'mwu_test', True)
 # %%
