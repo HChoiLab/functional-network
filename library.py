@@ -218,8 +218,10 @@ def spike_timing2train(T, spikeTrain):
     return spikeData
 
 class CommunityLayout():
-  # def __init__(self):
-  #   super(CommunityLayout,self).__init__()
+  def __init__(self, community_scale=3., node_scale=1.):
+    self.community_scale = community_scale
+    self.node_scale = node_scale
+  
   def get_community_layout(self, g, partition):
     """
     Compute the layout for a modular graph.
@@ -235,8 +237,8 @@ class CommunityLayout():
     pos -- dict mapping int node -> (float x, float y)
         node positions
     """
-    pos_communities = self._position_communities(g, partition, scale=3.)
-    pos_nodes = self._position_nodes(g, partition, scale=1.)
+    pos_communities = self._position_communities(g, partition, scale=self.community_scale)
+    pos_nodes = self._position_nodes(g, partition, scale=self.node_scale)
     # combine positions
     pos = dict()
     for node in g.nodes():
