@@ -155,7 +155,7 @@ def plot_intra_inter_kde(data_dict, G_dict, sign, name, density, active_area_dic
 def plot_intra_inter_scatter(data_dict, G_dict, sign, name, active_area_dict, measure, n, color_pa):
   rows, cols = get_rowcol(data_dict)
   num_row, num_col = len(rows), len(cols)
-  fig = plt.figure(figsize=(5*num_col, 5))
+  fig = plt.figure(figsize=(5, 5))
   df = pd.DataFrame(columns=['data', 'type', 'col'])
   for col_ind, col in enumerate(cols):
     print(col)
@@ -173,7 +173,6 @@ def plot_intra_inter_scatter(data_dict, G_dict, sign, name, active_area_dict, me
                    columns=['intra-region', 'inter-region', 'col'])])
   df['intra-region'] = pd.to_numeric(df['intra-region'])
   df['inter-region'] = pd.to_numeric(df['inter-region'])
-  plt.subplot(1, num_col, col_ind+1)
   ax = sns.scatterplot(data=df, x='intra-region', y='inter-region', hue='col', palette=color_pa, s=100)
   xliml, xlimu = ax.get_xlim()
   plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
@@ -772,7 +771,9 @@ color_pa = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'india
 plot_intra_inter_ratio_box(offset_dict, G_ccg_dict, 'offset', active_area_dict, measure, n, color_pa)
 plot_intra_inter_ratio_box(duration_dict, G_ccg_dict, 'duration', active_area_dict, measure, n, color_pa)
 # %%
-################ p value of inter intra region offset ratio across stimulus
+################ p value of pairwise inter intra region offset ratio across stimulus
+data_dict = offset_dict
+# data_dict = duration_dict
 ratio_dict = {}
 rows, cols = get_rowcol(G_ccg_dict)
 for col in cols:
@@ -780,7 +781,7 @@ for col in cols:
   intra_data, inter_data = [], []
   for row_ind, row in enumerate(rows):
     active_area = active_area_dict[row]
-    mat, G = offset_dict[row][col].copy(), G_ccg_dict[row][col].copy()
+    mat, G = data_dict[row][col].copy(), G_ccg_dict[row][col].copy()
     nodes = sorted(list(G.nodes()))
     for i, j in zip(*np.where(~np.isnan(mat))):
       if active_area[nodes[i]] == active_area[nodes[j]]:
@@ -795,6 +796,158 @@ for col in cols:
   data = [x for x in data if not x==0]
   ratio_dict[col] = data
 
-plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'ks_test', False)
-plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'mwu_test', True)
+# plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'ks_test', False)
+# plot_p_value(ratio_dict, 'inter_intra_offset_ratio', measure, n, 'mwu_test', True)
+# %%
+cols = list(ratio_dict.keys())
+mean_data = [{k:np.mean(ratio_dict[k]) for k in ratio_dict}]
+ratio_df = pd.DataFrame(mean_data)
+# %%
+################ average inter intra region offset ratio across stimulus
+data_dict = offset_dict
+# data_dict = duration_dict
+mean_ratio_dict = {}
+rows, cols = get_rowcol(G_ccg_dict)
+for col in cols:
+  print(col)
+  intra_data, inter_data = [], []
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    mat, G = data_dict[row][col].copy(), G_ccg_dict[row][col].copy()
+    nodes = sorted(list(G.nodes()))
+    for i, j in zip(*np.where(~np.isnan(mat))):
+      if active_area[nodes[i]] == active_area[nodes[j]]:
+        intra_data.append(mat[i, j])
+      else:
+        inter_data.append(mat[i, j])
+  mean_ratio_dict[col] = np.mean(inter_data) / np.mean(intra_data)
+
+mean_ratio_df = pd.DataFrame([mean_ratio_dict])
+# %%
+def plot_example_graph(G_dict, area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, baseline=False):
+  fig = plt.figure(figsize=(10, 8))
+  G = G_dict[str(session_ids[mouse_id])][stimulus_names[stimulus_id]][0]
+  nx.set_node_attributes(G, area_dict[str(session_ids[mouse_id])], "area")
+  if nx.is_directed(G):
+      Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+      G = G.subgraph(Gcc[0])
+  else:
+      Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+      G = G.subgraph(Gcc[0])
+  G = nx.k_core(G)
+  try:
+      edges, weights = zip(*nx.get_edge_attributes(G,'weight').items())
+  except:
+      edges = nx.edges(G)
+      weights = np.ones(len(edges))
+  degrees = dict(G.degree)
+  pos = nx.spring_layout(G)
+  areas = [G.nodes[n]['area'] for n in G.nodes()]
+  areas_uniq = unique(areas)
+  colors = [customPalette[areas_uniq.index(area)] for area in areas]
+  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+  # nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color=np.log(np.array(weights)*100), width=4 * np.log(np.array(weights)*100), edge_cmap=plt.cm.Greens, alpha=0.9)
+  nx.draw_networkx_edges(G, pos, edgelist=edges, edge_color='green', width=4 * np.log(np.array(weights)*100), alpha=0.08)
+  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[2.5 * v ** 2 for v in degrees.values()], 
+  node_color=colors, alpha=1)
+  # for index, a in enumerate(areas_uniq):
+  #     plt.scatter([],[], c=customPalette[index], label=a, s=20, alpha=1)
+  # legend = plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=12)
+  # for handle in legend.legendHandles:
+  #     handle.set_sizes([40.0])
+  plt.axis('off')
+  plt.tight_layout()
+  image_name = './plots/example_graph_baseline_{}_{}.jpg'.format(mouse_id, stimulus_id) if baseline else './plots/example_graph_{}_{}.jpg'.format(mouse_id, stimulus_id)
+  # plt.savefig(image_name)
+  plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+  # plt.show()
+
+def plot_example_graphs_offset(G_dict, max_reso, offset_dict, sign, area_dict, active_area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, measure, n, cc=False):
+  com = CommunityLayout()
+  rows, cols = get_rowcol(G_dict)
+  G_sample = G_dict[rows[0]][cols[0]]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(8, 7))
+  row, col = str(session_ids[mouse_id]), stimulus_names[stimulus_id]
+  print(row, col)
+  offset_mat = offset_dict[row][col]
+  G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+  nx.set_node_attributes(G, area_dict[row], "area")
+  if G.number_of_nodes() > 2 and G.number_of_edges() > 0:
+    if cc:
+      if nx.is_directed(G):
+        Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+        G = G.subgraph(Gcc[0])
+      else:
+        Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+        G = G.subgraph(Gcc[0])
+    node_idx = sorted(active_area_dict[row].keys())
+    reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+    G = nx.relabel_nodes(G, reverse_mapping)
+    edges = nx.edges(G)
+    # weights = [offset_mat[reverse_mapping[edge[0]], reverse_mapping[edge[1]]] for edge in edges]
+    try:
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      offset = {edge:offset_mat[edge[0], edge[1]] for edge in edges}
+      nx.set_edge_attributes(G, offset, 'offset')
+      comms = nx_comm.louvain_communities(G, weight='offset', resolution=max_reso)
+      comms_tuple = [[[i for i in comm], len(comm)] for comm in comms]
+      large_comms = [e[0] for e in sorted(comms_tuple, key=lambda x:x[1], reverse=True)][:6]
+      nodes2plot = [j for i in comms if len(i) > 2 for j in i]
+      comms2plot = [i for i in comms if len(i) > 2]
+      pos = com.get_community_layout(G.subgraph(nodes2plot), comm2partition(comms2plot))
+      metric = nx_comm.modularity(G.subgraph(nodes2plot), comms2plot, weight='offset', resolution=max_reso)
+      # partition = community.best_partition(G, weight='weight')
+      # pos = com.get_community_layout(G, partition)
+      # metric = community.modularity(partition, G, weight='weight')
+      print('Modularity: {}'.format(metric))
+    except:
+      print('Community detection unsuccessful!')
+      pos = nx.spring_layout(G)
+    edges = nx.edges(G.subgraph(nodes2plot))
+    degrees = dict(G.degree(nodes2plot))
+    # use offset as edge weight (color)
+    weights = [offset[edge] for edge in offset if (edge[0] in nodes2plot) and (edge[1] in nodes2plot)]
+    # weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+    norm = mpl.colors.Normalize(vmin=-1, vmax=11)
+    m= cm.ScalarMappable(norm=norm, cmap=cm.Greens)
+    edge_colors = [m.to_rgba(w) for w in weights]
+    areas = [G.nodes[n]['area'] for n in nodes2plot]
+    areas_uniq = list(set(areas))
+    colors = [customPalette[areas_uniq.index(area)] for area in areas]
+    # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+    nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.9) # , edge_cmap=plt.cm.Greens
+    # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+    nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[5 * v for v in degrees.values()], 
+    node_color=colors, alpha=0.4)
+
+  areas = [G.nodes[n]['area'] for n in G.nodes()]
+  areas_uniq = list(set(areas))
+  for index, a in enumerate(areas_uniq):
+    plt.scatter([],[], c=customPalette[index], label=a, s=30)
+  legend = plt.legend(loc='upper left', fontsize=20)
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/example_graphs_region_color_cc_{}_{}_{}fold.jpg'.format(sign, measure, n) if cc else './plots/example_graphs_region_color_{}_{}_{}fold.jpg'.format(sign, measure, n)
+  plt.savefig(image_name)
+  # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
+  # plt.show()
+  return weights, comms
+
+mouse_id, stimulus_id = 4, 6
+weights, comms = plot_example_graphs_offset(G_ccg_dict, max_reso_gnm[mouse_id][2], offset_dict, 'total_offset_gnm', area_dict, active_area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, measure, n, True)
+#%%
+comms2plot = [i for i in comms if len(i) > 5]
+print([len(i) for i in comms], len(comms2plot))
+#%%
+################# get optimal resolution that maximizes delta Q
+rows, cols = get_rowcol(G_ccg_dict)
+with open('metrics.pkl', 'rb') as f:
+  metrics = pickle.load(f)
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
+#%%
+
 # %%
