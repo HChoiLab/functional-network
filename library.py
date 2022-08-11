@@ -13,6 +13,7 @@ import pickle
 import time
 import sys
 import re
+import random
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cm
@@ -1950,11 +1951,19 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
 
 def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
   origin_G = input_G.copy()
+  if cc:
+    if nx.is_directed(origin_G):
+      if not nx.is_weakly_connected(origin_G):
+        Gcc = sorted(nx.weakly_connected_components(origin_G), key=len, reverse=True)
+        origin_G = origin_G.subgraph(Gcc[0])
+    else:
+      if not nx.is_connected(origin_G):
+        Gcc = sorted(nx.connected_components(origin_G), key=len, reverse=True)
+        origin_G = origin_G.subgraph(Gcc[0])
+    # largest_cc = max(nx.connected_components(origin_G), key=len)
+    # origin_G = nx.subgraph(origin_G, largest_cc)
   weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
   np.random.shuffle(weights)
-  if cc:
-    largest_cc = max(nx.connected_components(origin_G), key=len)
-    origin_G = nx.subgraph(origin_G, largest_cc)
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
   random_graphs = []
@@ -2096,7 +2105,7 @@ def plot_modularity_resolution_rand(rows, cols, resolution_list, metrics, random
     # plt.show()
     plt.savefig(figname.format(k.replace(' ', '_'), measure, n))
 
-def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
+def comms_modularity_resolution(G_dict, resolution_list, num_rewire, cc=False):
   rows, cols = get_rowcol(G_dict)
   comms_dict = {}
   uw_modularity = np.full([len(rows), len(cols), len(resolution_list)], np.nan)
@@ -2110,14 +2119,17 @@ def comms_modularity_resolution(G_dict, resolution_list, num_rewire):
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       if nx.is_directed(G):
         G = G.to_undirected()
+      if cc:
+        Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+        G = G.subgraph(Gcc[0])
       for resolution_ind, resolution in enumerate(resolution_list):      
         unweight = {(i, j):1 for i,j in G.edges()}
         nx.set_edge_attributes(G, unweight, 'weight')
-        comms = nx_comm.louvain_communities(G, weight='weight', resolution=resolution)
+        comms = nx_comm.louvain_communities(G.copy(), weight='weight', resolution=resolution)
         comms_dict[row][col][resolution] = comms
-        uw_modularity[row_ind, col_ind, resolution_ind] = get_modularity(G, weight='weight', resolution=resolution, comms=comms)
-        gnm_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G, num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
-        swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G, num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)   
+        uw_modularity[row_ind, col_ind, resolution_ind] = get_modularity(G.copy(), weight='weight', resolution=resolution, comms=comms)
+        gnm_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G.copy(), num_rewire, algorithm='Gnm', weight='weight', resolution=resolution)
+        swap_uw_modularity[row_ind, col_ind, resolution_ind] = get_random_modularity(G.copy(), num_rewire, algorithm='double_edge_swap', weight='weight', resolution=resolution)   
   metrics = {'total unweighted modularity':uw_modularity, 'total Gnm unweighted modularity':gnm_uw_modularity, 'total swap unweighted modularity':swap_uw_modularity}
   return comms_dict, metrics
 
@@ -4066,7 +4078,7 @@ def count_triplet_connection_p(G):
   p0, p1, p2 = safe_division(num0, num0 + num1 + num2), safe_division(num1, num0 + num1 + num2), safe_division(num2, num0 + num1 + num2)
   return p0, p1, p2
 
-def plot_pair_relative_count(G_dict, p_pair_func, measure, n, scale = True):
+def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale = True):
   ind = 1
   rows, cols = get_rowcol(G_dict)
   fig = plt.figure(figsize=(23, 4))
@@ -4097,18 +4109,21 @@ def plot_pair_relative_count(G_dict, p_pair_func, measure, n, scale = True):
       all_pair_count['2'].append(p2 / p_pair_func['2'](p))
     
     triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
-    plt.boxplot(triad_counts)
+    plt.boxplot(triad_counts, showfliers=False)
     plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
     left, right = plt.xlim()
     plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
     # plt.hlines(1, color='r', linestyles='--')
     if scale:
-      plt.ylim(0, ylim)
+      if not log:
+        plt.ylim(top=ylim)
+      else:
+        plt.yscale('log')
+        plt.ylim(top=ylim)
     # plt.hist(data.flatten(), bins=12, density=True)
     # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
     # plt.xlabel('region')
     # plt.xlabel('size')
-    # plt.yscale('log')
     plt.ylabel('relative count')
   plt.suptitle('Relative count of all pairs', size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
@@ -4116,7 +4131,7 @@ def plot_pair_relative_count(G_dict, p_pair_func, measure, n, scale = True):
   # plt.show()
   plt.savefig(image_name.format(measure, n))
 
-def plot_triad_relative_count(G_dict, p_triad_func, measure, n):
+def plot_triad_relative_count(G_dict, p_triad_func, measure, n, log=True):
   ind = 1
   rows, cols = get_rowcol(G_dict)
   fig = plt.figure(figsize=(23, 15))
@@ -4149,7 +4164,8 @@ def plot_triad_relative_count(G_dict, p_triad_func, measure, n):
     # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
     # plt.xlabel('region')
     # plt.xlabel('size')
-    plt.yscale('log')
+    if log:
+      plt.yscale('log')
     plt.ylabel('relative count')
   plt.suptitle('Relative count of all triads', size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
