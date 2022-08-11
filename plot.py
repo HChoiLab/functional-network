@@ -58,8 +58,8 @@ def plot_p_value(data_dict, name, measure, n, method='ks_test', logscale='True')
           p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
           p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
         elif method == 'mwu_test':
-          p_less = stats.mannwhitneyu(ratio_dict['natural_movie_three'], ratio_dict['natural_movie_one'], alternative='less', method="asymptotic")[1]
-          p_greater = stats.mannwhitneyu(ratio_dict['natural_movie_three'], ratio_dict['natural_movie_one'], alternative='greater', method="asymptotic")[1]
+          p_less = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='less', method="asymptotic")[1]
+          p_greater = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='greater', method="asymptotic")[1]
         stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
         # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
   # print(stimulus_pvalue)
@@ -297,6 +297,61 @@ def plot_example_graphs_offset(G_dict, max_reso, offset_dict, sign, area_dict, a
   # plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
   return weights, comms
+
+def plot_covering_comm_purity(G_dict, cover_p, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  covering_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      if not weight:
+        name = '{}_uw'.format(sign)
+        unweight = {(i, j):1 for i,j in G.edges()}
+        nx.set_edge_attributes(G, unweight, 'weight')
+      else:
+        name = '{}_w'.format(sign)
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)], [v for k,v in sorted(data.items(), reverse=True)]
+    ind = np.where(np.cumsum(c_size) >= cover_p * np.sum(c_size))[0][0]
+    print(ind)
+    # c_purity = [x for xs in c_purity for x in xs]
+    covering_purity.append([x for xs in c_purity[:ind] for x in xs])
+  plt.boxplot(covering_purity, showfliers=False)
+  plt.xticks(list(range(1, len(covering_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(name + 'purity of largest communities covering {} nodes'.format(cover_p), size=18)
+  plt.tight_layout()
+  image_name = './plots/covering_{}_comm_purity_{}_{}_{}_{}fold.jpg'.format(cover_p, name, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+  return covering_purity
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
@@ -922,5 +977,101 @@ comms2plot = [i for i in comms if len(i) > 5]
 print([len(i) for i in comms], len(comms2plot))
 
 #%%
+################# purity of all communities
+all_purity = plot_all_comm_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+purity_dict = {col:all_purity[cols.index(col)] for col in cols}
+plot_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
+plot_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
+# %%
+################# purity of top communities covering cover_p nodes    NOT GOOD
+covering_purity = plot_covering_comm_purity(G_ccg_dict, 0.6, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+purity_dict = {col:covering_purity[cols.index(col)] for col in cols}
+plot_p_value(purity_dict, 'covering_purity', measure, n, 'ks_test', True)
+plot_p_value(purity_dict, 'covering_purity', measure, n, 'mwu_test', True)
+# %%
+def plot_modularity_num_comms(G_dict, measure, n, max_reso=None, max_method='none'):
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  uw_modularity, uw_num_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      unweight = {(i, j):1 for i,j in G.edges()}
+      nx.set_edge_attributes(G, unweight, 'weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind], seed=1111)
+      uw_modularity[row_ind, col_ind] = get_modularity(G, weight='weight', resolution=max_reso[row_ind, col_ind], comms=comms) # 
+      count = np.array([len(comm) for comm in comms])
+      uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
+      assert G.number_of_nodes() == count.sum()
+  num_col = 1
+  num_row = 2
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  uw_modularity_list = [uw_modularity[:, col_ind] for col_ind in range(len(cols))]
+  uw_num_lcomm_list = [uw_num_lcomm[:, col_ind] for col_ind in range(len(cols))]
+  plt.subplot(num_row, num_col, 1)
+  plt.boxplot(uw_modularity_list, showfliers=False)
+  plt.xticks(list(range(1, len(uw_modularity_list)+1)), cols, rotation=90)
+  plt.ylabel('modularity')
+  plt.title('modularity', size=18)
+  plt.subplot(num_row, num_col, 2)
+  plt.boxplot(uw_num_lcomm_list, showfliers=False)
+  plt.xticks(list(range(1, len(uw_num_lcomm_list)+1)), cols, rotation=90)
+  plt.ylabel('number')
+  plt.title('community (at least 4 nodes)', size=18)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/modularity_num_comms_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
+  return uw_modularity_list, uw_num_lcomm_list
 
+uw_modularity_list, uw_num_lcomm_list = plot_modularity_num_comms(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
+# %%
+def plot_modularity_num_comms_(G_dict, max_reso=None):
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  uw_modularity, uw_num_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if nx.is_directed(G):
+        G = G.to_undirected()
+      unweight = {(i, j):1 for i,j in G.edges()}
+      nx.set_edge_attributes(G, unweight, 'weight')
+      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind], seed=4321)
+      uw_modularity[row_ind, col_ind] = get_modularity(G, weight='weight', resolution=max_reso[row_ind, col_ind], comms=comms)
+      count = np.array([len(comm) for comm in comms])
+      uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
+      assert G.number_of_nodes() == count.sum()
+  metrics = {'total unweighted modularity':uw_modularity, 'total unweighted number of large communities':uw_num_lcomm}
+  num_col = 1
+  num_row = 2
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+    plt.tight_layout()
+  plt.show()
+
+plot_modularity_num_comms_(G_ccg_dict, max_reso=max_reso_gnm)
 # %%
