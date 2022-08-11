@@ -1187,26 +1187,18 @@ p_triad_func = {
 plot_triad_relative_count(S_ccg_dict, p_triad_func, measure, n, log=True)
 #%%
 ################# p value of relative count of certain neuron pair/triad
-def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale = True):
+def plot_singlepair_relative_count(G_dict, p_pair_func, pair_type, measure, n, log=False):
   ind = 1
   rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(23, 4))
+  fig = plt.figure(figsize=(6, 6))
   left, width = .25, .5
   bottom, height = .25, .5
   right = left + width
   top = bottom + height
-  ylim = 0
+  pair_count = {}
   for col in cols:
-    for row in rows:
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
-      ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
-  for col in cols:
+    pair_count[col] = []
     print(col)
-    plt.subplot(1, 7, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     ind += 1
     all_pair_count = defaultdict(lambda: [])
     for row in rows:
@@ -1217,28 +1209,77 @@ def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale =
       all_pair_count['1'].append(p1 / p_pair_func['1'](p))
       all_pair_count['2'].append(p2 / p_pair_func['2'](p))
     
-    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
-    plt.boxplot(triad_counts, showfliers=False)
-    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
-    left, right = plt.xlim()
-    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
-    # plt.hlines(1, color='r', linestyles='--')
-    if scale:
-      if not log:
-        plt.ylim(top=ylim)
-      else:
-        plt.yscale('log')
-        plt.ylim(top=ylim)
-    # plt.hist(data.flatten(), bins=12, density=True)
-    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-    # plt.xlabel('region')
-    # plt.xlabel('size')
-    plt.ylabel('relative count')
-  plt.suptitle('Relative count of all pairs', size=30)
+    pair_count[col] = all_pair_count[pair_type]
+  plt.boxplot([pair_count[col] for col in pair_count], showfliers=False)
+  plt.xticks(list(range(1, len(pair_count)+1)), cols, rotation=90)
+  left, right = plt.xlim()
+  plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+  # plt.hlines(1, color='r', linestyles='--')
+  if log:
+    plt.yscale('log')
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  # plt.xlabel('size')
+  plt.ylabel('relative count')
+  plt.suptitle('Relative count of pair {}'.format(pair_type), size=20)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/relative_count_allpair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_allpair_{}_{}fold.jpg'
+  image_name = './plots/relative_count_singlepair_{}_{}_{}fold.jpg'
   # plt.show()
-  plt.savefig(image_name.format(measure, n))
+  plt.savefig(image_name.format(pair_type, measure, n))
+  return pair_count
+
+pair_count = plot_singlepair_relative_count(S_ccg_dict, p_pair_func, '2', measure, n, log=False)
+#%%
+plot_p_value(pair_count, 'pair2', measure, n, 'ks_test', True)
+#%%
+################# p value of relative count of certain neuron pair/triad
+def plot_singletriad_relative_count(G_dict, p_triad_func, ftriad_type, measure, n, log=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(6, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  triad_count = {}
+  for col in cols:
+    triad_count[col] = []
+    print(col)
+    ind += 1
+    all_triad_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in G_triad_count:
+        relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
+        all_triad_count[triad_type].append(relative_c)
+    
+    triad_count[col] = all_triad_count[ftriad_type]
+  plt.boxplot([triad_count[col] for col in triad_count], showfliers=False)
+  plt.xticks(list(range(1, len(triad_count)+1)), cols, rotation=90)
+  left, right = plt.xlim()
+  plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+  # plt.hlines(1, color='r', linestyles='--')
+  if log:
+    plt.yscale('log')
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  # plt.xlabel('size')
+  plt.ylabel('relative count')
+  plt.suptitle('Relative count of triad {}'.format(ftriad_type), size=20)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_singletriad_{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(ftriad_type, measure, n))
+  return triad_count
+
+triad_count = plot_singletriad_relative_count(S_ccg_dict, p_triad_func, '300', measure, n, log=False)
+#%%
+plot_p_value(triad_count, '300', measure, n, 'ks_test', True)
 #%%
 all_triads = get_all_signed_transitive_triads(S_ccg_dict)
 triad_count = triad_census(all_triads)
