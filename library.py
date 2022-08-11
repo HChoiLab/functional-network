@@ -218,10 +218,8 @@ def spike_timing2train(T, spikeTrain):
     return spikeData
 
 class CommunityLayout():
-  def __init__(self, community_scale=3., node_scale=1.):
-    self.community_scale = community_scale
-    self.node_scale = node_scale
-  
+  # def __init__(self):
+  #   super(CommunityLayout,self).__init__()
   def get_community_layout(self, g, partition):
     """
     Compute the layout for a modular graph.
@@ -237,8 +235,8 @@ class CommunityLayout():
     pos -- dict mapping int node -> (float x, float y)
         node positions
     """
-    pos_communities = self._position_communities(g, partition, scale=self.community_scale)
-    pos_nodes = self._position_nodes(g, partition, scale=self.node_scale)
+    pos_communities = self._position_communities(g, partition, scale=3.)
+    pos_nodes = self._position_nodes(g, partition, scale=1.)
     # combine positions
     pos = dict()
     for node in g.nodes():
@@ -1950,40 +1948,42 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
   image_name = './plots/comm_distribution_size_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
   plt.savefig(image_name)
 
-def random_graph_generator(G, num_rewire, algorithm, cc=False, Q=100):
-  G = G.copy()
-  if nx.is_directed(G):
-    algorithm = 'directed_configuration_model'
+def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
+  origin_G = input_G.copy()
+  weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
+  np.random.shuffle(weights)
+  if cc:
+    largest_cc = max(nx.connected_components(origin_G), key=len)
+    origin_G = nx.subgraph(origin_G, largest_cc)
+  # if nx.is_directed(origin_G):
+  #   algorithm = 'directed_configuration_model'
   random_graphs = []
   for num in range(num_rewire):
-    weights = np.squeeze(np.array(nx.adjacency_matrix(G)[nx.adjacency_matrix(G).nonzero()]))
-    np.random.shuffle(weights)
-    if cc:
-      largest_cc = max(nx.connected_components(G), key=len)
-      G = nx.subgraph(G, largest_cc)
     # print(G.number_of_nodes(), G.number_of_edges())
     if algorithm == 'Gnm':
-      n, m = G.number_of_nodes(), G.number_of_edges()
+      n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
       G = nx.gnm_random_graph(n, m, seed=None, directed=False)
     elif algorithm == 'configuration_model':
-      degree_sequence = [d for n, d in G.degree()]
+      degree_sequence = [d for n, d in origin_G.degree()]
       G = nx.configuration_model(degree_sequence)
       # remove parallel edges and self-loops
       G = nx.Graph(G)
       G.remove_edges_from(nx.selfloop_edges(G))
       # print(G.number_of_nodes(), G.number_of_edges())
     elif algorithm == 'directed_configuration_model':
-      din = list(d for n, d in G.in_degree())
-      dout = list(d for n, d in G.out_degree())
+      din = list(d for n, d in origin_G.in_degree())
+      dout = list(d for n, d in origin_G.out_degree())
       G = nx.directed_configuration_model(din, dout)
       G = nx.DiGraph(G)
       G.remove_edges_from(nx.selfloop_edges(G))
     elif algorithm == 'double_edge_swap':
       # at least four nodes with edges
+      G = origin_G.copy()
       degrees = dict(nx.degree(G))
       if len(np.nonzero(list(degrees.values()))[0]) >= 4:
         nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
     elif algorithm == 'connected_double_edge_swap':
+      G = origin_G.copy()
       swaps = nx.connected_double_edge_swap(G, nswap=Q*G.number_of_edges(), _window_threshold=3)
       print('Number of successful swaps: {}'.format(swaps))
     # add link weights
@@ -2662,6 +2662,7 @@ def plot_all_comm_purity(G_dict, area_dict, measure, n, sign, weight=False, max_
   image_name = './plots/all_comm_purity_{}_{}_{}_{}fold.jpg'.format(name, max_method, measure, n)
   # plt.show()
   plt.savefig(image_name)
+  return all_purity
 
 def plot_top_comm_purity_kstest(G_dict, num_top, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   ind = 1
