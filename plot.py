@@ -353,6 +353,75 @@ def plot_covering_comm_purity(G_dict, cover_p, area_dict, measure, n, sign, weig
   plt.savefig(image_name)
   return covering_purity
 
+def pos_neg_link_individual(G_dict, measure, n, density=False):
+  rows, cols = get_rowcol(G_dict)
+  num_row, num_col = len(rows), len(cols)
+  links = np.zeros((num_row, num_col, 2))
+  fig = plt.figure(figsize=(14, 7))
+  # fig = plt.figure(figsize=(20, 10))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      links[row_ind, col_ind, 0] = signs.count(1)
+      links[row_ind, col_ind, 1] = signs.count(-1)
+      if density:
+        links[row_ind, col_ind] = links[row_ind, col_ind] / len(signs)
+  ax = plt.subplot(1, 2, 1)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, links[row_ind, :, 0], label=row, alpha=1)
+  plt.gca().set_title('excitatory links', fontsize=20, rotation=0)
+  ylabel = 'density' if density else 'number'
+  plt.ylabel(ylabel)
+  plt.xticks(rotation=90)
+  plt.legend()
+  ax = plt.subplot(1, 2, 2)
+  for row_ind, row in enumerate(rows):
+    plt.plot(cols, links[row_ind, :, 1], label=row, alpha=1)
+  plt.gca().set_title('inhibitory links', fontsize=20, rotation=0)
+  ylabel = 'density' if density else 'number'
+  plt.ylabel(ylabel)
+  plt.xticks(rotation=90)
+
+  plt.legend()
+  plt.tight_layout()
+  figname = './plots/pos_neg_links_density_{}_{}_fold.jpg'.format(measure, n) if density else './plots/pos_neg_links_number_{}_{}_fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
+def plot_pos_neg_box(G_dict, measure, n, density=False):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(G_dict)
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ex_data, in_data = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      if density:
+        ex_data.append(signs.count(1) / len(signs))
+        in_data.append(signs.count(-1) / len(signs))
+      else:
+        ex_data.append(signs.count(1))
+        in_data.append(signs.count(-1))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([col] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([col] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+    df['number of connections'] = pd.to_numeric(df['number of connections'])
+  if density:
+    y = 'density'
+    df['density'] = df['number of connections']
+  else:
+    y = 'number of connections'
+  fig = plt.figure(figsize=(5, 5))
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  ax = sns.boxplot(x='stimulus', y=y, hue="type", data=df, palette="muted")
+  plt.xticks(fontsize=10, rotation=90)
+  ax.set(xlabel=None)
+  plt.tight_layout()
+  figname = './plots/box_ex_in_num_{}_{}fold.jpg' if not density else './plots/box_ex_in_density_{}_{}fold.jpg'
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig(figname.format(measure, n))
+
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
@@ -963,6 +1032,14 @@ with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
 resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_swap = get_max_resolution(rows, cols, resolution_list, metrics)
+#%%
+rows, cols = get_rowcol(G_ccg_dict)
+# with open('comms_dict.pkl', 'rb') as f:
+#     comms_dict = pickle.load(f)
+with open('metrics.pkl', 'rb') as f:
+    metrics = pickle.load(f)
+plot_modularity_resolution(rows, cols, resolution_list, metrics, measure, n)
+# plot_comm_diff_resolution(rows, cols, resolution_list, comms_dict, metrics, measure, n)
 # %%
 mouse_id, stimulus_id = 6, 7
 weights, comms = plot_example_graphs_offset(G_ccg_dict, max_reso_gnm[mouse_id][2], offset_dict, 'total_offset_gnm', area_dict, active_area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, measure, n, False)
@@ -973,10 +1050,6 @@ weights, comms = plot_example_graphs_offset(G_ccg_dict, max_reso_gnm[mouse_id][2
 #       # mouse_id, stimulus_id = 7, 3
 #       weights, comms = plot_example_graphs_offset(G_ccg_dict, max_reso_gnm[mouse_id][2], offset_dict, 'total_offset_gnm', area_dict, active_area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, measure, n, False)
 #%%
-comms2plot = [i for i in comms if len(i) > 5]
-print([len(i) for i in comms], len(comms2plot))
-
-#%%
 ################# purity of all communities
 all_purity = plot_all_comm_purity(G_ccg_dict, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
 purity_dict = {col:all_purity[cols.index(col)] for col in cols}
@@ -984,7 +1057,7 @@ plot_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
 plot_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
 # %%
 ################# purity of top communities covering cover_p nodes    NOT GOOD
-covering_purity = plot_covering_comm_purity(G_ccg_dict, 0.6, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
+covering_purity = plot_covering_comm_purity(G_ccg_dict, 0.7, area_dict, measure, n, 'total', weight=False, max_reso=max_reso_gnm, max_method='gnm')
 purity_dict = {col:covering_purity[cols.index(col)] for col in cols}
 plot_p_value(purity_dict, 'covering_purity', measure, n, 'ks_test', True)
 plot_p_value(purity_dict, 'covering_purity', measure, n, 'mwu_test', True)
@@ -1007,8 +1080,8 @@ def plot_modularity_num_comms(G_dict, measure, n, max_reso=None, max_method='non
       count = np.array([len(comm) for comm in comms])
       uw_num_lcomm[row_ind, col_ind] = sum(count >= 4)
       assert G.number_of_nodes() == count.sum()
-  num_col = 1
-  num_row = 2
+  num_col = 2
+  num_row = 1
   fig = plt.figure(figsize=(5*num_col, 5*num_row))
   uw_modularity_list = [uw_modularity[:, col_ind] for col_ind in range(len(cols))]
   uw_num_lcomm_list = [uw_num_lcomm[:, col_ind] for col_ind in range(len(cols))]
@@ -1074,4 +1147,157 @@ def plot_modularity_num_comms_(G_dict, max_reso=None):
   plt.show()
 
 plot_modularity_num_comms_(G_ccg_dict, max_reso=max_reso_gnm)
+#%%
+######################## excitaroty link VS inhibitory link individual
+# pos_neg_link_individual(S_ccg_dict, measure, n, density=False)
+pos_neg_link_individual(S_ccg_dict, measure, n, density=True)
+#%%
+######################## excitaroty link VS inhibitory link box
+plot_pos_neg_box(S_ccg_dict, measure, n, density=False)
+# plot_pos_neg_box(S_ccg_dict, measure, n, density=True)
+#%%
+################# relative count of neuron pair
+p_pair_func = {
+  '0': lambda p: (1 - p)**2,
+  '1': lambda p: 2 * (p * (1-p)),
+  '2': lambda p: p**2,
+}
+# plot_pair_relative_count(S_ccg_dict, p_pair_func, measure, n, scale=False)
+plot_pair_relative_count(S_ccg_dict, p_pair_func, measure, n, log=True, scale=True)
+#%%
+################# relative count of triad
+p_triad_func = {
+  '003': lambda p0, p1, p2: p0**3,
+  '012': lambda p0, p1, p2: 6 * (p0**2 * p1),
+  '102': lambda p0, p1, p2: 3 * (p0**2 * p2),
+  '021D': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021U': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021C': lambda p0, p1, p2: 6 * (p0 * p1**2),
+  '111D': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '111U': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '030T': lambda p0, p1, p2: 6 * (p1**3),
+  '030C': lambda p0, p1, p2: 2 * (p1**3),
+  '201': lambda p0, p1, p2: 3 * (p0 * p2**2),
+  '120D': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120U': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120C': lambda p0, p1, p2: 6 * (p1**2 * p2),
+  '210': lambda p0, p1, p2: 6 * (p1 * p2**2),
+  '300': lambda p0, p1, p2: p2**3,
+}
+plot_triad_relative_count(S_ccg_dict, p_triad_func, measure, n, log=True)
+#%%
+################# p value of relative count of certain neuron pair/triad
+def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale = True):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ylim = 0
+  for col in cols:
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
+  for col in cols:
+    print(col)
+    plt.subplot(1, 7, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_pair_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      p = nx.density(G)
+      p0, p1, p2 = count_triplet_connection_p(G)
+      all_pair_count['0'].append(p0 / p_pair_func['0'](p))
+      all_pair_count['1'].append(p1 / p_pair_func['1'](p))
+      all_pair_count['2'].append(p2 / p_pair_func['2'](p))
+    
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    plt.boxplot(triad_counts, showfliers=False)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+    # plt.hlines(1, color='r', linestyles='--')
+    if scale:
+      if not log:
+        plt.ylim(top=ylim)
+      else:
+        plt.yscale('log')
+        plt.ylim(top=ylim)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of all pairs', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_allpair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_allpair_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(measure, n))
+#%%
+all_triads = get_all_signed_transitive_triads(S_ccg_dict)
+triad_count = triad_census(all_triads)
+summice_triad_count = summice_triad_census(all_triads)
+meanmice_triad_percent = meanmice_triad_census(all_triads)
+signed_triad_count = signed_triad_census(all_triads)
+summice_signed_triad_count = summice_signed_triad_census(all_triads)
+meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
+#%%
+####################### transitive triad distribution pie chart
+tran_triad_types = ['030T', '120D', '120U', '300']
+triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
+plot_multi_pie_chart_census(summice_triad_count, tran_triad_types, triad_colormap, measure, n, False)
 # %%
+################# connected gnm/gnp model
+def gnp_random_connected_graph(n, p):
+    """
+    Generates a random undirected graph, similarly to an Erdős-Rényi 
+    graph, but enforcing that the resulting graph is conneted
+    """
+    edges = combinations(range(n), 2)
+    G = nx.Graph()
+    G.add_nodes_from(range(n))
+    if p <= 0:
+        return G
+    if p >= 1:
+        return nx.complete_graph(n, create_using=G)
+    for _, node_edges in groupby(edges, key=lambda x: x[0]):
+        node_edges = list(node_edges)
+        random_edge = random.choice(node_edges)
+        G.add_edge(*random_edge)
+        for e in node_edges:
+            if random.random() < p:
+                G.add_edge(*e)
+    return G
+
+def gnm_random_connected_graph(n, m):
+  """
+  Generates a random undirected graph, similarly to an Erdős-Rényi 
+  graph, but enforcing that the resulting graph is conneted
+  """
+  edges = list(itertools.permutations(range(n), 2))
+  G = nx.Graph()
+  G.add_nodes_from(range(n))
+  if m <= 0:
+      return G
+  if m >= len(edges)/2:
+      return nx.complete_graph(n, create_using=G)
+  p = 2*m / len(edges)
+  cnt = 0
+  while cnt < m:
+    for _, node_edges in itertools.groupby(edges, key=lambda x: x[0]):
+      node_edges = list(node_edges)
+      random_edges = np.random.poisson(p, len(node_edges))
+      random_edge = random.choice(node_edges)
+      G.add_edge(*random_edge)
+      cnt += 1
+      for e in node_edges:
+        if random.random() < p:
+          G.add_edge(*e)
+          cnt += 1
+  return G
