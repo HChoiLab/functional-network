@@ -1,7 +1,7 @@
 #%%
 from unittest.mock import NonCallableMagicMock
 import numpy as np
-import numpy.ma as ma
+# import numpy.ma as ma
 import pandas as pd
 import os
 import itertools
@@ -21,6 +21,10 @@ from matplotlib import colors
 import statsmodels.stats.weightstats as ws
 import networkx as nx
 import networkx.algorithms.community as nx_comm
+from collections import defaultdict, deque
+from networkx import NetworkXError
+from networkx.algorithms.community.community_utils import is_partition
+from networkx.utils import py_random_state
 import community
 import seaborn as sns
 from numpy.lib.stride_tricks import as_strided
@@ -33,7 +37,6 @@ import collections
 from collections import defaultdict
 from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
-# from gurobipy import *
 import gurobipy as gp
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 np.seterr(divide='ignore', invalid='ignore')
@@ -1744,6 +1747,260 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   # plt.show()
   figname = './plots/stats_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stats_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
+
+
+#############################################################################
+# signed louvain algorithm with Hamiltonian for community detection in signed graphs
+class NotAPartition(NetworkXError):
+    """Raised if a given collection is not a partition."""
+
+    def __init__(self, G, collection):
+        msg = f"{G} is not a valid partition of the graph {collection}"
+        super().__init__(msg)
+
+def signed_degree(G, sign_type='pos', dir_type='out', weight='weight'):
+  degree = {}
+  for node in G.nodes():
+    if dir_type == 'out':
+      if sign_type == 'pos':
+        weights = [G[node][n][weight] for n in G.successors(node) if G[node][n][weight] > 0]
+      elif sign_type == 'neg':
+        weights = [G[node][n][weight] for n in G.successors(node) if G[node][n][weight] < 0]
+      elif sign_type == 'abs':
+        weights = [abs(G[node][n][weight]) for n in G.successors(node)]
+    elif dir_type == 'in':
+      if sign_type == 'pos':
+        weights = [G[n][node][weight] for n in G.predecessors(node) if G[n][node][weight] > 0]
+      elif sign_type == 'neg':
+        weights = [G[n][node][weight] for n in G.predecessors(node) if G[n][node][weight] < 0]
+      elif sign_type == 'abs':
+        weights = [abs(G[node][n][weight]) for n in G.predecessors(node)]
+    elif dir_type == 'undirected':
+      if sign_type == 'pos':
+        weights = [G[n][node][weight] for n in G.neighbors(node) if G[n][node][weight] > 0]
+      elif sign_type == 'neg':
+        weights = [G[n][node][weight] for n in G.neighbors(node) if G[n][node][weight] < 0]
+      elif sign_type == 'abs':
+        weights = [abs(G[node][n][weight]) for n in G.neighbors(node)]
+    degree[node] = sum(weights)
+  return degree
+
+def Hamiltonian(G, communities, weight="weight", pos_resolution=1, neg_resolution=1):
+    if not isinstance(communities, list):
+        communities = list(communities)
+    if not is_partition(G, communities):
+        raise NotAPartition(G, communities)
+
+    directed = G.is_directed()
+    if directed:
+    #   out_degree = signed_degree(G, 'abs', 'out', weight)
+      out_degree_pos = signed_degree(G, 'pos', 'out', weight)
+      out_degree_neg = signed_degree(G, 'neg', 'out', weight)
+      in_degree_pos = signed_degree(G, 'pos', 'in', weight)
+      in_degree_neg = signed_degree(G, 'neg', 'in', weight)
+      # m = sum(abs(out_degree.values()))
+    else:
+        out_degree_pos = in_degree_pos = signed_degree(G, 'pos', 'undirected', weight)
+        out_degree_neg = in_degree_neg = signed_degree(G, 'neg', 'undirected', weight)
+    pos_norm = 1 / sum(out_degree_pos.values())
+    neg_norm = 1 / sum(out_degree_neg.values())
+
+    def signed_community_contribution(community):
+        comm = set(community)
+        L_c = sum(wt for u, v, wt in G.edges(comm, data=weight, default=1) if v in comm)
+        out_degree_pos_sum = sum(out_degree_pos[u] for u in comm)
+        in_degree_pos_sum = sum(in_degree_pos[u] for u in comm) if directed else out_degree_pos_sum
+        out_degree_neg_sum = sum(out_degree_neg[u] for u in comm)
+        in_degree_neg_sum = sum(in_degree_neg[u] for u in comm) if directed else out_degree_neg_sum
+
+        return - L_c + pos_resolution * out_degree_pos_sum * in_degree_pos_sum * pos_norm - neg_resolution * out_degree_neg_sum * in_degree_neg_sum * neg_norm
+
+    return sum(map(signed_community_contribution, communities))
+
+@py_random_state("seed")
+def signed_louvain_communities(
+    G, weight="weight", pos_resolution=1, neg_resolution=1, threshold=0.0000001, seed=None
+):
+    d = signed_louvain_partitions(G, weight, pos_resolution, neg_resolution, threshold, seed)
+    q = deque(d, maxlen=1)
+    return q.pop()
+
+
+@py_random_state("seed")
+def signed_louvain_partitions(
+    G, weight="weight", pos_resolution=1, neg_resolution=1, threshold=0.0000001, seed=None
+):
+    partition = [{u} for u in G.nodes()]
+    ham = Hamiltonian(G, partition, weight, pos_resolution, neg_resolution)
+    is_directed = G.is_directed()
+    if G.is_multigraph():
+        graph = _convert_multigraph(G, weight, is_directed)
+    else:
+        graph = G.__class__()
+        graph.add_nodes_from(G)
+        graph.add_weighted_edges_from(G.edges(data=weight, default=1))
+
+    out_degree_pos = signed_degree(G, 'pos', 'out', weight)
+    out_degree_neg = signed_degree(G, 'neg', 'out', weight)
+    pos_norm = 1 / sum(out_degree_pos.values())
+    neg_norm = 1 / sum(out_degree_neg.values())
+    partition, inner_partition, improvement = _one_level(
+        graph, pos_norm, neg_norm, partition, weight, pos_resolution, neg_resolution, is_directed, seed
+    )
+    improvement = True
+    while improvement:
+        yield partition
+        new_ham = Hamiltonian(graph, inner_partition, weight, pos_resolution, neg_resolution)
+        if ham - new_ham <= threshold:
+            return
+        ham = new_ham
+        graph = _gen_graph(graph, inner_partition)
+        partition, inner_partition, improvement = _one_level(
+            graph, pos_norm, neg_norm, partition, weight, pos_resolution, neg_resolution, is_directed, seed
+        )
+
+def _one_level(G, pos_norm, neg_norm, partition, weight='weight', pos_resolution=1, neg_resolution=1, is_directed=False, seed=None):
+    node2com = {u: i for i, u in enumerate(G.nodes())}
+    inner_partition = [{u} for u in G.nodes()]
+    if is_directed:
+      out_degrees_pos = signed_degree(G, 'pos', 'out', weight)
+      out_degrees_neg = signed_degree(G, 'neg', 'out', weight)
+      in_degrees_pos = signed_degree(G, 'pos', 'in', weight)
+      in_degrees_neg = signed_degree(G, 'neg', 'in', weight)
+      Stot_in_pos = [deg for deg in in_degrees_pos.values()]
+      Stot_in_neg = [deg for deg in in_degrees_neg.values()]
+      Stot_out_pos = [deg for deg in out_degrees_pos.values()]
+      Stot_out_neg = [deg for deg in out_degrees_neg.values()]
+      # Calculate weights for both in and out neighbours
+      nbrs = {}
+      for u in G:
+        nbrs[u] = defaultdict(float)
+        for _, n, wt in G.out_edges(u, data="weight"):
+          nbrs[u][n] += wt
+        for n, _, wt in G.in_edges(u, data="weight"):
+          nbrs[u][n] += wt
+    else:
+        pos_degrees = signed_degree(G, 'pos', 'undirected', weight)
+        neg_degrees = signed_degree(G, 'neg', 'undirected', weight)
+        Stot_pos = [deg for deg in pos_degrees.values()]
+        Stot_neg = [deg for deg in neg_degrees.values()]
+        nbrs = {u: {v: data["weight"] for v, data in G[u].items() if v != u} for u in G}
+    rand_nodes = list(G.nodes)
+    seed.shuffle(rand_nodes)
+    nb_moves = 1
+    improvement = False
+    while nb_moves > 0:
+        nb_moves = 0
+        for u in rand_nodes:
+            best_ham = 0
+            best_com = node2com[u]
+            weights2com = _neighbor_weights(nbrs[u], node2com)
+            if is_directed:
+                in_degree_pos = in_degrees_pos[u]
+                out_degree_pos = out_degrees_pos[u]
+                in_degree_neg = in_degrees_neg[u]
+                out_degree_neg = out_degrees_neg[u]
+                Stot_in_pos[best_com] -= in_degree_pos
+                Stot_out_pos[best_com] -= out_degree_pos
+                remove_cost = (
+                    +weights2com[best_com]
+                    - pos_resolution * pos_norm
+                    * (out_degree_pos * Stot_in_pos[best_com] + in_degree_pos * Stot_out_pos[best_com])
+                    + neg_resolution * neg_norm
+                    * (out_degree_neg * Stot_in_neg[best_com] + in_degree_neg * Stot_out_neg[best_com])
+                )
+            else:
+                pos_degree = pos_degrees[u]
+                neg_degree = neg_degrees[u]
+                Stot_pos[best_com] -= pos_degree
+                Stot_neg[best_com] -= neg_degree
+                remove_cost = +weights2com[best_com] - pos_resolution * (
+                    Stot_pos[best_com] * pos_degree) * 2 * pos_norm \
+                    + neg_resolution * (
+                    Stot_neg[best_com] * neg_degree) * 2 * neg_norm
+            for nbr_com, wt in weights2com.items():
+                if is_directed:
+                    gain = (
+                        remove_cost
+                        - wt
+                        + pos_resolution * pos_norm
+                        * (out_degree_pos * Stot_in_pos[nbr_com]
+                            + in_degree_pos * Stot_out_pos[nbr_com])
+                        - neg_resolution * neg_norm
+                        * (out_degree_neg * Stot_in_neg[nbr_com]
+                            + in_degree_neg * Stot_out_neg[nbr_com])
+                    )
+                else:
+                    gain = (
+                        remove_cost
+                        - wt
+                        + pos_resolution * (Stot_pos[nbr_com] * pos_degree) * 2 * pos_norm
+                        - neg_resolution * (Stot_neg[nbr_com] * neg_degree) * 2 * pos_norm
+                    )
+                if gain < best_ham:
+                    best_ham = gain
+                    best_com = nbr_com
+            if is_directed:
+                Stot_in_pos[best_com] += in_degree_pos
+                Stot_out_pos[best_com] += out_degree_pos
+                Stot_in_neg[best_com] += in_degree_neg
+                Stot_out_neg[best_com] += out_degree_neg
+            else:
+                Stot_pos[best_com] += pos_degree
+                Stot_neg[best_com] += neg_degree
+            if best_com != node2com[u]:
+                com = G.nodes[u].get("nodes", {u})
+                partition[node2com[u]].difference_update(com)
+                inner_partition[node2com[u]].remove(u)
+                partition[best_com].update(com)
+                inner_partition[best_com].add(u)
+                improvement = True
+                nb_moves += 1
+                node2com[u] = best_com
+    partition = list(filter(len, partition))
+    inner_partition = list(filter(len, inner_partition))
+    return partition, inner_partition, improvement
+
+
+def _neighbor_weights(nbrs, node2com):
+    weights = defaultdict(float)
+    for nbr, wt in nbrs.items():
+        weights[node2com[nbr]] += wt
+    return weights
+
+
+def _gen_graph(G, partition):
+    H = G.__class__()
+    node2com = {}
+    for i, part in enumerate(partition):
+        nodes = set()
+        for node in part:
+            node2com[node] = i
+            nodes.update(G.nodes[node].get("nodes", {node}))
+        H.add_node(i, nodes=nodes)
+
+    for node1, node2, wt in G.edges(data=True):
+        wt = wt["weight"]
+        com1 = node2com[node1]
+        com2 = node2com[node2]
+        temp = H.get_edge_data(com1, com2, {"weight": 0})["weight"]
+        H.add_edge(com1, com2, **{"weight": wt + temp})
+    return H
+
+def _convert_multigraph(G, weight, is_directed):
+    if is_directed:
+        H = nx.DiGraph()
+    else:
+        H = nx.Graph()
+    H.add_nodes_from(G)
+    for u, v, wt in G.edges(data=weight, default=1):
+        if H.has_edge(u, v):
+            H[u][v]["weight"] += wt
+        else:
+            H.add_edge(u, v, weight=wt)
+    return H
+
+#############################################################################
 
 def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(pos_G_dict)
