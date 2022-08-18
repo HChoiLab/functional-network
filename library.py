@@ -2000,7 +2000,56 @@ def _convert_multigraph(G, weight, is_directed):
             H.add_edge(u, v, weight=wt)
     return H
 
+def get_Hamiltonian(G, weight='weight', pos_resolution=1, neg_resolution=1, comms=None):
+  if comms == None:
+    comms = signed_louvain_communities(G, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
+  return Hamiltonian(G, comms, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
 #############################################################################
+
+def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_reso=None, max_method='none'):
+  rows, cols = get_rowcol(G_dict)
+  if max_reso is None:
+    max_reso = np.ones((len(rows), len(cols)))
+  num_comm, hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight')
+      num_comm[row_ind, col_ind] = len(comms)
+      hamiltonian[row_ind, col_ind] = get_Hamiltonian(G, weight='weight', comms=comms)
+      count = np.array([len(comm) for comm in comms])
+      num_lcomm[row_ind, col_ind] = sum(count >= 4)
+      cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / G.number_of_nodes()
+      assert G.number_of_nodes() == count.sum()
+      
+  metrics = {'number of communities':num_comm, 'Hamiltonian':hamiltonian, 
+  'number of large communities':num_lcomm, 'coverage of large comm':cov_lcomm}
+  num_col = 2
+  num_row = int(len(metrics) / num_col)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+    plt.tight_layout()
+  # plt.show()
+  figname = './plots/stat_modular_Hamiltonian_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
 
 def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(pos_G_dict)
@@ -2014,8 +2063,6 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=Non
     print(row)
     for col_ind, col in enumerate(cols):
       pos_G = pos_G_dict[row][col].copy() if col in pos_G_dict[row] else nx.DiGraph()
-      if nx.is_directed(pos_G):
-        pos_G = pos_G.to_undirected()
       if neg_G_dict is not None:
         comms = nx_comm.louvain_communities(pos_G, weight='weight')
         pos_w_num_comm[row_ind, col_ind] = len(comms)
@@ -2025,8 +2072,6 @@ def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=Non
         pos_w_cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / pos_G.number_of_nodes()
         assert pos_G.number_of_nodes() == count.sum()
         neg_G = neg_G_dict[row][col].copy() if col in neg_G_dict[row] else nx.DiGraph()
-        if nx.is_directed(neg_G):
-          neg_G = neg_G.to_undirected()
         comms = nx_comm.louvain_communities(neg_G, weight='weight')
         neg_w_num_comm[row_ind, col_ind] = len(comms)
         neg_w_modularity[row_ind, col_ind] = get_modularity(neg_G, weight='weight', comms=comms)
