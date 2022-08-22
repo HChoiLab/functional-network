@@ -2047,7 +2047,46 @@ def comms_Hamiltonian_resolution(G_dict, resolution_list, num_rewire, cc=False):
   metrics = {'Hamiltonian':Hamiltonian, 'Gnm Hamiltonian':gnm_Hamiltonian, 'configuration model Hamiltonian':config_Hamiltonian}
   return comms_dict, metrics
 
-#############################################################################
+def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n): 
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(num_row, num_col, ind)
+      ind += 1
+      metric = metrics['Hamiltonian']
+      plt.plot(resolution_list, metric[row_ind, col_ind], label=r'$H$', alpha=0.6)
+      metric_config = metrics['configuration model Hamiltonian'][row_ind, col_ind].mean(-1)
+      metric_gnm = metrics['Gnm Hamiltonian'][row_ind, col_ind].mean(-1)
+      plt.plot(resolution_list, metric_config, color='r', label=r'$H_{config}$', alpha=0.6)
+      plt.plot(resolution_list, metric_gnm, color='g', label=r'$H_{Gnm}$', alpha=0.6)
+      plt.plot(resolution_list, metric[row_ind, col_ind] - metric_config, 'r--', label=r'$H-H_{config}$', alpha=0.8)
+      plt.plot(resolution_list, metric[row_ind, col_ind] - metric_gnm, 'g--', label=r'$H-H_{Gnm}$', alpha=0.8)
+      # plt.gca().set_title(k, fontsize=14, rotation=0)
+      plt.xticks(rotation=0)
+      
+      # plt.yscale('symlog')
+      if ind == num_row*num_col+1:
+        plt.legend(fontsize=20)
+      if row_ind == 0:
+        plt.title(col, size=25)
+      if row_ind < num_row -1 :
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affectedrandom_metrics
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+      else:
+        plt.xlabel(r'$\gamma^-$', size=20)
+  plt.suptitle('Hamiltonian', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  figname = './plots/{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(figname.format('Hamiltonian', measure, n))
 
 def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
@@ -2091,10 +2130,157 @@ def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, ma
         bottom=False,      # ticks along the bottom edge are off
         top=False,         # ticks along the top edge are off
         labelbottom=False) # labels along the bottom edge are off
-    plt.tight_layout()
+    plt.suptitle(max_method, size=25)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
   figname = './plots/stat_modular_Hamiltonian_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(max_method, measure, n))
+
+def plot_Hcomm_size_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(23, 9))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(cols):
+    print(col)
+    plt.subplot(4, 2, ind)
+    plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items())], [v for k,v in sorted(data.items())]
+    plt.boxplot(c_purity)
+    plt.xticks(list(range(1, len(c_purity)+1)), c_size, rotation=0)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    plt.xlabel('size')
+    plt.ylabel('purity')
+  plt.suptitle('{} Hamiltonian community purity VS size'.format(max_method), size=30)
+  plt.tight_layout()
+  image_name = './plots/Hcomm_size_purity_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  all_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
+    # c_purity = [x for xs in c_purity for x in xs]
+    all_purity.append([x for xs in c_purity for x in xs])
+  plt.boxplot(all_purity)
+  plt.xticks(list(range(1, len(all_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(' top {} largest {} Hamiltonian community purity'.format(num_top, max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  all_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = {}
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)], [v for k,v in sorted(data.items(), reverse=True)]
+    # c_purity = [x for xs in c_purity for x in xs]
+    all_purity.append([np.mean(xs) for xs in c_purity])
+  plt.boxplot(all_purity)
+  plt.xticks(list(range(1, len(all_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title('all {} Hamiltonian community purity'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/all_Hcomm_purity_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+  return all_purity
+
+#############################################################################
 
 def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(pos_G_dict)
@@ -2302,7 +2488,8 @@ def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
     origin_G = get_lcc(origin_G)
     # largest_cc = max(nx.connected_components(origin_G), key=len)
     # origin_G = nx.subgraph(origin_G, largest_cc)
-  weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
+  # weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
+  weights = list(nx.get_edge_attributes(origin_G, 'weight').values())
   np.random.shuffle(weights)
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
