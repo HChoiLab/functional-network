@@ -501,6 +501,13 @@ def metric_stimulus_individual(G_dict, sign, measure, n, weight, cc):
   plt.savefig(figname)
   return metric
 
+def get_lcc(G):
+  if nx.is_directed(G):
+    Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+  else:
+    Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+  return G.subgraph(Gcc[0])
+
 def save_sparse_npz(matrix, filename):
   matrix_2d = matrix.reshape(matrix.shape[0], int(len(matrix.flatten())/matrix.shape[0]))
   sparse_matrix = sparse.csc_matrix(matrix_2d)
@@ -1802,8 +1809,8 @@ def Hamiltonian(G, communities, weight="weight", pos_resolution=1, neg_resolutio
     else:
         out_degree_pos = in_degree_pos = signed_degree(G, 'pos', 'undirected', weight)
         out_degree_neg = in_degree_neg = signed_degree(G, 'neg', 'undirected', weight)
-    pos_norm = 1 / sum(out_degree_pos.values())
-    neg_norm = 1 / sum(out_degree_neg.values())
+    pos_norm = safe_division(1, sum(out_degree_pos.values()))
+    neg_norm = safe_division(1, sum(out_degree_neg.values()))
 
     def signed_community_contribution(community):
         comm = set(community)
@@ -1842,8 +1849,10 @@ def signed_louvain_partitions(
 
     out_degree_pos = signed_degree(G, 'pos', 'out', weight)
     out_degree_neg = signed_degree(G, 'neg', 'out', weight)
-    pos_norm = 1 / sum(out_degree_pos.values())
-    neg_norm = 1 / sum(out_degree_neg.values())
+    pos_norm = safe_division(1, sum(out_degree_pos.values()))
+    neg_norm = safe_division(1, sum(out_degree_neg.values()))
+    # pos_norm = 1 / sum(out_degree_pos.values())
+    # neg_norm = 1 / sum(out_degree_neg.values())
     partition, inner_partition, improvement = _one_level(
         graph, pos_norm, neg_norm, partition, weight, pos_resolution, neg_resolution, is_directed, seed
     )
@@ -2004,20 +2013,56 @@ def get_Hamiltonian(G, weight='weight', pos_resolution=1, neg_resolution=1, comm
   if comms == None:
     comms = signed_louvain_communities(G, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
   return Hamiltonian(G, comms, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
+
+def get_random_Hamiltonian(G, num_rewire, algorithm, weight='weight', pos_resolution=1, neg_resolution=1):
+  random_Hamiltonian = np.zeros(num_rewire)
+  random_Gs = random_graph_generator(G, num_rewire, algorithm=algorithm)
+  for random_ind, random_G in enumerate(random_Gs):
+    random_Hamiltonian[random_ind] = get_Hamiltonian(random_G, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
+  return random_Hamiltonian
+
+def comms_Hamiltonian_resolution(G_dict, resolution_list, num_rewire, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  comms_dict = {}
+  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list)], np.nan)
+  gnm_Hamiltonian, config_Hamiltonian = [np.full([len(rows), len(cols), len(resolution_list), num_rewire], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    comms_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      comms_dict[row][col] = {}
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        G = get_lcc(G)
+      num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
+      num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
+      for resolution_ind, resolution in enumerate(resolution_list):      
+        pos_resolution = abs(resolution * num_neg / num_pos)
+        comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
+        comms_dict[row][col][resolution] = comms
+        Hamiltonian[row_ind, col_ind, resolution_ind] = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution, comms=comms)
+        gnm_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='Gnm', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
+        config_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='directed_configuration_model', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)   
+  metrics = {'Hamiltonian':Hamiltonian, 'Gnm Hamiltonian':gnm_Hamiltonian, 'configuration model Hamiltonian':config_Hamiltonian}
+  return comms_dict, metrics
+
 #############################################################################
 
-def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_reso=None, max_method='none'):
+def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
-  if max_reso is None:
-    max_reso = np.ones((len(rows), len(cols)))
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
   num_comm, hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      comms = signed_louvain_communities(G, weight='weight')
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
       num_comm[row_ind, col_ind] = len(comms)
-      hamiltonian[row_ind, col_ind] = get_Hamiltonian(G, weight='weight', comms=comms)
+      hamiltonian[row_ind, col_ind] = get_Hamiltonian(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind], comms=comms)
       count = np.array([len(comm) for comm in comms])
       num_lcomm[row_ind, col_ind] = sum(count >= 4)
       cov_lcomm[row_ind, col_ind] = count[count >=4].sum() / G.number_of_nodes()
@@ -2254,14 +2299,7 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
 def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
   origin_G = input_G.copy()
   if cc:
-    if nx.is_directed(origin_G):
-      if not nx.is_weakly_connected(origin_G):
-        Gcc = sorted(nx.weakly_connected_components(origin_G), key=len, reverse=True)
-        origin_G = origin_G.subgraph(Gcc[0])
-    else:
-      if not nx.is_connected(origin_G):
-        Gcc = sorted(nx.connected_components(origin_G), key=len, reverse=True)
-        origin_G = origin_G.subgraph(Gcc[0])
+    origin_G = get_lcc(origin_G)
     # largest_cc = max(nx.connected_components(origin_G), key=len)
     # origin_G = nx.subgraph(origin_G, largest_cc)
   weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
@@ -2273,7 +2311,7 @@ def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
     # print(G.number_of_nodes(), G.number_of_edges())
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
-      G = nx.gnm_random_graph(n, m, seed=None, directed=False)
+      G = nx.gnm_random_graph(n, m, seed=None, directed=True)
     elif algorithm == 'configuration_model':
       degree_sequence = [d for n, d in origin_G.degree()]
       G = nx.configuration_model(degree_sequence)
