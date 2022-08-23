@@ -2047,6 +2047,29 @@ def comms_Hamiltonian_resolution(G_dict, resolution_list, num_rewire, cc=False):
   metrics = {'Hamiltonian':Hamiltonian, 'Gnm Hamiltonian':gnm_Hamiltonian, 'configuration model Hamiltonian':config_Hamiltonian}
   return comms_dict, metrics
 
+def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
+  max_reso_gnm, max_reso_config = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
+  Hamiltonian, gnm_Hamiltonian, config_Hamiltonian = metrics['Hamiltonian'], metrics['Gnm Hamiltonian'], metrics['configuration model Hamiltonian']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      metric_gnm = gnm_Hamiltonian[row_ind, col_ind].mean(-1)
+      metric_config = config_Hamiltonian[row_ind, col_ind].mean(-1)
+      max_reso_gnm[row_ind, col_ind] = resolution_list[np.argmax(metric_gnm - Hamiltonian[row_ind, col_ind])]
+      max_reso_config[row_ind, col_ind] = resolution_list[np.argmax(metric_config - Hamiltonian[row_ind, col_ind])]
+  return max_reso_gnm, max_reso_config
+
+def get_max_pos_reso(G_ccg_dict, max_neg_reso):
+  rows, cols = get_rowcol(G_ccg_dict)
+  max_pos_reso = np.zeros((len(rows), len(cols)))
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_ccg_dict[row][col]
+      num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
+      num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
+      max_pos_reso[row_ind, col_ind] = abs(max_neg_reso[row_ind, col_ind] * num_neg / num_pos)
+  return max_pos_reso
+
 def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n): 
   num_row, num_col = len(rows), len(cols)
   fig = plt.figure(figsize=(5*num_col, 5*num_row))
@@ -2185,7 +2208,7 @@ def plot_Hcomm_size_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max
   # plt.show()
   plt.savefig(image_name)
 
-def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+def plot_top_Hcomm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   ind = 1
   rows, cols = get_rowcol(G_dict)
   if max_pos_reso is None:
@@ -2197,7 +2220,7 @@ def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=No
   bottom, height = .25, .5
   right = left + width
   top = bottom + height
-  all_purity = []
+  top_purity = []
   for col_ind, col in enumerate(cols):
     print(col)
     data = {}
@@ -2219,9 +2242,9 @@ def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=No
     
     c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
     # c_purity = [x for xs in c_purity for x in xs]
-    all_purity.append([x for xs in c_purity for x in xs])
-  plt.boxplot(all_purity)
-  plt.xticks(list(range(1, len(all_purity)+1)), cols, rotation=90)
+    top_purity.append([x for xs in c_purity for x in xs])
+  plt.boxplot(top_purity)
+  plt.xticks(list(range(1, len(top_purity)+1)), cols, rotation=90)
   # plt.hist(data.flatten(), bins=12, density=True)
   # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
   # plt.xlabel('region')
@@ -2231,6 +2254,7 @@ def plot_top_comm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=No
   image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
   # plt.show()
   plt.savefig(image_name)
+  return top_purity
 
 def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   ind = 1
