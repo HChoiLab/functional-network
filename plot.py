@@ -1061,6 +1061,30 @@ covering_purity = plot_covering_comm_purity(G_ccg_dict, 0.7, area_dict, measure,
 purity_dict = {col:covering_purity[cols.index(col)] for col in cols}
 plot_p_value(purity_dict, 'covering_purity', measure, n, 'ks_test', True)
 plot_p_value(purity_dict, 'covering_purity', measure, n, 'mwu_test', True)
+#%%
+################# get optimal resolution that maximizes delta H
+rows, cols = get_rowcol(G_ccg_dict)
+with open('metrics.pkl', 'rb') as f:
+  metrics = pickle.load(f)
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
+#%%
+############### community with Hamiltonian
+max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
+max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
+#%%
+# top_purity_gnm = plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 6, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+# top_purity_config = plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+purity_dict = {col:top_purity_config[cols.index(col)] for col in cols}
+plot_p_value(purity_dict, 'top_purity_6', measure, n, 'ks_test', True)
+plot_p_value(purity_dict, 'top_purity_6', measure, n, 'mwu_test', True)
+#%%
+# all_purity_gnm = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+purity_dict = {col:all_purity_config[cols.index(col)] for col in cols}
+plot_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
+plot_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
 # %%
 def plot_modularity_num_comms(G_dict, measure, n, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
