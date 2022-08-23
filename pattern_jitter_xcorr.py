@@ -1885,17 +1885,6 @@ with open('metrics.pkl', 'wb') as f:
   pickle.dump(metrics, f)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
-  max_reso_gnm, max_reso_config = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
-  Hamiltonian, gnm_Hamiltonian, config_Hamiltonian = metrics['Hamiltonian'], metrics['Gnm Hamiltonian'], metrics['configuration model Hamiltonian']
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      metric_gnm = gnm_Hamiltonian[row_ind, col_ind].mean(-1)
-      metric_config = config_Hamiltonian[row_ind, col_ind].mean(-1)
-      max_reso_gnm[row_ind, col_ind] = resolution_list[np.argmax(metric_gnm - Hamiltonian[row_ind, col_ind])]
-      max_reso_config[row_ind, col_ind] = resolution_list[np.argmax(metric_config - Hamiltonian[row_ind, col_ind])]
-  return max_reso_gnm, max_reso_config
 ################# get optimal resolution that maximizes delta H
 rows, cols = get_rowcol(G_ccg_dict)
 with open('metrics.pkl', 'rb') as f:
@@ -1904,17 +1893,6 @@ resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
 #%%
 ############### community with Hamiltonian
-def get_max_pos_reso(G_ccg_dict, max_neg_reso):
-  rows, cols = get_rowcol(G_ccg_dict)
-  max_pos_reso = np.zeros((len(rows), len(cols)))
-  for row_ind, row in enumerate(rows):
-    for col_ind, col in enumerate(cols):
-      G = G_ccg_dict[row][col]
-      num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
-      num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
-      max_pos_reso[row_ind, col_ind] = abs(max_neg_reso[row_ind, col_ind] * num_neg / num_pos)
-  return max_pos_reso
-
 max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
 max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 #%%
@@ -1928,9 +1906,9 @@ stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_
 plot_Hcomm_size_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 plot_Hcomm_size_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 #%%
-top_purity_gnm = plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
-top_purity_config = plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
-top_purity_config = plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+top_purity_gnm = plot_top_Hcomm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 10, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 #%%
 all_purity_gnm = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
