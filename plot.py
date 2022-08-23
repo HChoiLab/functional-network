@@ -80,6 +80,48 @@ def plot_p_value(data_dict, name, measure, n, method='ks_test', logscale='True')
   # plt.show()
   plt.savefig(image_name)
 
+def plot_corrected_p_value(data_dict, name, measure, n, method='ks_test', logscale='True'):
+  fig = plt.figure(figsize=(7, 5.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  keys = data_dict.keys()
+  stimulus_pvalue = np.zeros((len(keys), len(keys)))
+  stimulus_pvalue[:] = np.nan
+  for key_ind1, key1 in enumerate(keys):
+    for key_ind2, key2 in enumerate(keys):
+      if not key1 == key2:
+        if method == 'ks_test':
+          p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
+          p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+        elif method == 'mwu_test':
+          p_less = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='less', method="asymptotic")[1]
+          p_greater = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='greater', method="asymptotic")[1]
+        stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
+        # print(np.mean(all_purity[col1]), np.mean(all_purity[col2]))
+  # print(stimulus_pvalue)
+  is_rejected, corrected_pvalue = np.zeros_like(stimulus_pvalue), np.zeros_like(stimulus_pvalue)
+  off_diag_idx = ~np.eye(stimulus_pvalue.shape[0],dtype=bool)
+  # is_rejected[off_diag_idx], corrected_pvalue[off_diag_idx] = fdrcorrection(stimulus_pvalue[off_diag_idx])[:2]
+  is_rejected[off_diag_idx], corrected_pvalue[off_diag_idx] = multipletests(stimulus_pvalue[off_diag_idx], method='fdr_bh')[:2]
+  if logscale:
+    norm = colors.LogNorm(0.0025, 1)# cmap="YlGnBu" (0.000001, 1) for 0.01 confidence level, (0.0025, 1) for 0.05 (5.668934240362814e-06, 1) for 0.05/21
+  else:
+    norm = colors.Normalize(0.0, 1.0)
+  sns_plot = sns.heatmap(corrected_pvalue.astype(float), annot=True,cmap="RdBu",norm=norm)
+  # sns_plot = sns.heatmap(region_connection.astype(float), vmin=0, cmap="YlGnBu")
+  sns_plot.set_xticks(np.arange(len(cols))+0.5)
+  sns_plot.set_xticklabels(cols, rotation=90)
+  sns_plot.set_yticks(np.arange(len(cols))+0.5)
+  sns_plot.set_yticklabels(cols, rotation=0)
+  sns_plot.invert_yaxis()
+  plt.title('BH corrected {} p-value of {}'.format(method, name), size=18)
+  plt.tight_layout()
+  image_name = './plots/{}_corrected_pvalue_{}_{}_{}fold.jpg'.format(method, name, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
 def plot_intra_inter_data_2D(offset_dict, duration_dict, G_dict, sign, active_area_dict, measure, n):
   rows, cols = get_rowcol(offset_dict)
   num_row, num_col = len(rows), len(cols)
@@ -809,13 +851,6 @@ plt.tight_layout()
 # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
 plt.savefig('./plots/box_intra_inter_{}_{}fold.jpg'.format(measure, n))
 # %%
-def remove_outliers(data, m=2.):
-  data = np.array(data)
-  d = np.abs(data - np.median(data))
-  mdev = np.median(d)
-  s = d / (mdev if mdev else 1.)
-  return data[s < m]
-
 ################ violin/box plot of intra-inter region links
 df = pd.DataFrame()
 rows, cols = get_rowcol(G_ccg_dict)
@@ -1077,14 +1112,31 @@ max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 6, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 # top_purity_config = plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 purity_dict = {col:top_purity_config[cols.index(col)] for col in cols}
-plot_p_value(purity_dict, 'top_purity_6', measure, n, 'ks_test', True)
-plot_p_value(purity_dict, 'top_purity_6', measure, n, 'mwu_test', True)
+plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'ks_test', True)
+plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'mwu_test', True)
 #%%
 # all_purity_gnm = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 purity_dict = {col:all_purity_config[cols.index(col)] for col in cols}
-plot_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
-plot_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
+plot_corrected_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
+plot_corrected_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
+#%%
+method = 'ks_test'
+data_dict = purity_dict
+keys = data_dict.keys()
+stimulus_pvalue = np.zeros((len(keys), len(keys)))
+stimulus_pvalue[:] = np.nan
+for key_ind1, key1 in enumerate(keys):
+  for key_ind2, key2 in enumerate(keys):
+    if not key1 == key2:
+      if method == 'ks_test':
+        p_less = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='less')[1]
+        p_greater = stats.ks_2samp(data_dict[key1], data_dict[key2], alternative='greater')[1]
+      elif method == 'mwu_test':
+        p_less = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='less', method="asymptotic")[1]
+        p_greater = stats.mannwhitneyu(data_dict[key1], data_dict[key2], alternative='greater', method="asymptotic")[1]
+      stimulus_pvalue[key_ind1, key_ind2] = min(p_less, p_greater)
+
 # %%
 def plot_modularity_num_comms(G_dict, measure, n, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
