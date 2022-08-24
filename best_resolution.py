@@ -12,9 +12,10 @@ measure = 'ccg'
 G_ccg_dict = remove_gabor(G_ccg_dict)
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 n = 4
-num_rewire = 10
+#%%
+num_repeat, num_rewire = 50, 50
 resolution_list = np.arange(0, 2.1, 0.1)
-comms_dict, metrics = comms_Hamiltonian_resolution(G_ccg_dict, resolution_list, num_rewire)
+comms_dict, metrics = comms_Hamiltonian_resolution(G_ccg_dict, resolution_list, num_repeat, num_rewire, False)
 with open('comms_dict.pkl', 'wb') as f:
   pickle.dump(comms_dict, f)
 with open('metrics.pkl', 'wb') as f:
