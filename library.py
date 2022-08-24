@@ -2021,28 +2021,28 @@ def get_random_Hamiltonian(G, num_rewire, algorithm, weight='weight', pos_resolu
     random_Hamiltonian[random_ind] = get_Hamiltonian(random_G, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
   return random_Hamiltonian
 
-def comms_Hamiltonian_resolution(G_dict, resolution_list, num_rewire, cc=False):
+def comms_Hamiltonian_resolution(G_dict, resolution_list, num_repeat, num_rewire, cc=False):
   rows, cols = get_rowcol(G_dict)
   comms_dict = {}
-  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list)], np.nan)
+  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), num_repeat], np.nan)
   gnm_Hamiltonian, config_Hamiltonian = [np.full([len(rows), len(cols), len(resolution_list), num_rewire], np.nan) for _ in range(2)]
   for row_ind, row in enumerate(rows):
-    print(row)
     comms_dict[row] = {}
     for col_ind, col in enumerate(cols):
-      print(col)
       comms_dict[row][col] = {}
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       if cc:
         G = get_lcc(G)
       num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
       num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
-      
-      for resolution_ind, resolution in enumerate(resolution_list):      
+      for resolution_ind, resolution in enumerate(resolution_list):
+        print(row, col, resolution)
         pos_resolution = abs(resolution * num_neg / num_pos)
-        comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
-        comms_dict[row][col][resolution] = comms
-        Hamiltonian[row_ind, col_ind, resolution_ind] = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution, comms=comms)
+        comms_dict[row][col][resolution] = []
+        for repeat in range(num_repeat):
+          comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
+          comms_dict[row][col][resolution].append(comms)
+          Hamiltonian[row_ind, col_ind, resolution_ind, repeat] = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution, comms=comms)
         gnm_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='Gnm', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
         config_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='directed_configuration_model', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)   
   metrics = {'Hamiltonian':Hamiltonian, 'Gnm Hamiltonian':gnm_Hamiltonian, 'configuration model Hamiltonian':config_Hamiltonian}
@@ -2154,8 +2154,8 @@ def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, ma
         bottom=False,      # ticks along the bottom edge are off
         top=False,         # ticks along the top edge are off
         labelbottom=False) # labels along the bottom edge are off
-    plt.suptitle(max_method, size=25)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.suptitle(max_method, size=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   # plt.show()
   figname = './plots/stat_modular_Hamiltonian_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(max_method, measure, n))
