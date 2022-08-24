@@ -2036,7 +2036,7 @@ def comms_Hamiltonian_resolution(G_dict, resolution_list, num_repeat, num_rewire
       num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
       num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
       for resolution_ind, resolution in enumerate(resolution_list):
-        print(row, col, resolution)
+        print(row, col, round(resolution, 2))
         pos_resolution = abs(resolution * num_neg / num_pos)
         comms_dict[row][col][resolution] = []
         for repeat in range(num_repeat):
