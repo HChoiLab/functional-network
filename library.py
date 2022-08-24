@@ -1847,7 +1847,7 @@ def signed_louvain_partitions(
         graph = G.__class__()
         graph.add_nodes_from(G)
         graph.add_weighted_edges_from(G.edges(data=weight, default=1))
-
+    
     out_degree_pos = signed_degree(G, 'pos', 'out', weight)
     out_degree_neg = signed_degree(G, 'neg', 'out', weight)
     pos_norm = safe_division(1, sum(out_degree_pos.values()))
@@ -1882,7 +1882,7 @@ def _one_level(G, pos_norm, neg_norm, partition, weight='weight', pos_resolution
       Stot_out_pos = [deg for deg in out_degrees_pos.values()]
       Stot_out_neg = [deg for deg in out_degrees_neg.values()]
       # Calculate weights for both in and out neighbours
-      nbrs = {}
+      nbrs = {} # key is each node and its in and out neighbors, value is their weight
       for u in G:
         nbrs[u] = defaultdict(float)
         for _, n, wt in G.out_edges(u, data="weight"):
@@ -1902,22 +1902,22 @@ def _one_level(G, pos_norm, neg_norm, partition, weight='weight', pos_resolution
     while nb_moves > 0:
         nb_moves = 0
         for u in rand_nodes:
-            best_ham = 0
+            best_gain = 0
             best_com = node2com[u]
-            weights2com = _neighbor_weights(nbrs[u], node2com)
+            weights2com = _neighbor_weights(nbrs[u], node2com) # summed weights of in and out neighbors of u, key is their current community
             if is_directed:
                 in_degree_pos = in_degrees_pos[u]
                 out_degree_pos = out_degrees_pos[u]
                 in_degree_neg = in_degrees_neg[u]
                 out_degree_neg = out_degrees_neg[u]
-                Stot_in_pos[best_com] -= in_degree_pos
+                Stot_in_pos[best_com] -= in_degree_pos # pos in degree of other nodes in the same community
                 Stot_out_pos[best_com] -= out_degree_pos
+                Stot_in_neg[best_com] -= in_degree_neg
+                Stot_out_neg[best_com] -= out_degree_neg
                 remove_cost = (
-                    +weights2com[best_com]
-                    - pos_resolution * pos_norm
-                    * (out_degree_pos * Stot_in_pos[best_com] + in_degree_pos * Stot_out_pos[best_com])
-                    + neg_resolution * neg_norm
-                    * (out_degree_neg * Stot_in_neg[best_com] + in_degree_neg * Stot_out_neg[best_com])
+                    + weights2com[best_com]
+                    - pos_resolution * pos_norm * (out_degree_pos * Stot_in_pos[best_com] + in_degree_pos * Stot_out_pos[best_com])
+                    + neg_resolution * neg_norm * (out_degree_neg * Stot_in_neg[best_com] + in_degree_neg * Stot_out_neg[best_com])
                 )
             else:
                 pos_degree = pos_degrees[u]
@@ -1928,28 +1928,25 @@ def _one_level(G, pos_norm, neg_norm, partition, weight='weight', pos_resolution
                     Stot_pos[best_com] * pos_degree) * 2 * pos_norm \
                     + neg_resolution * (
                     Stot_neg[best_com] * neg_degree) * 2 * neg_norm
-            for nbr_com, wt in weights2com.items():
-                if is_directed:
-                    gain = (
-                        remove_cost
-                        - wt
-                        + pos_resolution * pos_norm
-                        * (out_degree_pos * Stot_in_pos[nbr_com]
-                            + in_degree_pos * Stot_out_pos[nbr_com])
-                        - neg_resolution * neg_norm
-                        * (out_degree_neg * Stot_in_neg[nbr_com]
-                            + in_degree_neg * Stot_out_neg[nbr_com])
-                    )
-                else:
-                    gain = (
-                        remove_cost
-                        - wt
-                        + pos_resolution * (Stot_pos[nbr_com] * pos_degree) * 2 * pos_norm
-                        - neg_resolution * (Stot_neg[nbr_com] * neg_degree) * 2 * pos_norm
-                    )
-                if gain < best_ham:
-                    best_ham = gain
-                    best_com = nbr_com
+            for nbr_com, wt in weights2com.items(): # compare every other community nbr_com node u can move to
+                if wt > 0: # only move to a neighbor's community if weight is positive, unless will cause node u to consistently jump between negative neighbor's community
+                    if is_directed:
+                        gain = (
+                            remove_cost
+                            - wt
+                            + pos_resolution * pos_norm * (out_degree_pos * Stot_in_pos[nbr_com] + in_degree_pos * Stot_out_pos[nbr_com])
+                            - neg_resolution * neg_norm * (out_degree_neg * Stot_in_neg[nbr_com] + in_degree_neg * Stot_out_neg[nbr_com])
+                        )
+                    else:
+                        gain = (
+                            remove_cost
+                            - wt
+                            + pos_resolution * (Stot_pos[nbr_com] * pos_degree) * 2 * pos_norm
+                            - neg_resolution * (Stot_neg[nbr_com] * neg_degree) * 2 * pos_norm
+                        )
+                    if gain < best_gain:
+                        best_gain = gain
+                        best_com = nbr_com
             if is_directed:
                 Stot_in_pos[best_com] += in_degree_pos
                 Stot_out_pos[best_com] += out_degree_pos
@@ -1967,6 +1964,7 @@ def _one_level(G, pos_norm, neg_norm, partition, weight='weight', pos_resolution
                 improvement = True
                 nb_moves += 1
                 node2com[u] = best_com
+  
     partition = list(filter(len, partition))
     inner_partition = list(filter(len, inner_partition))
     return partition, inner_partition, improvement
@@ -1980,6 +1978,7 @@ def _neighbor_weights(nbrs, node2com):
 
 
 def _gen_graph(G, partition):
+    # generate a graph whose node is community, edge weight is the summation of weights between two communities
     H = G.__class__()
     node2com = {}
     for i, part in enumerate(partition):
@@ -2038,6 +2037,7 @@ def comms_Hamiltonian_resolution(G_dict, resolution_list, num_rewire, cc=False):
         G = get_lcc(G)
       num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
       num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
+      
       for resolution_ind, resolution in enumerate(resolution_list):      
         pos_resolution = abs(resolution * num_neg / num_pos)
         comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
