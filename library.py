@@ -223,8 +223,9 @@ def spike_timing2train(T, spikeTrain):
     return spikeData
 
 class CommunityLayout():
-  # def __init__(self):
-  #   super(CommunityLayout,self).__init__()
+  def __init__(self, comm_scale=3., node_scale=1.):
+    self.comm_scale = comm_scale
+    self.node_scale = node_scale
   def get_community_layout(self, g, partition):
     """
     Compute the layout for a modular graph.
@@ -240,8 +241,8 @@ class CommunityLayout():
     pos -- dict mapping int node -> (float x, float y)
         node positions
     """
-    pos_communities = self._position_communities(g, partition, scale=3.)
-    pos_nodes = self._position_nodes(g, partition, scale=1.)
+    pos_communities = self._position_communities(g, partition, scale=self.comm_scale)
+    pos_nodes = self._position_nodes(g, partition, scale=self.node_scale)
     # combine positions
     pos = dict()
     for node in g.nodes():
@@ -2260,7 +2261,177 @@ def plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=None,
   # plt.show()
   plt.savefig(image_name)
 
+def plot_top_Hcomm_purity(comms_dict, num_top, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  top_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    top_purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        data = []
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data.append((size, purity))
+        c_purity = [v for k,v in sorted(data, key=lambda x:x[0], reverse=True) if k>=4][:num_top]
+        # c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
+        # print(c_size, c_purity)
+        # c_purity = [x for xs in c_purity for x in xs]
+        # top_purity_col += [x for xs in c_purity for x in xs]
+        top_purity_col += [x for x in c_purity]
+    top_purity.append(top_purity_col)
+  plt.boxplot(top_purity)
+  plt.xticks(list(range(1, len(top_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(' top {} largest {} Hamiltonian community purity'.format(num_top, max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+  return top_purity
 
+def plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  size_dict = {}
+  purity_dict = {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        data = []
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data.append((size, purity))
+        size_col += [k for k,v in data if k>=4]
+        purity_col += [v for k,v in data if k>=4]
+    size_dict[col] = size_col
+    purity_dict[col] = purity_col
+  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  for col_ind, col in enumerate(size_dict):
+    plt.scatter(size_dict[col], purity_dict[col], color=color_list[col_ind], label=col, alpha=0.8)
+  plt.legend()
+  plt.xscale('log')
+  plt.xlabel('community size')
+  plt.ylabel('purity')
+  plt.title('{} purity VS community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/Hcomm_purity_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+def plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        size_col += [k for k in sizes if k>=4]
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array([col] * len(size_col))[:,None]), 1), columns=['community size', 'stimulus'])], ignore_index=True)
+  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  df['community size'] = pd.to_numeric(df['community size'])
+  sns.kdeplot(data=df, x='community size', hue='stimulus', palette=color_list, cut=0)
+  # plt.legend()
+  plt.xscale('log')
+  plt.yscale('log')
+  # plt.xlabel('community size')
+  # plt.ylabel('purity')
+  plt.title('{} distribution of community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/dist_Hcomm_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+def plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none', kind='scatter'):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(10, 10))
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        data = []
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data.append((size, purity))
+        size_col += [s for s,p in data if s>=4]
+        purity_col += [p for s,p in data if s>=4]
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array([col] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'stimulus'])], ignore_index=True)
+  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  df['community size'] = pd.to_numeric(df['community size'])
+  df['purity'] = pd.to_numeric(df['purity'])
+  if kind == 'scatter':
+    sns.jointplot(data=df, x='community size', y='purity', hue='stimulus', kind='scatter', palette=color_list, alpha=0.7)
+  elif kind == 'kde':
+    sns.jointplot(data=df, x='community size', y='purity', hue='stimulus', kind='kde', ylim=(0.13, 1.0), log_scale=[True, False], palette=color_list, alpha=0.7)
+  # plt.xscale('log')
+  # plt.yscale('log')
+  # plt.xlabel('community size')
+  # plt.ylabel('purity')
+  plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/dist2D_Hcomm_size_{}_{}_{}_{}fold.jpg'.format(kind, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
 
 def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   ind = 1
