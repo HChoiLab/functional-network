@@ -340,6 +340,112 @@ def plot_example_graphs_offset(G_dict, max_reso, offset_dict, sign, area_dict, a
   # plt.show()
   return weights, comms
 
+def plot_example_graphs_each_region(G_dict, hamiltonian, comms, area_dict, active_area_dict, row, col, measure, n, cc=False):
+  com = CommunityLayout(20, 3)
+  G_sample = G_dict[row][col]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(8, 7))
+  print(row, col)
+  G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+  nx.set_node_attributes(G, area_dict[row], "area")
+  if cc:
+    G = get_lcc(G)
+  node_idx = sorted(active_area_dict[row].keys())
+  reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+  G = nx.relabel_nodes(G, reverse_mapping)
+  comms = [[reverse_mapping[n] for n in comm] for comm in comms]
+  comms_tuple = [[[i for i in comm], len(comm)] for comm in comms]
+  ordered_comms = [e[0] for e in sorted(comms_tuple, key=lambda x:x[1], reverse=True)]
+  ordered_comm_regions = [[G.nodes[n]['area'] for n in comm] for comm in ordered_comms]
+  ordered_most_common_regions = [most_common(comm_r) for comm_r in ordered_comm_regions]
+  inds = [ordered_most_common_regions.index(r) for r in np.unique(ordered_most_common_regions)]
+  comms2plot = [ordered_comms[i] for i in inds]
+  nodes2plot = [j for i in comms2plot for j in i]
+  # nodes2plot = [j for i in comms if len(i) > 2 for j in i]
+  # comms2plot = [i for i in comms if len(i) > 2]
+  pos = com.get_community_layout(G.subgraph(nodes2plot), comm2partition(comms2plot))
+  # partition = community.best_partition(G, weight='weight')
+  # pos = com.get_community_layout(G, partition)
+  # metric = community.modularity(partition, G, weight='weight')
+  print('Hamiltonian: {}'.format(hamiltonian))
+  edges = nx.edges(G.subgraph(nodes2plot))
+  degrees = dict(G.degree(nodes2plot))
+  # use offset as edge weight (color)
+  weights = [w for i,j,w in nx.edges(G.subgraph(nodes2plot)).data('weight')]
+  # weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+  norm = mpl.colors.Normalize(vmin=-0.02, vmax=0.05)
+  m= cm.ScalarMappable(norm=norm, cmap=cm.RdBu)
+  edge_colors = [m.to_rgba(w) for w in weights]
+  areas = [G.nodes[n]['area'] for n in nodes2plot]
+  areas_uniq = list(set(areas))
+  colors = [customPalette[areas_uniq.index(area)] for area in areas]
+  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+  nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.9) # , edge_cmap=plt.cm.Greens
+  # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+  # print(len(set(nodes2plot)), len(nodes2plot), len(areas), len(degrees), len(colors))
+  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[15 * v for v in degrees.values()], 
+  node_color=colors, alpha=0.6)
+  for index, a in enumerate(areas_uniq):
+    plt.scatter([],[], c=customPalette[index], label=a, s=30, alpha=0.6)
+  legend = plt.legend(fontsize=15) # loc='lower right', 
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/example_graphs_each_region_color_cc_{}_{}_{}_{}fold.jpg' if cc else './plots/example_graphs_each_region_color_{}_{}_{}_{}fold.jpg'
+  plt.savefig(image_name.format(row, col, measure, n))
+  return weights, edge_colors
+
+def plot_example_graphs_largest_comms(G_dict, hamiltonian, comms, area_dict, active_area_dict, row, col, measure, n, cc=False):
+  com = CommunityLayout(30, 3)
+  G_sample = G_dict[row][col]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(8, 7))
+  print(row, col)
+  G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+  nx.set_node_attributes(G, area_dict[row], "area")
+  if cc:
+    G = get_lcc(G)
+  node_idx = sorted(active_area_dict[row].keys())
+  reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+  G = nx.relabel_nodes(G, reverse_mapping)
+  comms = [[reverse_mapping[n] for n in comm] for comm in comms]
+  comms_tuple = [[[i for i in comm], len(comm)] for comm in comms]
+  ordered_comms = [e[0] for e in sorted(comms_tuple, key=lambda x:x[1], reverse=True)]
+  comms2plot = ordered_comms[:6]
+  nodes2plot = [j for i in comms2plot for j in i]
+  # nodes2plot = [j for i in comms if len(i) > 2 for j in i]
+  # comms2plot = [i for i in comms if len(i) > 2]
+  pos = com.get_community_layout(G.subgraph(nodes2plot), comm2partition(comms2plot))
+  # partition = community.best_partition(G, weight='weight')
+  # pos = com.get_community_layout(G, partition)
+  # metric = community.modularity(partition, G, weight='weight')
+  print('Hamiltonian: {}'.format(hamiltonian))
+  edges = nx.edges(G.subgraph(nodes2plot))
+  degrees = dict(G.degree(nodes2plot))
+  # use offset as edge weight (color)
+  weights = [w for i,j,w in nx.edges(G.subgraph(nodes2plot)).data('weight')]
+  # weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+  norm = mpl.colors.Normalize(vmin=-0.03, vmax=0.03)
+  m= cm.ScalarMappable(norm=norm, cmap=cm.RdBu_r)
+  edge_colors = [m.to_rgba(w) for w in weights]
+  areas = [G.nodes[n]['area'] for n in nodes2plot]
+  areas_uniq = list(set(areas))
+  colors = [customPalette[areas_uniq.index(area)] for area in areas]
+  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+  nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.9) # , edge_cmap=plt.cm.Greens
+  # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+  # print(len(set(nodes2plot)), len(nodes2plot), len(areas), len(degrees), len(colors))
+  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[15 * v for v in degrees.values()], 
+  node_color=colors, alpha=0.6)
+  for index, a in enumerate(areas_uniq):
+    plt.scatter([],[], c=customPalette[index], label=a, s=30, alpha=0.6)
+  legend = plt.legend(fontsize=15) # loc='lower right', 
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/example_graphs_top_comms_color_cc_{}_{}_{}_{}fold.jpg' if cc else './plots/example_graphs_top_comms_color_{}_{}_{}_{}fold.jpg'
+  plt.savefig(image_name.format(row, col, measure, n))
+
 def plot_covering_comm_purity(G_dict, cover_p, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
   if max_reso is None:
@@ -527,7 +633,6 @@ def plot_example_graph(G_dict, area_dict, session_ids, stimulus_names, mouse_id,
   # plt.savefig(image_name)
   plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
-
 
 def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
   rewired_G_dict = {}
@@ -1113,63 +1218,52 @@ max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
-def plot_top_Hcomm_purity(comms_dict, num_top, area_dict, measure, n, max_neg_reso=None, max_method='none'):
-  ind = 1
-  rows, cols = get_rowcol(comms_dict)
-  if max_neg_reso is None:
-    max_neg_reso = np.ones((len(rows), len(cols)))
-  fig = plt.figure(figsize=(7, 4))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  top_purity = []
-  for col_ind, col in enumerate(cols):
-    print(col)
-    
-    top_purity_col = []
-    for row_ind, row in enumerate(rows):
-      max_reso = max_neg_reso[row_ind][col_ind]
-      comms_list = comms_dict[row][col][max_reso]
-      for comms in comms_list: # 100 repeats
-        data = {}
-        sizes = [len(comm) for comm in comms]
-        # part = community.best_partition(G, weight='weight')
-        # comms, sizes = np.unique(list(part.values()), return_counts=True)
-        for comm, size in zip(comms, sizes):
-          c_regions = [area_dict[row][node] for node in comm]
-          _, counts = np.unique(c_regions, return_counts=True)
-          assert len(c_regions) == size == counts.sum()
-          purity = counts.max() / size
-          if size in data:
-            data[size].append(purity)
-          else:
-            data[size] = [purity]
-    
-        c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
-        # print(c_size, c_purity)
-        # c_purity = [x for xs in c_purity for x in xs]
-        top_purity_col += [x for xs in c_purity for x in xs]
-    top_purity.append(top_purity_col)
-  plt.boxplot(top_purity)
-  plt.xticks(list(range(1, len(top_purity)+1)), cols, rotation=90)
-  # plt.hist(data.flatten(), bins=12, density=True)
-  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-  # plt.xlabel('region')
-  plt.ylabel('purity')
-  plt.title(' top {} largest {} Hamiltonian community purity'.format(num_top, max_method), size=18)
-  plt.tight_layout()
-  image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
-  # plt.show()
-  plt.savefig(image_name)
-  return top_purity
-# top_purity_gnm = plot_top_comm_purity(comms_dict, 5, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+top_purity_gnm = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 top_purity_config = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
-# top_purity_config = plot_top_comm_purity(comms_dict, 10, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+# top_purity_config = plot_top_Hcomm_purity(comms_dict, 10, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
-purity_dict = {col:top_purity_config[cols.index(col)] for col in cols}
-plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'ks_test', True)
-plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'mwu_test', True)
+#################### scatter of purity VS community size
+# plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### distribution of community size
+plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### 2D distribution of purity and community size
+plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='scatter')
+# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='kde')
+# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### example topology of graphs, select one largest community for each region
+rows, cols = get_rowcol(G_ccg_dict)
+# for row_ind, row in enumerate(rows):
+#   for col_ind, col in enumerate(cols):
+#     print(row, col)
+#     break
+row_ind, col_ind = 2, 3
+row, col = rows[row_ind], cols[col_ind]
+max_reso = max_reso_gnm[row_ind][col_ind]
+hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
+comms_list = comms_dict[row][col][max_reso]
+weights, edge_colors = plot_example_graphs_each_region(G_ccg_dict, hamiltonian, comms_list[0], area_dict, active_area_dict, row, col, measure, n, False)
+#%%
+#################### example topology of graphs, select the top 6 communities
+rows, cols = get_rowcol(G_ccg_dict)
+# for row_ind, row in enumerate(rows):
+#   for col_ind, col in enumerate(cols):
+#     print(row, col)
+#     break
+row_ind, col_ind = 3, 6
+row, col = rows[row_ind], cols[col_ind]
+max_reso = max_reso_gnm[row_ind][col_ind]
+hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
+comms_list = comms_dict[row][col][max_reso]
+plot_example_graphs_largest_comms(G_ccg_dict, hamiltonian, comms_list[2], area_dict, active_area_dict, row, col, measure, n, False)
+#%%
+purity_dict = {col:top_purity_gnm[cols.index(col)] for col in cols}
+plot_corrected_p_value(purity_dict, 'top_purity_1', measure, n, 'ks_test', True)
+# plot_corrected_p_value(purity_dict, 'top_purity_1', measure, n, 'mwu_test', True)
 #%%
 # all_purity_gnm = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
