@@ -1887,8 +1887,11 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 ################# get optimal resolution that maximizes delta H
 rows, cols = get_rowcol(G_ccg_dict)
+with open('comms_dict.pkl', 'rb') as f:
+  comms_dict = pickle.load(f)
 with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
+#%%
 resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
 #%%
@@ -1898,6 +1901,9 @@ max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 #%%
 rows, cols = get_rowcol(G_ccg_dict)
 plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n)
+#%%
+stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm')
+stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config')
 #%%
 stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
