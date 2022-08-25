@@ -2054,10 +2054,11 @@ def get_max_dH_resolution(rows, cols, resolution_list, metrics):
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
+      metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
       metric_gnm = gnm_Hamiltonian[row_ind, col_ind].mean(-1)
       metric_config = config_Hamiltonian[row_ind, col_ind].mean(-1)
-      max_reso_gnm[row_ind, col_ind] = resolution_list[np.argmax(metric_gnm - Hamiltonian[row_ind, col_ind])]
-      max_reso_config[row_ind, col_ind] = resolution_list[np.argmax(metric_config - Hamiltonian[row_ind, col_ind])]
+      max_reso_gnm[row_ind, col_ind] = resolution_list[np.argmax(metric_gnm - metric_mean)]
+      max_reso_config[row_ind, col_ind] = resolution_list[np.argmax(metric_config - metric_mean)]
   return max_reso_gnm, max_reso_config
 
 def get_max_pos_reso(G_ccg_dict, max_neg_reso):
@@ -2080,7 +2081,7 @@ def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n
     for col_ind, col in enumerate(cols):
       plt.subplot(num_row, num_col, ind)
       ind += 1
-      metric = metrics['Hamiltonian']
+      metric = metrics['Hamiltonian'].mean(-1)
       plt.plot(resolution_list, metric[row_ind, col_ind], label=r'$H$', alpha=0.6)
       metric_config = metrics['configuration model Hamiltonian'][row_ind, col_ind].mean(-1)
       metric_gnm = metrics['Gnm Hamiltonian'][row_ind, col_ind].mean(-1)
@@ -2111,6 +2112,57 @@ def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n
   figname = './plots/{}_{}_{}fold.jpg'
   # plt.show()
   plt.savefig(figname.format('Hamiltonian', measure, n))
+
+def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list, max_neg_reso=None, comms_dict=None, metrics=None, max_method='none'):
+  rows, cols = get_rowcol(G_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  num_comm, hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      hamiltonian[row_ind, col_ind] = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean()
+      nc, nl, cl = [], [], []
+      for comms in comms_list:
+        nc.append(len(comms))
+        count = np.array([len(comm) for comm in comms])
+        nl.append(sum(count >= 4))
+        cl.append(count[count >=4].sum() / G.number_of_nodes())
+      num_comm[row_ind, col_ind] = np.mean(nc)
+      num_lcomm[row_ind, col_ind] = np.mean(nl)
+      cov_lcomm[row_ind, col_ind] = np.mean(cl)
+      
+  metrics2plot = {'number of communities':num_comm, 'Hamiltonian':hamiltonian, 
+  'number of large communities':num_lcomm, 'coverage of large comm':cov_lcomm}
+  num_col = 2
+  num_row = int(len(metrics2plot) / num_col)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics2plot):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics2plot[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics2plot)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+  plt.suptitle(max_method, size=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
 
 def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
@@ -2160,11 +2212,9 @@ def stat_modular_structure_Hamiltonian(G_dict, measure, n, max_pos_reso=None, ma
   figname = './plots/stat_modular_Hamiltonian_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(max_method, measure, n))
 
-def plot_Hcomm_size_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+def plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
   ind = 1
-  rows, cols = get_rowcol(G_dict)
-  if max_pos_reso is None:
-    max_pos_reso = np.ones((len(rows), len(cols)))
+  rows, cols = get_rowcol(comms_dict)
   if max_neg_reso is None:
     max_neg_reso = np.ones((len(rows), len(cols)))
   fig = plt.figure(figsize=(23, 9))
@@ -2180,20 +2230,21 @@ def plot_Hcomm_size_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max
     ind += 1
     data = {}
     for row_ind, row in enumerate(rows):
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
-      sizes = [len(comm) for comm in comms]
-      # part = community.best_partition(G, weight='weight')
-      # comms, sizes = np.unique(list(part.values()), return_counts=True)
-      for comm, size in zip(comms, sizes):
-        c_regions = [area_dict[row][node] for node in comm]
-        _, counts = np.unique(c_regions, return_counts=True)
-        assert len(c_regions) == size == counts.sum()
-        purity = counts.max() / size
-        if size in data:
-          data[size].append(purity)
-        else:
-          data[size] = [purity]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list:
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          if size in data:
+            data[size].append(purity)
+          else:
+            data[size] = [purity]
     
     c_size, c_purity = [k for k,v in sorted(data.items())], [v for k,v in sorted(data.items())]
     plt.boxplot(c_purity)
@@ -2209,53 +2260,7 @@ def plot_Hcomm_size_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max
   # plt.show()
   plt.savefig(image_name)
 
-def plot_top_Hcomm_purity(G_dict, num_top, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  if max_pos_reso is None:
-    max_pos_reso = np.ones((len(rows), len(cols)))
-  if max_neg_reso is None:
-    max_neg_reso = np.ones((len(rows), len(cols)))
-  fig = plt.figure(figsize=(7, 4))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  top_purity = []
-  for col_ind, col in enumerate(cols):
-    print(col)
-    data = {}
-    for row_ind, row in enumerate(rows):
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
-      sizes = [len(comm) for comm in comms]
-      # part = community.best_partition(G, weight='weight')
-      # comms, sizes = np.unique(list(part.values()), return_counts=True)
-      for comm, size in zip(comms, sizes):
-        c_regions = [area_dict[row][node] for node in comm]
-        _, counts = np.unique(c_regions, return_counts=True)
-        assert len(c_regions) == size == counts.sum()
-        purity = counts.max() / size
-        if size in data:
-          data[size].append(purity)
-        else:
-          data[size] = [purity]
-    
-    c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
-    # c_purity = [x for xs in c_purity for x in xs]
-    top_purity.append([x for xs in c_purity for x in xs])
-  plt.boxplot(top_purity)
-  plt.xticks(list(range(1, len(top_purity)+1)), cols, rotation=90)
-  # plt.hist(data.flatten(), bins=12, density=True)
-  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-  # plt.xlabel('region')
-  plt.ylabel('purity')
-  plt.title(' top {} largest {} Hamiltonian community purity'.format(num_top, max_method), size=18)
-  plt.tight_layout()
-  image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
-  # plt.show()
-  plt.savefig(image_name)
-  return top_purity
+
 
 def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   ind = 1
