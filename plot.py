@@ -1223,8 +1223,58 @@ top_purity_config = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, 
 # top_purity_config = plot_top_Hcomm_purity(comms_dict, 10, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 #################### scatter of purity VS community size
-# plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### scatter of average purity VS community size
+def plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  size_dict = {}
+  purity_dict = {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    data = defaultdict(list)
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data[size].append(purity)
+    size_col = [k for k,v in data.items() if k>=4]
+    purity_col = [np.mean(v) for k,v in data.items() if k>=4]
+    size_dict[col] = size_col
+    purity_dict[col] = purity_col
+  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  for col_ind, col in enumerate(size_dict):
+    plt.scatter(size_dict[col], purity_dict[col], color=color_list[col_ind], label=col, alpha=0.8)
+  plt.legend()
+  plt.xscale('log')
+  plt.xlabel('community size')
+  plt.ylabel('purity')
+  plt.title('{} average purity VS community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/Hcomm_mean_purity_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+
+plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 #%%
 #################### distribution of community size
 plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
