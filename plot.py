@@ -1099,18 +1099,74 @@ plot_p_value(purity_dict, 'covering_purity', measure, n, 'mwu_test', True)
 #%%
 ################# get optimal resolution that maximizes delta H
 rows, cols = get_rowcol(G_ccg_dict)
+with open('comms_dict.pkl', 'rb') as f:
+  comms_dict = pickle.load(f)
 with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
+#%%
 resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
-#%%
 ############### community with Hamiltonian
 max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
 max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 #%%
-# top_purity_gnm = plot_top_comm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
-top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 6, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
-# top_purity_config = plot_top_comm_purity(G_ccg_dict, 10, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+def plot_top_Hcomm_purity(comms_dict, num_top, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  top_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    
+    top_purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        data = {}
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          if size in data:
+            data[size].append(purity)
+          else:
+            data[size] = [purity]
+    
+        c_size, c_purity = [k for k,v in sorted(data.items(), reverse=True)][:num_top], [v for k,v in sorted(data.items(), reverse=True)][:num_top]
+        # print(c_size, c_purity)
+        # c_purity = [x for xs in c_purity for x in xs]
+        top_purity_col += [x for xs in c_purity for x in xs]
+    top_purity.append(top_purity_col)
+  plt.boxplot(top_purity)
+  plt.xticks(list(range(1, len(top_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title(' top {} largest {} Hamiltonian community purity'.format(num_top, max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/top_{}_Hcomm_purity_{}_{}_{}fold.jpg'.format(num_top, max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+  return top_purity
+# top_purity_gnm = plot_top_comm_purity(comms_dict, 5, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+top_purity_config = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+# top_purity_config = plot_top_comm_purity(comms_dict, 10, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
 purity_dict = {col:top_purity_config[cols.index(col)] for col in cols}
 plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'ks_test', True)
 plot_corrected_p_value(purity_dict, 'top_purity_6', measure, n, 'mwu_test', True)
