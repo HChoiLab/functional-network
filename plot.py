@@ -1618,3 +1618,98 @@ def gnm_random_connected_graph(n, m):
           G.add_edge(*e)
           cnt += 1
   return G
+#%%
+def plot_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
+  rows, cols = get_rowcol(offset_dict)
+  num_row, num_col = len(rows), len(cols)
+  intra_offset, inter_offset = [[] for _ in range(num_col)], [[] for _ in range(num_col)]
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    print(row)
+    df = pd.DataFrame()
+    existed_edges = []
+    for col_ind, col in enumerate(cols):
+      col_edges = np.transpose(np.where(~np.isnan(offset_dict[row][col])))
+      col_edges = [tuple(edge) for edge in col_edges]
+      existed_edges.append(col_edges)
+    existed_edges = set.intersection(*map(set, existed_edges))
+    nodes = sorted(list(G_dict[row][col].nodes()))
+    for i, j in existed_edges:
+      if active_area[nodes[i]] == active_area[nodes[j]]:
+        for col_ind, col in enumerate(cols):
+          intra_offset[col_ind].append(offset_dict[row][col][i, j])
+      else:
+        for col_ind, col in enumerate(cols):
+          inter_offset[col_ind].append(offset_dict[row][col][i, j])
+  for col_ind, col in enumerate(cols):
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_offset[col_ind])[:,None], np.array(['intra-region'] * len(intra_offset[col_ind]))[:,None], np.array([col] * len(intra_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus']), 
+              pd.DataFrame(np.concatenate((np.array(inter_offset[col_ind])[:,None], np.array(['inter-region'] * len(inter_offset[col_ind]))[:,None], np.array([col] * len(inter_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus'])], ignore_index=True)
+    df[r'time lag $\tau$'] = pd.to_numeric(df[r'time lag $\tau$'])
+  plt.figure(figsize=(12, 8))
+  ax = sns.violinplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", split=False, cut=1)
+  # ax = sns.boxplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", showfliers=False)
+  # ax = sns.swarmplot(x='stimulus', y=r'time lag $\tau$', data=df, color=".25")
+  plt.xticks(fontsize=10, rotation=90)
+  ax.set(xlabel=None)
+  # plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/existed_edges_offset_stimulus_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  return intra_offset, inter_offset
+
+intra_offset, inter_offset = plot_existed_edge_offset_stimulus(offset_dict, G_ccg_dict, active_area_dict, measure, n)
+# %%
+def plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
+  rows, cols = get_rowcol(offset_dict)
+  intra_offset, inter_offset = defaultdict(list), defaultdict(list)
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    print(row)
+    nodes = sorted(list(G_dict[row][cols[0]].nodes()))
+    for col1, col2 in itertools.combinations(cols, 2):
+      existed_edges = []
+      col_edges1 = np.transpose(np.where(~np.isnan(offset_dict[row][col1])))
+      col_edges1 = [tuple(edge) for edge in col_edges1]
+      col_edges2 = np.transpose(np.where(~np.isnan(offset_dict[row][col2])))
+      col_edges2 = [tuple(edge) for edge in col_edges2]
+      existed_edges.append(col_edges1)
+      existed_edges.append(col_edges2)
+      existed_edges = set.intersection(*map(set, existed_edges))
+      for i, j in existed_edges:
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
+        else:
+          inter_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
+  intra_df, inter_df = pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols), pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols)
+  for col1, col2 in itertools.combinations(cols, 2):
+    intra_df.loc[col1, col2] = np.mean(intra_offset[(col1, col2)])
+    inter_df.loc[col1, col2] = np.mean(inter_offset[(col1, col2)])
+  mask = np.ones((len(cols), len(cols)))
+  mask[np.triu_indices_from(mask, 1)] = False
+  rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
+  plt.figure(figsize=(10, 8))
+  sns_plot = sns.heatmap(intra_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
+  sns_plot.invert_yaxis()
+  # plt.xticks(fontsize=10, rotation=90)
+  # ax.set(xlabel=None)
+  plt.title('intra-region')
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/pairwise_existed_edges_intra_offset_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  plt.figure(figsize=(10, 8))
+  sns_plot = sns.heatmap(inter_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
+  sns_plot.invert_yaxis()
+  # plt.xticks(fontsize=10, rotation=90)
+  # ax.set(xlabel=None)
+  plt.title('inter-region')
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/pairwise_existed_edges_inter_offset_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  return intra_df, inter_df
+  
+
+intra_df, inter_df = plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_ccg_dict, active_area_dict, measure, n)
+# %%
