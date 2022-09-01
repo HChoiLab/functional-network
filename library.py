@@ -33,7 +33,7 @@ from scipy.ndimage.filters import uniform_filter1d
 from scipy import signal
 from scipy import stats
 from scipy import sparse
-from plfit import plfit
+# from plfit import plfit
 import collections
 from collections import defaultdict
 from sklearn.metrics.cluster import adjusted_rand_score
@@ -45,7 +45,8 @@ np.seterr(divide='ignore', invalid='ignore')
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
-session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
+# session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
+session_ids = ['719161530','750332458','750749662','754312389','755434585','756029989','791319847','797828357']
 stimulus_names = ['spontaneous', 'flashes', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
@@ -2683,14 +2684,14 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
   image_name = './plots/comm_distribution_size_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
   plt.savefig(image_name)
 
-def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
+def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=False, Q=100):
   origin_G = input_G.copy()
   if cc:
     origin_G = get_lcc(origin_G)
     # largest_cc = max(nx.connected_components(origin_G), key=len)
     # origin_G = nx.subgraph(origin_G, largest_cc)
   # weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
-  weights = list(nx.get_edge_attributes(origin_G, 'weight').values())
+  weights = list(nx.get_edge_attributes(origin_G, weight).values())
   np.random.shuffle(weights)
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
@@ -2725,7 +2726,7 @@ def random_graph_generator(input_G, num_rewire, algorithm, cc=False, Q=100):
       print('Number of successful swaps: {}'.format(swaps))
     # add link weights
     for ind, e in enumerate(G.edges()):
-      G[e[0]][e[1]]['weight'] = weights[ind]
+      G[e[0]][e[1]][weight] = weights[ind]
     random_graphs.append(G)
   return random_graphs
 
@@ -5055,7 +5056,7 @@ def signed_triad_census(all_triads):
         if triad_type == '120D' or triad_type == '120U':
           sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
         elif triad_type == '300':
-          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+          sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
         signed_triad_count[row][col][triad_type + sign] = signed_triad_count[row][col].get(triad_type + sign, 0) + 1 
       signed_triad_count[row][col] = dict(sorted(signed_triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_count
@@ -5117,7 +5118,7 @@ def summice_signed_triad_census(all_triads):
         if triad_type == '120D' or triad_type == '120U':
           sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
         elif triad_type == '300':
-          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+          sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
         summice_signed_triad_count['sum'][col][triad_type + sign] = summice_signed_triad_count['sum'][col].get(triad_type + sign, 0) + 1 
     summice_signed_triad_count['sum'][col] = dict(sorted(summice_signed_triad_count['sum'][col].items(), key=lambda x:x[1], reverse=True))
   return summice_signed_triad_count
@@ -5193,8 +5194,7 @@ def meanmice_signed_triad_census(all_triads):
         if triad_type == '120D' or triad_type == '120U':
           sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
         elif triad_type == '300':
-          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
-        
+          sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
         triad_percent[triad_type + sign] = triad_percent.get(triad_type + sign, 0) + 1
       triad_percent = {k:v/sum(triad_percent.values()) for k, v in triad_percent.items()}
       if len(triad_percent):
@@ -5204,6 +5204,122 @@ def meanmice_signed_triad_census(all_triads):
     meanmice_signed_triad_percent['mean'][col] = {k:v/num_nonzero for k, v in meantriad_percent.items()}
     meanmice_signed_triad_percent['mean'][col] = dict(sorted(meanmice_signed_triad_percent['mean'][col].items(), key=lambda x:x[1], reverse=True))
   return meanmice_signed_triad_percent
+
+def tran2ffl(edge_order, triad_type):
+  triads = []
+  if triad_type == '030T':
+    triads.append(edge_order)
+  elif triad_type == '120D':
+    triads.append([edge_order[1], edge_order[0], edge_order[2]])
+    triads.append([edge_order[0], edge_order[1], edge_order[3]])
+  elif triad_type == '120U':
+    triads.append([edge_order[0], edge_order[2], edge_order[1]])
+    triads.append([edge_order[1], edge_order[3], edge_order[0]])
+  elif triad_type == '300':
+    triads.append([edge_order[1], edge_order[4], edge_order[3]]) # P
+    triads.append([edge_order[4], edge_order[1], edge_order[2]]) # P
+    triads.append([edge_order[5], edge_order[3], edge_order[0]]) # O
+    triads.append([edge_order[3], edge_order[5], edge_order[1]]) # O
+    triads.append([edge_order[2], edge_order[0], edge_order[4]]) # X
+    triads.append([edge_order[0], edge_order[2], edge_order[5]]) # X
+  return triads
+
+def signed_tran2ffl_census(G_dict, all_triads):
+  rows, cols = get_rowcol(all_triads)
+  signed_tran2ffl_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_tran2ffl_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      signed_tran2ffl_count[row][col] = {}
+      G = G_dict[row][col]
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
+        elif triad_type == '120D' or triad_type == '120U':
+          if triad_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+
+        triads = tran2ffl(edge_order, triad_type)
+        for e_order in triads:
+          sign = [G.get_edge_data(*e)['sign'] for e in e_order]
+          sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+          signed_tran2ffl_count[row][col]['030T' + sign] = signed_tran2ffl_count[row][col].get('030T' + sign, 0) + 1 
+      signed_tran2ffl_count[row][col] = dict(sorted(signed_tran2ffl_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return signed_tran2ffl_count
+
+def signed_single_motif_census(all_triads, motif_type='030T'):
+  rows, cols = get_rowcol(all_triads)
+  signed_motif_count = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    signed_motif_count[row] = {}
+    for col_ind, col in enumerate(cols):
+      signed_motif_count[row][col] = {}
+      for triad in all_triads[row][col]:
+        triad_type = triad[1]
+        if triad_type == motif_type == '030T':
+          node_P = most_common([i for i,j in triad[0][0].keys()])
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_P)
+          triplets.remove(node_X)
+          node_O = list(triplets)[0]
+          edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+        elif triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
+          if triad_type == motif_type == '120D':
+            node_X = most_common([i for i,j in triad[0][0].keys()])
+          else:
+            node_X = most_common([j for i,j in triad[0][0].keys()])
+          triplets = set([node for sub in triad[0][0].keys() for node in sub])
+          triplets.remove(node_X)
+          triplets = list(triplets)
+          np.random.shuffle(triplets)
+          node_P, node_O = triplets
+          if triad_type == motif_type == '120D':
+            edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+          else:
+            edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        elif triad_type == motif_type == '300':
+          triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+          np.random.shuffle(triplets)
+          node_P, node_X, node_O = triplets
+          edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+        else:
+          continue
+        triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+        sign = [triad_sign[edge] for edge in edge_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        if triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
+          sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+        elif triad_type == motif_type == '300':
+          sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
+        signed_motif_count[row][col][triad_type + sign] = signed_motif_count[row][col].get(triad_type + sign, 0) + 1 
+      signed_motif_count[row][col] = dict(sorted(signed_motif_count[row][col].items(), key=lambda x:x[1], reverse=True))
+  return signed_motif_count
 
 def right_temporal_order(edge_offset, triad_type):
   triads = []
@@ -5532,13 +5648,192 @@ def signed_triad_region_census(all_triads, area_dict):
         if triad_type == '120D' or triad_type == '120U':
           sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
         elif triad_type == '300':
-          sign = ''.join(sorted(sign)) # X<->P, X<->O, P<->O
+          sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
         if triad_type + sign not in signed_triad_region_count[row][col]:
           signed_triad_region_count[row][col][triad_type + sign] = {}
         signed_triad_region_count[row][col][triad_type + sign][region] = signed_triad_region_count[row][col][triad_type + sign].get(region, 0) + 1 
       for st_type in signed_triad_region_count[row][col]:
         signed_triad_region_count[row][col][st_type] = dict(sorted(signed_triad_region_count[row][col][st_type].items(), key=lambda x:x[1], reverse=True))
   return signed_triad_region_count
+
+def get_all_signed_transitive_triads_Glist(G_list):
+  all_triads = [[] for _ in range(len(G_list))]
+  for G_ind, G in enumerate(G_list):
+    triad_dict = {}
+    triad_class = {}
+    ## there are only 4 transistive census: 030T, 120D, 120U, and 300 
+    non_transitive_census = ['003','012', '102', '021D', '021C', '021U', '111U', '111D', '201', '030C', '120C', '210'] # , '021'
+    iter_g = search_triangles(G)
+    for iter_t in iter_g:
+      for ta in list(iter_t):
+        tt = ",".join([str(x) for x in sorted(set(ta))])
+        triad_dict[tt] = True     
+    for val in triad_dict.keys():
+      nodes = [int(x) for x in val.split(",")]
+      census = [k for k, v in nx.triads.triadic_census(G.subgraph(nodes)).items() if v][0]
+      if census not in non_transitive_census:
+        sign = nx.get_edge_attributes(G.subgraph(nodes),'sign')
+        triad_class[val] = [census, sign]
+        #map_census_edges(G, val, triad_class)     
+    for key, value in triad_class.items():
+      all_directed_triads = list(get_directed_triads(value[1]))
+      all_triads[G_ind].append([all_directed_triads, value[0]])
+  return all_triads
+
+def signed_single_motif_census_Glist(all_triads, motif_type='030T'):
+  signed_motif_count = {}
+  for G_ind in range(len(all_triads)):
+    for triad in all_triads[G_ind]:
+      triad_type = triad[1]
+      if triad_type == motif_type == '030T':
+        node_P = most_common([i for i,j in triad[0][0].keys()])
+        node_X = most_common([j for i,j in triad[0][0].keys()])
+        triplets = set([node for sub in triad[0][0].keys() for node in sub])
+        triplets.remove(node_P)
+        triplets.remove(node_X)
+        node_O = list(triplets)[0]
+        edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]    
+      elif triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
+        if triad_type == motif_type == '120D':
+          node_X = most_common([i for i,j in triad[0][0].keys()])
+        else:
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+        triplets = set([node for sub in triad[0][0].keys() for node in sub])
+        triplets.remove(node_X)
+        triplets = list(triplets)
+        np.random.shuffle(triplets)
+        node_P, node_O = triplets
+        if triad_type == motif_type == '120D':
+          edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+        else:
+          edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+      elif triad_type == motif_type == '300':
+        triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+        np.random.shuffle(triplets)
+        node_P, node_X, node_O = triplets
+        edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+      else:
+        continue
+      triad_sign = {k: v for d in triad[0] for k, v in d.items()}
+      sign = [triad_sign[edge] for edge in edge_order]
+      sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+      if triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
+        sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+      elif triad_type == motif_type == '300':
+        sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
+      signed_motif_count[triad_type + sign] = signed_motif_count.get(triad_type + sign, 0) + 1/len(all_triads)
+  signed_motif_count = dict(sorted(signed_motif_count.items(), key=lambda x:x[1], reverse=True))
+  return signed_motif_count
+
+def get_signed_motif_count_baseline(G_dict, num_rewire, motif_type='030T'):
+  rows, cols = get_rowcol(G_dict)
+  signed_motif_count_gnm, signed_motif_count_config = defaultdict(lambda: {}), defaultdict(lambda: {})
+  for row in rows:
+    print(row)
+    for col in cols:
+      print(col)
+      G = G_dict[row][col]
+      random_Gs = random_graph_generator(G, num_rewire, algorithm='Gnm', weight='sign')
+      all_triads_baseline = get_all_signed_transitive_triads_Glist(random_Gs)
+      signed_motif_count_gnm[row][col] = signed_single_motif_census_Glist(all_triads_baseline, motif_type)
+      random_Gs = random_graph_generator(G, num_rewire, algorithm='directed_configuration_model', weight='sign')
+      all_triads_baseline = get_all_signed_transitive_triads_Glist(random_Gs)
+      signed_motif_count_config[row][col] = signed_single_motif_census_Glist(all_triads_baseline, motif_type)
+  return signed_motif_count_gnm, signed_motif_count_config
+
+def signed_tran2ffl_census_Glist(G_list, all_triads):
+  signed_tran2ffl_count = {}
+  for G_ind, G in enumerate(G_list):
+    for triad in all_triads[G_ind]:
+      triad_type = triad[1]
+      if triad_type == '030T':
+        node_P = most_common([i for i,j in triad[0][0].keys()])
+        node_X = most_common([j for i,j in triad[0][0].keys()])
+        triplets = set([node for sub in triad[0][0].keys() for node in sub])
+        triplets.remove(node_P)
+        triplets.remove(node_X)
+        node_O = list(triplets)[0]
+        edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
+      elif triad_type == '120D' or triad_type == '120U':
+        if triad_type == '120D':
+          node_X = most_common([i for i,j in triad[0][0].keys()])
+        else:
+          node_X = most_common([j for i,j in triad[0][0].keys()])
+        triplets = set([node for sub in triad[0][0].keys() for node in sub])
+        triplets.remove(node_X)
+        triplets = list(triplets)
+        np.random.shuffle(triplets)
+        node_P, node_O = triplets
+        if triad_type == '120D':
+          edge_order = [(node_X, node_P), (node_X, node_O), (node_P, node_O), (node_O, node_P)]
+        else:
+          edge_order = [(node_P, node_X), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+      else:
+        triplets = list(set([node for sub in triad[0][0].keys() for node in sub]))
+        np.random.shuffle(triplets)
+        node_P, node_X, node_O = triplets
+        edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+
+      triads = tran2ffl(edge_order, triad_type)
+      for e_order in triads:
+        sign = [G.get_edge_data(*e)['sign'] for e in e_order]
+        sign = ''.join(map(lambda x:'+' if x==1 else '-', sign))
+        signed_tran2ffl_count['030T' + sign] = signed_tran2ffl_count.get('030T' + sign, 0) + 1/len(G_list)
+  signed_tran2ffl_count = dict(sorted(signed_tran2ffl_count.items(), key=lambda x:x[1], reverse=True))
+  return signed_tran2ffl_count
+
+def get_signed_tran2ffl_count_baseline(G_dict, num_rewire):
+  rows, cols = get_rowcol(G_dict)
+  signed_tran2ffl_count_gnm, signed_tran2ffl_count_config = defaultdict(lambda: {}), defaultdict(lambda: {})
+  for row in rows:
+    print(row)
+    for col in cols:
+      print(col)
+      G = G_dict[row][col]
+      random_Gs = random_graph_generator(G, num_rewire, algorithm='Gnm', weight='sign')
+      all_triads_baseline = get_all_signed_transitive_triads_Glist(random_Gs)
+      signed_tran2ffl_count_gnm[row][col] = signed_tran2ffl_census_Glist(random_Gs, all_triads_baseline)
+      random_Gs = random_graph_generator(G, num_rewire, algorithm='directed_configuration_model', weight='sign')
+      all_triads_baseline = get_all_signed_transitive_triads_Glist(random_Gs)
+      signed_tran2ffl_count_config[row][col] = signed_tran2ffl_census_Glist(random_Gs, all_triads_baseline)
+  return signed_tran2ffl_count_gnm, signed_tran2ffl_count_config
+
+def plot_signed_motif_relative_count_baseline(signed_motif_count, signed_motif_count_gnm, signed_motif_count_config, signed_030T_triad_types, triad_type, measure, n):
+  rows, cols = get_rowcol(signed_motif_count)
+  xlabel = '{} type'.format(triad_type)
+  fig = plt.figure(figsize=(23, 15))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(cols):
+    df = pd.DataFrame(columns=['motif type', 'relative count', 'baseline'])
+    plt.subplot(4, 2, col_ind+1)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    for t_ind, t in enumerate(signed_030T_triad_types):
+      rc_gnm, rc_config = [], []
+      for row in rows:
+        rc_gnm.append(safe_division(signed_motif_count[row][col].get(t, 0), signed_motif_count_gnm[row][col].get(t, 0)))
+        rc_config.append(safe_division(signed_motif_count[row][col].get(t, 0), signed_motif_count_config[row][col].get(t, 0)))
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([t] * len(rc_gnm))[:,None], np.array(rc_gnm)[:,None], np.array(['Gnm'] * len(rc_gnm))[:,None]), 1), columns=[xlabel, 'relative count', 'baseline'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([t] * len(rc_config))[:,None], np.array(rc_config)[:,None], np.array(['directed configuration model'] * len(rc_config))[:,None]), 1), columns=[xlabel, 'relative count', 'baseline'])], ignore_index=True)
+    df['relative count'] = pd.to_numeric(df['relative count'])
+    ax = sns.barplot(x=xlabel, y='relative count', hue='baseline', data=df)
+    if triad_type == '030T':
+      ax.set_xticks(range(len(signed_030T_triad_types)))
+      ax.set_xticklabels(['C1', 'I1', 'I4', 'I3', 'C4', 'C3', 'C2', 'I2'])
+    # ax.set_xticks(range(len(df)), labels=['C1', 'I1', 'I4', 'I3', 'C4', 'C3', 'C2', 'I2'])
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=1, alpha=1)
+    plt.yscale('log')
+    if col_ind < len(cols) - 1:
+      plt.legend([],[], frameon=False)
+  plt.suptitle('Relative count of all signed {}'.format(triad_type), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_{}_baseline_{}_{}fold.jpg'.format(triad_type, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
 
 def signed_temporal_030T_region_census(G_dict, all_triads, area_dict):
   rows, cols = get_rowcol(all_triads)
@@ -5700,6 +5995,7 @@ def count_sign_p(G):
   p_pos, p_neg = safe_division(num_pos, len(edges)), safe_division(num_neg, len(edges))
   return p_pos, p_neg
 
+# p_pos and p_neg for 030T only
 def count_030T_sign_p(G):
   all_signs = []
   G_all_triads = nx.all_triads(G)
