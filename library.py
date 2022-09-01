@@ -5696,7 +5696,7 @@ def signed_single_motif_census_Glist(all_triads, motif_type='030T'):
       elif triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
         if triad_type == motif_type == '120D':
           node_X = most_common([i for i,j in triad[0][0].keys()])
-        else:
+        else: 
           node_X = most_common([j for i,j in triad[0][0].keys()])
         triplets = set([node for sub in triad[0][0].keys() for node in sub])
         triplets.remove(node_X)
