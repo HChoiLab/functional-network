@@ -1853,7 +1853,9 @@ G_ccg_dict = load_sharp_integral_xcorr(path, weight=True)
 measure = 'ccg'
 #%%
 ################# save area dict
-save_area_speed(session_ids, stimulus_names, visual_regions)
+mouseIDs = ['719161530','750332458','750749662','754312389','755434585','756029989','791319847','797828357']
+all_visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+save_area_speed(mouseIDs, stimulus_names, all_visual_regions)
 #%%
 ################# save active neuron inds
 min_FR = 0.002 # 2 Hz
@@ -1918,6 +1920,10 @@ top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 10, area_dict, measure, n,
 #%%
 all_purity_gnm = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+#%%
+############### weighted purity by community size
+weighted_purity_gnm = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 #%%
 ############### community structure
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
@@ -3688,6 +3694,182 @@ signed_030T_triad_types = [tran_triad_type+y for y in signs]
 # plot_multi_pie_chart_census_030T(meanmice_signed_triad_percent, signed_030T_triad_types, measure, n, True)
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, False)
 plot_multi_pie_chart_census_030T(summice_signed_triad_count, signed_030T_triad_types, measure, n, True)
+#%%
+######################## ONLY SIGNED FFL, NO OTHER TRAN TRIADS!!!!!!!!!!!!!!!!!
+######################## break other transitive triads into ffl
+signed_tran2ffl_count = signed_tran2ffl_census(S_ccg_dict, all_triads)
+#%%
+######################## ignore other transitive triads, only record ffl
+signed_ffl_count = signed_single_motif_census(all_triads, '030T')
+#%%
+summice_signed_tran2ffl_count = summice(signed_tran2ffl_count)
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+plot_multi_pie_chart_census_030T(summice_signed_tran2ffl_count, signed_030T_triad_types, measure, n, False, False)
+plot_multi_pie_chart_census_030T(summice_signed_tran2ffl_count, signed_030T_triad_types, measure, n, True, False)
+#%%
+summice_signed_ffl_count = summice(signed_ffl_count)
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_types, measure, n, False, False)
+plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_types, measure, n, True, False)
+#%%
+################## relative count of signed node pairs
+def count_signed_triplet_connection_p(G):
+  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
+  nodes = list(G.nodes())
+  edge_sign = nx.get_edge_attributes(G,'sign')
+  for node_i in range(len(nodes)):
+    for node_j in range(len(nodes)):
+      if node_i != node_j:
+        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
+        if edge_sum == 0:
+          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
+            num4 += 1
+          else:
+            num0 += 1
+        elif edge_sum == 1:
+          num1 += 1
+        elif edge_sum == 2:
+          num3 += 1
+        elif edge_sum == -1:
+          num2 += 1
+        elif edge_sum == -2:
+          num5 += 1
+
+  total_num = num0+num1+num2+num3+num4+num5
+  assert total_num == len(nodes) * (len(nodes) - 1)
+  assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
+  p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
+  return p0, p1, p2, p3, p4, p5
+
+def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, measure, n, log=False, scale=True):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  if scale:
+    ylim = 0
+    for col in cols:
+      for row in rows:
+        G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+        signs = list(nx.get_edge_attributes(G, "sign").values())
+        p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
+        p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
+        ylim = max(ylim, p0 / p_signed_pair_func['0'](p_pos, p_neg), p1 / p_signed_pair_func['1'](p_pos, p_neg), p2 / p_signed_pair_func['2'](p_pos, p_neg), p3 / p_signed_pair_func['3'](p_pos, p_neg), p4 / p_signed_pair_func['4'](p_pos, p_neg), p5 / p_signed_pair_func['5'](p_pos, p_neg))
+  for col in cols:
+    print(col)
+    plt.subplot(1, 7, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_pair_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
+      p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
+      all_pair_count['0'].append(p0 / p_signed_pair_func['0'](p_pos, p_neg))
+      all_pair_count['+'].append(p1 / p_signed_pair_func['1'](p_pos, p_neg))
+      all_pair_count['-'].append(p2 / p_signed_pair_func['2'](p_pos, p_neg))
+      all_pair_count['++'].append(p3 / p_signed_pair_func['3'](p_pos, p_neg))
+      all_pair_count['+-'].append(p4 / p_signed_pair_func['4'](p_pos, p_neg))
+      all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
+    
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    plt.boxplot(triad_counts, showfliers=False)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+    # plt.hlines(1, color='r', linestyles='--')
+    if scale:
+      if not log:
+        plt.ylim(top=ylim)
+      else:
+        plt.yscale('log')
+        plt.ylim(top=ylim)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of signed pairs', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_signed_pair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_signed_pair_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(measure, n))
+
+p_signed_pair_func = {
+  '0': lambda p_pos, p_neg: (1 - p_pos - p_neg)**2,
+  '1': lambda p_pos, p_neg: 2 * p_pos * (1 - p_pos - p_neg),
+  '2': lambda p_pos, p_neg: 2 * p_neg * (1 - p_pos - p_neg),
+  '3': lambda p_pos, p_neg: p_pos ** 2,
+  '4': lambda p_pos, p_neg: 2 * p_pos * p_neg,
+  '5': lambda p_pos, p_neg: p_neg ** 2,
+}
+# plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, scale=False)
+plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, log=True, scale=True)
+#%%
+################## relative count of signed ffl
+p_signed_ffl_func = {
+  '030T+++': lambda p_pos, p_neg: p_pos**3,
+  '030T++-': lambda p_pos, p_neg: p_pos**2 * p_neg,
+  '030T+-+': lambda p_pos, p_neg: p_pos**2 * p_neg,
+  '030T+--': lambda p_pos, p_neg: p_pos * p_neg**2,
+  '030T-++': lambda p_pos, p_neg: p_pos**2 * p_neg,
+  '030T-+-': lambda p_pos, p_neg: p_pos * p_neg**2,
+  '030T--+': lambda p_pos, p_neg: p_pos * p_neg**2,
+  '030T---': lambda p_pos, p_neg: p_neg**3
+}
+
+tran_triad_type = '030T'
+signs = ['+++', '++-', '+-+', '-++', '+--', '-+-', '--+', '---']
+signed_030T_triad_types = [tran_triad_type+y for y in signs]
+plot_030T_relative_count(S_ccg_dict, signed_tran2ffl_count, signed_030T_triad_types, p_signed_ffl_func, measure, n)
+#%%
+plot_030T_relative_count(S_ccg_dict, signed_ffl_count, signed_030T_triad_types, p_signed_ffl_func, measure, n)
+#%%
+################## get signed ffl relative count Gnm and configuration
+signed_ffl_count_gnm, signed_ffl_count_config = get_signed_motif_count_baseline(S_ccg_dict, num_rewire=100, motif_type='030T')
+#%%
+################## get signed tran2ffl relative count Gnm and configuration
+signed_tran2ffl_count_gnm, signed_tran2ffl_count_config = get_signed_tran2ffl_count_baseline(S_ccg_dict, num_rewire=100)
+#%%
+# plot_signed_ffl_relative_count_baseline(signed_tran2ffl_count, signed_tran2ffl_count_gnm, signed_tran2ffl_count_config, signed_030T_triad_types, measure, n)
+plot_signed_motif_relative_count_baseline(signed_ffl_count, signed_ffl_count_gnm, signed_ffl_count_config, signed_030T_triad_types, '030T', measure, n)
+#%%
+signed_120D_count = signed_single_motif_census(all_triads, '120D')
+################## get signed 120D relative count Gnm and configuration
+signed_120D_count_gnm, signed_120D_count_config = get_signed_motif_count_baseline(S_ccg_dict, num_rewire=100, motif_type='120D')
+#%%
+tran_triad_type = '120D'
+signs = ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----']
+signed_120D_triad_types = [tran_triad_type+y for y in signs]
+plot_signed_motif_relative_count_baseline(signed_120D_count, signed_120D_count_gnm, signed_120D_count_config, signed_120D_triad_types, '120D', measure, n)
+#%%
+signed_120U_count = signed_single_motif_census(all_triads, '120U')
+################## get signed 120D relative count Gnm and configuration
+signed_120U_count_gnm, signed_120U_count_config = get_signed_motif_count_baseline(S_ccg_dict, num_rewire=100, motif_type='120U')
+#%%
+tran_triad_type = '120U'
+signs = ['++++', '+++-', '++--', '+-++', '+-+-', '+---', '--++', '--+-', '----']
+signed_120U_triad_types = [tran_triad_type+y for y in signs]
+plot_signed_motif_relative_count_baseline(signed_120U_count, signed_120U_count_gnm, signed_120U_count_config, signed_120U_triad_types, '120U', measure, n)
+#%%
+signed_300_count = signed_single_motif_census(all_triads, '300')
+#%%
+################## get signed 120D relative count Gnm and configuration
+signed_300_count_gnm, signed_300_count_config = get_signed_motif_count_baseline(S_ccg_dict, num_rewire=100, motif_type='300')
+#%%
+tran_triad_type = '300'
+signs = ['++++++', '+++++-', '+++-+-', '+-+-+-', '++++--', '++----', '------', '+-+---', '+-----']
+signed_300_triad_types = [tran_triad_type+y for y in signs]
+plot_signed_motif_relative_count_baseline(signed_300_count, signed_300_count_gnm, signed_300_count_config, signed_300_triad_types, '300', measure, n)
 #%%
 ################## add time lag limitation on 030T
 signed_temporal_030T_count = signed_temporal_030T_census(S_ccg_dict, all_triads)
