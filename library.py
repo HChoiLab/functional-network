@@ -2482,6 +2482,56 @@ def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_
   plt.savefig(image_name)
   return all_purity
 
+def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  weighted_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    w_purity_col = []
+    for row_ind, row in enumerate(rows):
+      data = {}
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      # part = community.best_partition(G, weight='weight')
+      # comms, sizes = np.unique(list(part.values()), return_counts=True)
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+    
+      c_size, c_purity = [k for k,v in data.items() if k >= 4], [v for k,v in data.items() if k >= 4]
+      c_size = np.array(c_size) / sum(c_size)
+      w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
+    weighted_purity.append(w_purity_col)
+  plt.boxplot(weighted_purity)
+  plt.xticks(list(range(1, len(weighted_purity)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('purity')
+  plt.title('weighted {} Hamiltonian community purity'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/weighted_Hcomm_purity_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
+  return weighted_purity
+
 #############################################################################
 
 def stat_modular_structure(pos_G_dict, measure, n, neg_G_dict=None, max_reso=None, max_method='none'):
@@ -5696,7 +5746,7 @@ def signed_single_motif_census_Glist(all_triads, motif_type='030T'):
       elif triad_type == motif_type == '120D' or triad_type == motif_type == '120U':
         if triad_type == motif_type == '120D':
           node_X = most_common([i for i,j in triad[0][0].keys()])
-        else: 
+        else:
           node_X = most_common([j for i,j in triad[0][0].keys()])
         triplets = set([node for sub in triad[0][0].keys() for node in sub])
         triplets.remove(node_X)
