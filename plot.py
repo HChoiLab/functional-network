@@ -262,6 +262,95 @@ def plot_intra_inter_ratio_box(data_dict, G_dict, name, active_area_dict, measur
   # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
   plt.savefig('./plots/box_inter_intra_{}_ratio_{}_{}fold.jpg'.format(name, measure, n))
 
+def plot_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
+  rows, cols = get_rowcol(offset_dict)
+  num_row, num_col = len(rows), len(cols)
+  intra_offset, inter_offset = [[] for _ in range(num_col)], [[] for _ in range(num_col)]
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    print(row)
+    df = pd.DataFrame()
+    existed_edges = []
+    for col_ind, col in enumerate(cols):
+      col_edges = np.transpose(np.where(~np.isnan(offset_dict[row][col])))
+      col_edges = [tuple(edge) for edge in col_edges]
+      existed_edges.append(col_edges)
+    existed_edges = set.intersection(*map(set, existed_edges))
+    nodes = sorted(list(G_dict[row][col].nodes()))
+    for i, j in existed_edges:
+      if active_area[nodes[i]] == active_area[nodes[j]]:
+        for col_ind, col in enumerate(cols):
+          intra_offset[col_ind].append(offset_dict[row][col][i, j])
+      else:
+        for col_ind, col in enumerate(cols):
+          inter_offset[col_ind].append(offset_dict[row][col][i, j])
+  for col_ind, col in enumerate(cols):
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_offset[col_ind])[:,None], np.array(['intra-region'] * len(intra_offset[col_ind]))[:,None], np.array([col] * len(intra_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus']), 
+              pd.DataFrame(np.concatenate((np.array(inter_offset[col_ind])[:,None], np.array(['inter-region'] * len(inter_offset[col_ind]))[:,None], np.array([col] * len(inter_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus'])], ignore_index=True)
+    df[r'time lag $\tau$'] = pd.to_numeric(df[r'time lag $\tau$'])
+  plt.figure(figsize=(12, 8))
+  ax = sns.violinplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", split=False, cut=1)
+  # ax = sns.boxplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", showfliers=False)
+  # ax = sns.swarmplot(x='stimulus', y=r'time lag $\tau$', data=df, color=".25")
+  plt.xticks(fontsize=10, rotation=90)
+  ax.set(xlabel=None)
+  # plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/existed_edges_offset_stimulus_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  return intra_offset, inter_offset
+  
+def plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
+  rows, cols = get_rowcol(offset_dict)
+  intra_offset, inter_offset = defaultdict(list), defaultdict(list)
+  for row_ind, row in enumerate(rows):
+    active_area = active_area_dict[row]
+    print(row)
+    nodes = sorted(list(G_dict[row][cols[0]].nodes()))
+    for col1, col2 in itertools.combinations(cols, 2):
+      existed_edges = []
+      col_edges1 = np.transpose(np.where(~np.isnan(offset_dict[row][col1])))
+      col_edges1 = [tuple(edge) for edge in col_edges1]
+      col_edges2 = np.transpose(np.where(~np.isnan(offset_dict[row][col2])))
+      col_edges2 = [tuple(edge) for edge in col_edges2]
+      existed_edges.append(col_edges1)
+      existed_edges.append(col_edges2)
+      existed_edges = set.intersection(*map(set, existed_edges))
+      for i, j in existed_edges:
+        if active_area[nodes[i]] == active_area[nodes[j]]:
+          intra_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
+        else:
+          inter_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
+  intra_df, inter_df = pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols), pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols)
+  for col1, col2 in itertools.combinations(cols, 2):
+    intra_df.loc[col1, col2] = np.mean(intra_offset[(col1, col2)])
+    inter_df.loc[col1, col2] = np.mean(inter_offset[(col1, col2)])
+  mask = np.ones((len(cols), len(cols)))
+  mask[np.triu_indices_from(mask, 1)] = False
+  rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
+  plt.figure(figsize=(10, 8))
+  sns_plot = sns.heatmap(intra_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
+  sns_plot.invert_yaxis()
+  # plt.xticks(fontsize=10, rotation=90)
+  # ax.set(xlabel=None)
+  plt.title('intra-region')
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/pairwise_existed_edges_intra_offset_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  plt.figure(figsize=(10, 8))
+  sns_plot = sns.heatmap(inter_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
+  sns_plot.invert_yaxis()
+  # plt.xticks(fontsize=10, rotation=90)
+  # ax.set(xlabel=None)
+  plt.title('inter-region')
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/pairwise_existed_edges_inter_offset_{}_{}fold.jpg'
+  plt.savefig(figname.format(measure, n))
+  return intra_df, inter_df
+
 def plot_example_graphs_offset(G_dict, max_reso, offset_dict, sign, area_dict, active_area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, measure, n, cc=False):
   com = CommunityLayout(30, 3)
   rows, cols = get_rowcol(G_dict)
@@ -634,50 +723,50 @@ def plot_example_graph(G_dict, area_dict, session_ids, stimulus_names, mouse_id,
   plt.savefig(image_name.replace('.jpg', '.pdf'), transparent=True)
   # plt.show()
 
-def random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100):
-  rewired_G_dict = {}
-  rows, cols = get_rowcol(G_dict, measure)
-  G = list(list(G_dict.items())[0][1].items())[0][1][0]
-  if nx.is_directed(G):
-    algorithm = 'directed_configuration_model'
-  for row in rows:
-    print(row)
-    if not row in rewired_G_dict:
-      rewired_G_dict[row] = {}
+def plot_triad_fraction_relative_count(G_dict, triad_count, triad_types, p_triad_func, measure, n):
+  rows, cols = get_rowcol(triad_count)
+  frac_triad, relative_count = defaultdict(lambda: {}), defaultdict(lambda: {})
+  for triad_type in triad_types:
+    frac_triad[triad_type], relative_count[triad_type] = defaultdict(lambda: []), defaultdict(lambda: [])
+  for col_ind, col in enumerate(cols):
+    print(col)
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      G_triad_count = nx.triads.triadic_census(G)
+      num_triplet = sum(G_triad_count.values())
+      p0, p1, p2 = count_triplet_connection_p(G)
+      for triad_type in triad_types:
+        relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
+        relative_count[triad_type][col].append(relative_c)
+      
+      t_count = triad_count[row][col].copy()
+      safe_t_count = defaultdict(lambda: 0)
+      for t_type in t_count:
+        safe_t_count[t_type] = t_count[t_type]
+      total_num = sum(t_count.values())
+      for triad_type in triad_types:
+        frac_triad[triad_type][col].append(safe_division(safe_t_count[triad_type], total_num))
+  
+  fig = plt.figure(figsize=(4*2, 3*2))
+  # fig.patch.set_facecolor('black')
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for ind, triad_type in enumerate(triad_types):
+    ax = plt.subplot(2, 2, ind + 1)
+    plt.gca().set_title(triad_type, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     for col in cols:
-      print(col)
-      rewired_G_dict[row][col] = []
-      for num in range(num_rewire):
-        G = G_dict[row][col][0].copy() if col in G_dict[row] else nx.Graph()
-        weights = list(nx.get_edge_attributes(G,'weight').values())
-        random.shuffle(weights)
-        if G.number_of_nodes() >= 2 and G.number_of_edges() >= 1:
-          if cc:
-            largest_cc = max(nx.connected_components(G), key=len)
-            G = nx.subgraph(G, largest_cc)
-          # print(G.number_of_nodes(), G.number_of_edges())
-          if algorithm == 'configuration_model':
-            degree_sequence = [d for n, d in G.degree()]
-            G = nx.configuration_model(degree_sequence)
-            # remove parallel edges and self-loops
-            G = nx.Graph(G)
-            G.remove_edges_from(nx.selfloop_edges(G))
-            # print(G.number_of_nodes(), G.number_of_edges())
-          elif algorithm == 'directed_configuration_model':
-            din = list(d for n, d in G.in_degree())
-            dout = list(d for n, d in G.out_degree())
-            G = nx.directed_configuration_model(din, dout)
-            G = nx.DiGraph(G)
-            G.remove_edges_from(nx.selfloop_edges(G))
-          elif algorithm == 'double_edge_swap':
-            # at least four nodes with edges
-            degrees = dict(nx.degree(G))
-            if len(np.nonzero(list(degrees.values()))[0]) >= 4:
-              nx.double_edge_swap(G, nswap=Q*G.number_of_edges(), max_tries=1e75)
-        for ind, (_, _, d) in enumerate(G.edges(data=True)):
-          d['weight'] = weights[ind]
-        rewired_G_dict[row][col].append(G)
-  return rewired_G_dict
+      plt.scatter(np.mean(frac_triad[triad_type][col]), np.mean(relative_count[triad_type][col]), label=col, marker='^', alpha=0.6)
+    plt.xlabel('fraction of triad')
+    plt.ylabel('relative count of triad')
+  plt.legend()
+  plt.tight_layout()
+  # plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  fname = './plots/triad_fraction_relative_count_{}_{}fold.jpg'
+  plt.savefig(fname.format(measure, n))
 
 def unique(l):
   u, ind = np.unique(l, return_index=True)
@@ -773,7 +862,7 @@ plot_example_graph(G_dict, area_dict, session_ids, stimulus_names, mouse_id, sti
 num_rewire = 1
 algorithm = 'configuration_model'
 cc = False
-rewired_G_dict = random_graph_baseline(G_dict, num_rewire, algorithm, measure, cc, Q=100)
+rewired_G_dict = random_graph_generator(G_dict, num_rewire, algorithm, measure, cc, Q=100)
 mouse_id, stimulus_id = 1, 7
 plot_example_graph(rewired_G_dict, area_dict, session_ids, stimulus_names, mouse_id, stimulus_id, baseline=True)
 # %%
@@ -1321,6 +1410,13 @@ purity_dict = {col:all_purity_config[cols.index(col)] for col in cols}
 plot_corrected_p_value(purity_dict, 'all_purity', measure, n, 'ks_test', True)
 plot_corrected_p_value(purity_dict, 'all_purity', measure, n, 'mwu_test', True)
 #%%
+############### weighted purity by community size
+# weighted_purity_gnm = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+# weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+purity_dict = {col:weighted_purity_config[cols.index(col)] for col in cols}
+plot_corrected_p_value(purity_dict, 'weighted_purity', measure, n, 'ks_test', True)
+plot_corrected_p_value(purity_dict, 'weighted_purity', measure, n, 'mwu_test', True)
+#%%
 method = 'ks_test'
 data_dict = purity_dict
 keys = data_dict.keys()
@@ -1569,147 +1665,32 @@ meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_colormap = {'030T':'Greens', '120D':'Blues', '120U':'Reds', '300':'Purples'}
 plot_multi_pie_chart_census(summice_triad_count, tran_triad_types, triad_colormap, measure, n, False)
-# %%
-################# connected gnm/gnp model
-def gnp_random_connected_graph(n, p):
-    """
-    Generates a random undirected graph, similarly to an Erdős-Rényi 
-    graph, but enforcing that the resulting graph is conneted
-    """
-    edges = combinations(range(n), 2)
-    G = nx.Graph()
-    G.add_nodes_from(range(n))
-    if p <= 0:
-        return G
-    if p >= 1:
-        return nx.complete_graph(n, create_using=G)
-    for _, node_edges in groupby(edges, key=lambda x: x[0]):
-        node_edges = list(node_edges)
-        random_edge = random.choice(node_edges)
-        G.add_edge(*random_edge)
-        for e in node_edges:
-            if random.random() < p:
-                G.add_edge(*e)
-    return G
-
-def gnm_random_connected_graph(n, m):
-  """
-  Generates a random undirected graph, similarly to an Erdős-Rényi 
-  graph, but enforcing that the resulting graph is conneted
-  """
-  edges = list(itertools.permutations(range(n), 2))
-  G = nx.Graph()
-  G.add_nodes_from(range(n))
-  if m <= 0:
-      return G
-  if m >= len(edges)/2:
-      return nx.complete_graph(n, create_using=G)
-  p = 2*m / len(edges)
-  cnt = 0
-  while cnt < m:
-    for _, node_edges in itertools.groupby(edges, key=lambda x: x[0]):
-      node_edges = list(node_edges)
-      random_edges = np.random.poisson(p, len(node_edges))
-      random_edge = random.choice(node_edges)
-      G.add_edge(*random_edge)
-      cnt += 1
-      for e in node_edges:
-        if random.random() < p:
-          G.add_edge(*e)
-          cnt += 1
-  return G
 #%%
-def plot_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
-  rows, cols = get_rowcol(offset_dict)
-  num_row, num_col = len(rows), len(cols)
-  intra_offset, inter_offset = [[] for _ in range(num_col)], [[] for _ in range(num_col)]
-  for row_ind, row in enumerate(rows):
-    active_area = active_area_dict[row]
-    print(row)
-    df = pd.DataFrame()
-    existed_edges = []
-    for col_ind, col in enumerate(cols):
-      col_edges = np.transpose(np.where(~np.isnan(offset_dict[row][col])))
-      col_edges = [tuple(edge) for edge in col_edges]
-      existed_edges.append(col_edges)
-    existed_edges = set.intersection(*map(set, existed_edges))
-    nodes = sorted(list(G_dict[row][col].nodes()))
-    for i, j in existed_edges:
-      if active_area[nodes[i]] == active_area[nodes[j]]:
-        for col_ind, col in enumerate(cols):
-          intra_offset[col_ind].append(offset_dict[row][col][i, j])
-      else:
-        for col_ind, col in enumerate(cols):
-          inter_offset[col_ind].append(offset_dict[row][col][i, j])
-  for col_ind, col in enumerate(cols):
-    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_offset[col_ind])[:,None], np.array(['intra-region'] * len(intra_offset[col_ind]))[:,None], np.array([col] * len(intra_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus']), 
-              pd.DataFrame(np.concatenate((np.array(inter_offset[col_ind])[:,None], np.array(['inter-region'] * len(inter_offset[col_ind]))[:,None], np.array([col] * len(inter_offset[col_ind]))[:,None]), 1), columns=[r'time lag $\tau$', 'type', 'stimulus'])], ignore_index=True)
-    df[r'time lag $\tau$'] = pd.to_numeric(df[r'time lag $\tau$'])
-  plt.figure(figsize=(12, 8))
-  ax = sns.violinplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", split=False, cut=1)
-  # ax = sns.boxplot(x='stimulus', y=r'time lag $\tau$', hue="type", data=df, palette="Set3", showfliers=False)
-  # ax = sns.swarmplot(x='stimulus', y=r'time lag $\tau$', data=df, color=".25")
-  plt.xticks(fontsize=10, rotation=90)
-  ax.set(xlabel=None)
-  # plt.xticks(rotation=90)
-  plt.tight_layout()
-  # plt.show()
-  figname = './plots/existed_edges_offset_stimulus_{}_{}fold.jpg'
-  plt.savefig(figname.format(measure, n))
-  return intra_offset, inter_offset
-
+####################### fraction of motif VS its relative count
+p_triad_func = {
+  '003': lambda p0, p1, p2: p0**3,
+  '012': lambda p0, p1, p2: 6 * (p0**2 * p1),
+  '102': lambda p0, p1, p2: 3 * (p0**2 * p2),
+  '021D': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021U': lambda p0, p1, p2: 3 * (p0 * p1**2),
+  '021C': lambda p0, p1, p2: 6 * (p0 * p1**2),
+  '111D': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '111U': lambda p0, p1, p2: 6 * (p0 * p1 * p2),
+  '030T': lambda p0, p1, p2: 6 * (p1**3),
+  '030C': lambda p0, p1, p2: 2 * (p1**3),
+  '201': lambda p0, p1, p2: 3 * (p0 * p2**2),
+  '120D': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120U': lambda p0, p1, p2: 3 * (p1**2 * p2),
+  '120C': lambda p0, p1, p2: 6 * (p1**2 * p2),
+  '210': lambda p0, p1, p2: 6 * (p1 * p2**2),
+  '300': lambda p0, p1, p2: p2**3,
+}
+tran_triad_types = ['030T', '120D', '120U', '300']
+plot_triad_fraction_relative_count(G_ccg_dict, triad_count, tran_triad_types, p_triad_func, measure, n)
+#%%
+######################## compare time lag for edges that exist in all stimuli
 intra_offset, inter_offset = plot_existed_edge_offset_stimulus(offset_dict, G_ccg_dict, active_area_dict, measure, n)
 # %%
-def plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_dict, active_area_dict, measure, n):
-  rows, cols = get_rowcol(offset_dict)
-  intra_offset, inter_offset = defaultdict(list), defaultdict(list)
-  for row_ind, row in enumerate(rows):
-    active_area = active_area_dict[row]
-    print(row)
-    nodes = sorted(list(G_dict[row][cols[0]].nodes()))
-    for col1, col2 in itertools.combinations(cols, 2):
-      existed_edges = []
-      col_edges1 = np.transpose(np.where(~np.isnan(offset_dict[row][col1])))
-      col_edges1 = [tuple(edge) for edge in col_edges1]
-      col_edges2 = np.transpose(np.where(~np.isnan(offset_dict[row][col2])))
-      col_edges2 = [tuple(edge) for edge in col_edges2]
-      existed_edges.append(col_edges1)
-      existed_edges.append(col_edges2)
-      existed_edges = set.intersection(*map(set, existed_edges))
-      for i, j in existed_edges:
-        if active_area[nodes[i]] == active_area[nodes[j]]:
-          intra_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
-        else:
-          inter_offset[(col1, col2)].append(offset_dict[row][col1][i, j]-offset_dict[row][col2][i, j])
-  intra_df, inter_df = pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols), pd.DataFrame(data=np.zeros((len(cols), len(cols))), index=cols, columns=cols)
-  for col1, col2 in itertools.combinations(cols, 2):
-    intra_df.loc[col1, col2] = np.mean(intra_offset[(col1, col2)])
-    inter_df.loc[col1, col2] = np.mean(inter_offset[(col1, col2)])
-  mask = np.ones((len(cols), len(cols)))
-  mask[np.triu_indices_from(mask, 1)] = False
-  rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
-  plt.figure(figsize=(10, 8))
-  sns_plot = sns.heatmap(intra_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
-  sns_plot.invert_yaxis()
-  # plt.xticks(fontsize=10, rotation=90)
-  # ax.set(xlabel=None)
-  plt.title('intra-region')
-  plt.tight_layout()
-  # plt.show()
-  figname = './plots/pairwise_existed_edges_intra_offset_{}_{}fold.jpg'
-  plt.savefig(figname.format(measure, n))
-  plt.figure(figsize=(10, 8))
-  sns_plot = sns.heatmap(inter_df, mask=mask, cmap=rdgn, center=0.00, cbar_kws={"orientation": "vertical","label": r'$\tau_{column}-$\tau_{row}$'})
-  sns_plot.invert_yaxis()
-  # plt.xticks(fontsize=10, rotation=90)
-  # ax.set(xlabel=None)
-  plt.title('inter-region')
-  plt.tight_layout()
-  # plt.show()
-  figname = './plots/pairwise_existed_edges_inter_offset_{}_{}fold.jpg'
-  plt.savefig(figname.format(measure, n))
-  return intra_df, inter_df
-  
-
+######################## compare time lag pairwise for stimuli for edges that exist in both
 intra_df, inter_df = plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_ccg_dict, active_area_dict, measure, n)
 # %%
