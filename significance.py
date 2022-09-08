@@ -15,7 +15,7 @@ print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
 ################# save active neuron inds
 min_FR = 0.002 # 2 Hz
-stimulus_names = ['spontaneous', 'flashes',
+stimulus_names = ['spontaneous', 'flash_light', 'flash_dark',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 save_active_inds(min_FR, session_ids, stimulus_names)
