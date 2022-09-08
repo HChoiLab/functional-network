@@ -3717,93 +3717,6 @@ plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_typ
 plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_types, measure, n, True, False)
 #%%
 ################## relative count of signed node pairs
-def count_signed_triplet_connection_p(G):
-  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
-  nodes = list(G.nodes())
-  edge_sign = nx.get_edge_attributes(G,'sign')
-  for node_i in range(len(nodes)):
-    for node_j in range(len(nodes)):
-      if node_i != node_j:
-        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
-        if edge_sum == 0:
-          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
-            num4 += 1
-          else:
-            num0 += 1
-        elif edge_sum == 1:
-          num1 += 1
-        elif edge_sum == 2:
-          num3 += 1
-        elif edge_sum == -1:
-          num2 += 1
-        elif edge_sum == -2:
-          num5 += 1
-
-  total_num = num0+num1+num2+num3+num4+num5
-  assert total_num == len(nodes) * (len(nodes) - 1)
-  assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
-  p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
-  return p0, p1, p2, p3, p4, p5
-
-def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, measure, n, log=False, scale=True):
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(23, 4))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  if scale:
-    ylim = 0
-    for col in cols:
-      for row in rows:
-        G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-        signs = list(nx.get_edge_attributes(G, "sign").values())
-        p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
-        p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
-        ylim = max(ylim, p0 / p_signed_pair_func['0'](p_pos, p_neg), p1 / p_signed_pair_func['1'](p_pos, p_neg), p2 / p_signed_pair_func['2'](p_pos, p_neg), p3 / p_signed_pair_func['3'](p_pos, p_neg), p4 / p_signed_pair_func['4'](p_pos, p_neg), p5 / p_signed_pair_func['5'](p_pos, p_neg))
-  for col in cols:
-    print(col)
-    plt.subplot(1, 7, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    all_pair_count = defaultdict(lambda: [])
-    for row in rows:
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      signs = list(nx.get_edge_attributes(G, "sign").values())
-      p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
-      p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
-      all_pair_count['0'].append(p0 / p_signed_pair_func['0'](p_pos, p_neg))
-      all_pair_count['+'].append(p1 / p_signed_pair_func['1'](p_pos, p_neg))
-      all_pair_count['-'].append(p2 / p_signed_pair_func['2'](p_pos, p_neg))
-      all_pair_count['++'].append(p3 / p_signed_pair_func['3'](p_pos, p_neg))
-      all_pair_count['+-'].append(p4 / p_signed_pair_func['4'](p_pos, p_neg))
-      all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
-    
-    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
-    plt.boxplot(triad_counts, showfliers=False)
-    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
-    left, right = plt.xlim()
-    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
-    # plt.hlines(1, color='r', linestyles='--')
-    if scale:
-      if not log:
-        plt.ylim(top=ylim)
-      else:
-        plt.yscale('log')
-        plt.ylim(top=ylim)
-    # plt.hist(data.flatten(), bins=12, density=True)
-    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-    # plt.xlabel('region')
-    # plt.xlabel('size')
-    plt.ylabel('relative count')
-  plt.suptitle('Relative count of signed pairs', size=30)
-  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/relative_count_signed_pair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_signed_pair_{}_{}fold.jpg'
-  # plt.show()
-  plt.savefig(image_name.format(measure, n))
-
 p_signed_pair_func = {
   '0': lambda p_pos, p_neg: (1 - p_pos - p_neg)**2,
   '1': lambda p_pos, p_neg: 2 * p_pos * (1 - p_pos - p_neg),
@@ -3814,6 +3727,28 @@ p_signed_pair_func = {
 }
 # plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, scale=False)
 plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, log=True, scale=True)
+#%%
+################## common neighbor census for neuron pairs
+type_li = ['out+', 'out-', 'in+', 'in-', 'bi++', 'bi+-', 'bi-+', 'bi--']
+undirected_cn_types = [''.join([i,j]) for i,j in list(itertools.combinations(type_li, 2))] + [i+i for i in type_li]
+directed_cn_types = [i+j for i in type_li for j in type_li]
+plot_common_neighbor_census(S_ccg_dict, '+', directed_cn_types, measure, n)
+plot_common_neighbor_census(S_ccg_dict, '-', directed_cn_types, measure, n)
+plot_common_neighbor_census(S_ccg_dict, '+-', directed_cn_types, measure, n)
+plot_common_neighbor_census(S_ccg_dict, '++', undirected_cn_types, measure, n)
+plot_common_neighbor_census(S_ccg_dict, '--', undirected_cn_types, measure, n)
+plot_common_neighbor_census(S_ccg_dict, '+', directed_cn_types, measure, n, log=True)
+plot_common_neighbor_census(S_ccg_dict, '-', directed_cn_types, measure, n, log=True)
+plot_common_neighbor_census(S_ccg_dict, '+-', directed_cn_types, measure, n, log=True)
+plot_common_neighbor_census(S_ccg_dict, '++', undirected_cn_types, measure, n, log=True)
+plot_common_neighbor_census(S_ccg_dict, '--', undirected_cn_types, measure, n, log=True)
+#%%
+################## common neighbor number ditribution including 0
+# plot_common_neighbor_num_distribution(S_ccg_dict, '+', measure, n)
+plot_common_neighbor_num_distribution(S_ccg_dict, '-', measure, n)
+plot_common_neighbor_num_distribution(S_ccg_dict, '++', measure, n)
+plot_common_neighbor_num_distribution(S_ccg_dict, '+-', measure, n)
+plot_common_neighbor_num_distribution(S_ccg_dict, '--', measure, n)
 #%%
 ################## relative count of signed ffl
 p_signed_ffl_func = {
