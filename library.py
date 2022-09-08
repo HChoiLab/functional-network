@@ -915,7 +915,7 @@ def save_ccg_corrected_sharp_peak(directory, measure, maxlag=12, n=7):
   for file in files:
     if '_bl' not in file:
       print(file)
-      try: 
+      try:
         ccg = load_npz_3d(os.path.join(directory, file))
       except:
         ccg = load_sparse_npz(os.path.join(directory, file))
@@ -1347,6 +1347,71 @@ def save_xcorr_larger_3d(directory, sign, measure, alpha):
           adj_mat[row_a, row_b, indx] = adj_mat_ds[row_a, row_b, indx]
       # np.save(os.path.join(path, file), adj_mat)
       save_npz(adj_mat, os.path.join(path, file))
+
+def remove_outlier(array):
+  mean = np.mean(array)
+  standard_deviation = np.std(array)
+  distance_from_mean = abs(array - mean)
+  max_deviations = 2
+  not_outlier = distance_from_mean < max_deviations * standard_deviation
+  return array[not_outlier]
+
+def get_regions_spiking_sequence(session_id, stimulus_name, regions, resolution):
+  data_directory = './data/ecephys_cache_dir'
+  manifest_path = os.path.join(data_directory, "manifest.json")
+  cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+  session = cache.get_session_data(int(session_id),
+                                  amplitude_cutoff_maximum=np.inf,
+                                  presence_ratio_minimum=-np.inf,
+                                  isi_violations_maximum=np.inf)
+  df = session.units
+  df = df.rename(columns={"channel_local_index": "channel_id", 
+                          "ecephys_structure_acronym": "ccf", 
+                          "probe_id":"probe_global_id", 
+                          "probe_description":"probe_id",
+                          'probe_vertical_position': "ypos"})
+  df['unit_id']=df.index
+  if stimulus_name!='invalid_presentation':
+    if (stimulus_name=='flash_light') or (stimulus_name=='flash_dark'):
+      stim_table = session.get_stimulus_table(['flashes'])
+    else:
+      stim_table = session.get_stimulus_table([stimulus_name])
+    stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+    if stimulus_name=='flash_light':
+      stim_table = stim_table[stim_table['color']==1]
+    elif stimulus_name=='flash_dark':
+      stim_table = stim_table[stim_table['color']==-1]
+    if 'natural_movie' in stimulus_name:
+        frame_times = stim_table.End-stim_table.Start
+        print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
+        # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
+        # chunch each movie clip
+        stim_table = stim_table[stim_table.frame==0]
+        stim_table = stim_table.drop(['End'], axis=1)
+        duration = np.mean(remove_outlier(np.diff(stim_table.Start.values))[:10]) - 1e-4
+        stimulus_presentation_ids = stim_table.index.values
+    elif stimulus_name=='spontaneous':
+        index = np.where(stim_table.duration>=20)[0]
+        if len(index): # only keep the longest spontaneous; has to be longer than 20 sec
+            duration=20
+            stimulus_presentation_ids = stim_table.index[index]
+    else:
+        # ISI = np.mean(session.get_inter_presentation_intervals_for_stimulus([stimulus_name]).interval.values)
+        duration = round(np.mean(stim_table.duration.values), 2)
+    # each trial should have at least 250 ms
+    try: stimulus_presentation_ids
+    except NameError: stimulus_presentation_ids = stim_table.index[stim_table.duration >= 0.25].values
+    time_bin_edges = np.linspace(0, duration, int(duration / resolution)+1)
+    cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+    print('Number of units is {}, duration is {}'.format(len(cortical_units_ids), duration))
+    # get binarized tensor
+    df_cortex = df.iloc[cortical_units_ids]
+    histograms = session.presentationwise_spike_counts(
+        bin_edges=time_bin_edges,
+        stimulus_presentation_ids=stimulus_presentation_ids,
+        unit_ids=df_cortex.unit_id.values
+    )
+    return histograms
 
 ############# save area_dict and average speed data
 def load_area_speed(session_ids, stimulus_names, regions):
