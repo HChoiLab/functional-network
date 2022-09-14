@@ -11,7 +11,6 @@ if not os.path.exists(path):
   os.makedirs(path)
 G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
 measure = 'ccg'
-
 G_ccg_dict = remove_gabor(G_ccg_dict)
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
@@ -1896,7 +1895,6 @@ with open('metrics.pkl', 'rb') as f:
 #%%
 resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
-#%%
 ############### community with Hamiltonian
 max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
 max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
@@ -1904,6 +1902,7 @@ max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 rows, cols = get_rowcol(G_ccg_dict)
 plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n)
 #%%
+############### load community
 stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm')
 stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config')
 #%%
@@ -1911,8 +1910,8 @@ stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_
 stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 #%%
 ############### purity of community with Hamiltonian
-plot_Hcomm_size_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
-plot_Hcomm_size_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 top_purity_gnm = plot_top_Hcomm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 top_purity_config = plot_top_Hcomm_purity(G_ccg_dict, 5, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
@@ -1927,19 +1926,23 @@ weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measu
 #%%
 ############### community structure
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
-stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_swap, max_method='swap')
-abs_neg_G_dict = get_abs_weight(neg_G_dict)
-stat_modular_structure(pos_G_dict, measure, n, abs_neg_G_dict)
+stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_config, max_method='config')
+# abs_neg_G_dict = get_abs_weight(neg_G_dict)
+# stat_modular_structure(pos_G_dict, measure, n, abs_neg_G_dict)
 #%%
 size_of_each_community(G_ccg_dict, 'total', measure, n, max_reso=max_reso_gnm, max_method='gnm')
-size_of_each_community(G_ccg_dict, 'total', measure, n, max_reso=max_reso_swap, max_method='swap')
-size_of_each_community(pos_G_dict, 'positive', measure, n)
-size_of_each_community(neg_G_dict, 'negative', measure, n)
+size_of_each_community(G_ccg_dict, 'total', measure, n, max_reso=max_reso_config, max_method='config')
+# size_of_each_community(pos_G_dict, 'positive', measure, n)
+# size_of_each_community(neg_G_dict, 'negative', measure, n)
 #%%
-distribution_community_size(G_ccg_dict, 'total', measure, n, max_reso=max_reso_gnm, max_method='gnm')
-distribution_community_size(G_ccg_dict, 'total', measure, n, max_reso=max_reso_swap, max_method='swap')
-distribution_community_size(pos_G_dict, 'positive', measure, n)
-distribution_community_size(neg_G_dict, 'negative', measure, n)
+################ distribution of community size
+distribution_community_size(comms_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+distribution_community_size(comms_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+# distribution_community_size(pos_G_dict, 'positive', measure, n)
+# distribution_community_size(neg_G_dict, 'negative', measure, n)
+#%%
+distribution_community_size_mean(comms_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+distribution_community_size_mean(comms_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 # start_time = time.time()
 # num_rewire = 10
@@ -2052,9 +2055,236 @@ region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regio
 weight = True
 region_connection_seperate_diagonal(G_ccg_dict, 'total', area_dict, visual_regions, measure, n, weight)
 #%%
-plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight=None, cc=False)
-# plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight=None, cc=False)
-# plot_directed_multi_degree_distributions(neg_G_dict, 'neg', measure, n, weight=None, cc=False)
+############# plot degree distribution with neurons from all mice
+plot_directed_degree_distributions(G_ccg_dict, measure, n, weight=None, cc=False)
+#%%
+############# comparison between top n in degree and out degree
+def top_in_out_degree(G_dict, measure, n, topn, weight=None, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    in_degree_seq, out_degree_seq = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      nodes = G.nodes()
+      in_degree = dict(G.in_degree(weight=weight))
+      in_degseq=[in_degree.get(k,0) for k in nodes]
+      out_degree = dict(G.out_degree(weight=weight))
+      out_degseq=[out_degree.get(k,0) for k in nodes]
+      in_degree_seq += np.partition(in_degseq, -topn)[-topn:].tolist()
+      out_degree_seq += np.partition(out_degseq, -topn)[-topn:].tolist()
+    # in_degrees, in_degree_freq = seq2histogram(in_degree_seq, weight=weight)
+    # out_degrees, out_degree_freq = seq2histogram(out_degree_seq, weight=weight)
+    # if weight == None:
+    #   in_degrees, in_degree_freq = in_degrees[1:], in_degree_freq[1:]
+    #   out_degrees, out_degree_freq = out_degrees[1:], out_degree_freq[1:]
+    # print(in_degree_seq, out_degree_seq)
+    plt.scatter(in_degree_seq, out_degree_seq, label=col, alpha=0.8)
+  plt.legend(fontsize=8)
+  plt.plot(np.arange(*ax.get_ylim()), np.arange(*ax.get_ylim()), 'k--')
+  xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+  plt.xlabel('in'+xlabel)
+  plt.ylabel('out'+xlabel)
+  # plt.xscale('symlog')
+  # plt.yscale('log')
+  
+  plt.tight_layout()
+  image_name = './plots/in_out_weighted_degree_top{}_{}_{}fold.jpg' if weight is not None else './plots//in_out_degree_top{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(topn, measure, n), dpi=300)
+
+top_in_out_degree(G_ccg_dict, measure, n, 2, weight=None, cc=False)
+#%%
+############# comparison between in degree and out degree of total hub neurons
+def hub_in_out_degree(G_dict, measure, n, significance, weight=None, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    in_degree_seq, out_degree_seq = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      degree = dict(G.degree(weight=weight))
+      degree = dict(sorted(degree.items(), key=lambda item: item[1], reverse=True))
+      hub_threshold = np.mean(list(degree.values())) + significance * np.std(list(degree.values()))
+      hubs = [k for k, v in degree.items() if v > hub_threshold]
+      in_degree = dict(G.in_degree(weight=weight))
+      in_degseq=[in_degree.get(k,0) for k in hubs]
+      out_degree = dict(G.out_degree(weight=weight))
+      out_degseq=[out_degree.get(k,0) for k in hubs]
+      in_degree_seq += in_degseq
+      out_degree_seq += out_degseq    
+    plt.scatter(in_degree_seq, out_degree_seq, label=col, alpha=0.8)
+  plt.legend(fontsize=8)
+  plt.plot(np.arange(*ax.get_ylim()), np.arange(*ax.get_ylim()), 'k--')
+  xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+  plt.xlabel('in'+xlabel)
+  plt.ylabel('out'+xlabel)
+  # plt.xscale('symlog')
+  # plt.yscale('log')
+      
+  plt.tight_layout()
+  image_name = './plots/hub_in_out_weighted_degree_top{}_{}_{}fold.jpg' if weight is not None else './plots//hub_in_out_degree_top{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(significance, measure, n), dpi=300)
+
+hub_in_out_degree(G_ccg_dict, measure, n, 5, weight=None, cc=False)
+#%%
+############# comparison between in degree and out degree of in/out hub neurons
+def in_out_hub_degree(G_dict, measure, n, significance, weight=None, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots()
+  in_degree_seq, out_degree_seq = [], []
+  df = pd.DataFrame(columns=['stimulus', 'degree', 'type'])
+  for col_ind, col in enumerate(cols):
+    print(col)
+    in_degree_seq.append([])
+    out_degree_seq.append([])
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      in_degree = dict(G.in_degree(weight=weight))
+      out_degree = dict(G.out_degree(weight=weight))
+      inhub_threshold = np.mean(list(in_degree.values())) + significance * np.std(list(in_degree.values()))
+      inhubs = [k for k, v in in_degree.items() if v > inhub_threshold]
+      outhub_threshold = np.mean(list(out_degree.values())) + significance * np.std(list(out_degree.values()))
+      outhubs = [k for k, v in out_degree.items() if v > outhub_threshold]
+      in_degseq=[in_degree.get(k,0) for k in inhubs]
+      out_degseq=[out_degree.get(k,0) for k in outhubs]
+      # in_degree_seq[-1] += in_degseq
+      # out_degree_seq[-1] += out_degseq
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(in_degseq))[:,None], np.array(in_degseq)[:,None], np.array(['in degree of hub neurons'] * len(in_degseq))[:,None]), 1), columns=['stimulus', 'degree', 'type']), 
+                      pd.DataFrame(np.concatenate((np.array([col] * len(out_degseq))[:,None], np.array(out_degseq)[:,None], np.array(['out degree of hub neurons'] * len(out_degseq))[:,None]), 1), columns=['stimulus', 'degree', 'type'])], ignore_index=True)
+  df['degree'] = pd.to_numeric(df['degree'])
+  
+  ax = sns.violinplot(x="stimulus", y='degree', hue="type", data=df, palette="Set3", cut=0)
+  ax.set(xlabel=None)
+  plt.xticks(rotation=90)
+  # plt.xscale('symlog')
+  # plt.yscale('log')
+      
+  plt.tight_layout()
+  image_name = './plots/in_out_hub_weighted_degree_top{}_{}_{}fold.jpg' if weight is not None else './plots//in_out_hub_degree_top{}_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(significance, measure, n), dpi=300)
+
+in_out_hub_degree(G_ccg_dict, measure, n, 3, weight=None, cc=False)
+#%%
+############# communication efficiency
+def multi_comm_efficiency(G_dict, measure, n, significance, cc=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  G_sample = G_dict[rows[0]][cols[0]]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(9*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      # node_idx = sorted(active_area_dict[row].keys())
+      # reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+      # G = nx.relabel_nodes(G, reverse_mapping)
+      degree = dict(G.degree(weight=weight))
+      hub_threshold = np.mean(list(degree.values())) + significance * np.std(list(degree.values()))
+      hubs = [k for k, v in degree.items() if v > hub_threshold]
+      distri = []
+      for hub in hubs:
+        p = nx.shortest_path_length(G, source=hub, weight='offset')
+        distri += [v for k, v in p.items() if v > 0]
+      sns.histplot(data=distri, kde=True, linewidth=0)
+  plt.suptitle('hub significance level {} fold'.format(significance), size=50)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/multi_comm_efficiency_{}_{}_{}fold.jpg'.format(significance, measure, n))
+
+multi_comm_efficiency(S_ccg_dict, measure, n, 3, cc=False)
+#%%
+############# communication efficiency
+def comm_efficiency(G_dict, measure, n, significance, cc=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(cols):
+    print(col)
+    distri = []
+    plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      # node_idx = sorted(active_area_dict[row].keys())
+      # reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+      # G = nx.relabel_nodes(G, reverse_mapping)
+      degree = dict(G.degree(weight=weight))
+      hub_threshold = np.mean(list(degree.values())) + significance * np.std(list(degree.values()))
+      hubs = [k for k, v in degree.items() if v > hub_threshold]
+      
+      for hub in hubs:
+        p = nx.shortest_path_length(G, source=hub, weight='offset')
+        distri += [v for k, v in p.items() if v > 0]
+    sns.histplot(data=distri, kde=True, linewidth=0, stat='probability')
+    plt.axvline(x=np.nanmean(distri), color='r', linestyle='--')
+    plt.xlabel('communication delay (ms)', size=20)
+    plt.ylabel('probability', size=20)
+  plt.suptitle('hub neurons significance level {} fold'.format(significance), size=50)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/comm_efficiency_{}_{}_{}fold.jpg'.format(significance, measure, n))
+
+comm_efficiency(S_ccg_dict, measure, n, 3, cc=False)
 #%%
 plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
@@ -3717,6 +3947,93 @@ plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_typ
 plot_multi_pie_chart_census_030T(summice_signed_ffl_count, signed_030T_triad_types, measure, n, True, False)
 #%%
 ################## relative count of signed node pairs
+def count_signed_triplet_connection_p(G):
+  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
+  nodes = list(G.nodes())
+  edge_sign = nx.get_edge_attributes(G,'sign')
+  for node_i in range(len(nodes)):
+    for node_j in range(len(nodes)):
+      if node_i != node_j:
+        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
+        if edge_sum == 0:
+          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
+            num4 += 1
+          else:
+            num0 += 1
+        elif edge_sum == 1:
+          num1 += 1
+        elif edge_sum == 2:
+          num3 += 1
+        elif edge_sum == -1:
+          num2 += 1
+        elif edge_sum == -2:
+          num5 += 1
+
+  total_num = num0+num1+num2+num3+num4+num5
+  assert total_num == len(nodes) * (len(nodes) - 1)
+  assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
+  p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
+  return p0, p1, p2, p3, p4, p5
+
+def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, measure, n, log=False, scale=True):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(23, 4))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  if scale:
+    ylim = 0
+    for col in cols:
+      for row in rows:
+        G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+        signs = list(nx.get_edge_attributes(G, "sign").values())
+        p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
+        p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
+        ylim = max(ylim, p0 / p_signed_pair_func['0'](p_pos, p_neg), p1 / p_signed_pair_func['1'](p_pos, p_neg), p2 / p_signed_pair_func['2'](p_pos, p_neg), p3 / p_signed_pair_func['3'](p_pos, p_neg), p4 / p_signed_pair_func['4'](p_pos, p_neg), p5 / p_signed_pair_func['5'](p_pos, p_neg))
+  for col in cols:
+    print(col)
+    plt.subplot(1, 7, ind)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    all_pair_count = defaultdict(lambda: [])
+    for row in rows:
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
+      p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
+      all_pair_count['0'].append(p0 / p_signed_pair_func['0'](p_pos, p_neg))
+      all_pair_count['+'].append(p1 / p_signed_pair_func['1'](p_pos, p_neg))
+      all_pair_count['-'].append(p2 / p_signed_pair_func['2'](p_pos, p_neg))
+      all_pair_count['++'].append(p3 / p_signed_pair_func['3'](p_pos, p_neg))
+      all_pair_count['+-'].append(p4 / p_signed_pair_func['4'](p_pos, p_neg))
+      all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
+    
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    plt.boxplot(triad_counts, showfliers=False)
+    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
+    left, right = plt.xlim()
+    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
+    # plt.hlines(1, color='r', linestyles='--')
+    if scale:
+      if not log:
+        plt.ylim(top=ylim)
+      else:
+        plt.yscale('log')
+        plt.ylim(top=ylim)
+    # plt.hist(data.flatten(), bins=12, density=True)
+    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    # plt.xlabel('region')
+    # plt.xlabel('size')
+    plt.ylabel('relative count')
+  plt.suptitle('Relative count of signed pairs', size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/relative_count_signed_pair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_signed_pair_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(measure, n))
+
 p_signed_pair_func = {
   '0': lambda p_pos, p_neg: (1 - p_pos - p_neg)**2,
   '1': lambda p_pos, p_neg: 2 * p_pos * (1 - p_pos - p_neg),
@@ -3727,28 +4044,6 @@ p_signed_pair_func = {
 }
 # plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, scale=False)
 plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, log=True, scale=True)
-#%%
-################## common neighbor census for neuron pairs
-type_li = ['out+', 'out-', 'in+', 'in-', 'bi++', 'bi+-', 'bi-+', 'bi--']
-undirected_cn_types = [''.join([i,j]) for i,j in list(itertools.combinations(type_li, 2))] + [i+i for i in type_li]
-directed_cn_types = [i+j for i in type_li for j in type_li]
-plot_common_neighbor_census(S_ccg_dict, '+', directed_cn_types, measure, n)
-plot_common_neighbor_census(S_ccg_dict, '-', directed_cn_types, measure, n)
-plot_common_neighbor_census(S_ccg_dict, '+-', directed_cn_types, measure, n)
-plot_common_neighbor_census(S_ccg_dict, '++', undirected_cn_types, measure, n)
-plot_common_neighbor_census(S_ccg_dict, '--', undirected_cn_types, measure, n)
-plot_common_neighbor_census(S_ccg_dict, '+', directed_cn_types, measure, n, log=True)
-plot_common_neighbor_census(S_ccg_dict, '-', directed_cn_types, measure, n, log=True)
-plot_common_neighbor_census(S_ccg_dict, '+-', directed_cn_types, measure, n, log=True)
-plot_common_neighbor_census(S_ccg_dict, '++', undirected_cn_types, measure, n, log=True)
-plot_common_neighbor_census(S_ccg_dict, '--', undirected_cn_types, measure, n, log=True)
-#%%
-################## common neighbor number ditribution including 0
-# plot_common_neighbor_num_distribution(S_ccg_dict, '+', measure, n)
-plot_common_neighbor_num_distribution(S_ccg_dict, '-', measure, n)
-plot_common_neighbor_num_distribution(S_ccg_dict, '++', measure, n)
-plot_common_neighbor_num_distribution(S_ccg_dict, '+-', measure, n)
-plot_common_neighbor_num_distribution(S_ccg_dict, '--', measure, n)
 #%%
 ################## relative count of signed ffl
 p_signed_ffl_func = {
