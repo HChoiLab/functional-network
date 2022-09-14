@@ -47,7 +47,10 @@ customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkb
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
 # session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
 session_ids = ['719161530','750332458','750749662','754312389','755434585','756029989','791319847','797828357']
-stimulus_names = ['spontaneous', 'flashes', 'gabors',
+# stimulus_names = ['spontaneous', 'flashes', 'gabors',
+#         'drifting_gratings', 'static_gratings',
+#           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+stimulus_names = ['spontaneous', 'flash_dark,', 'flash_light', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 
@@ -568,9 +571,12 @@ def get_rowcol(G_dict):
   # if measure == 'ccg_xiaoxuan':
   #   stimulus_rank = ['spon', 'spon_20', 'None', 'denoised', 'low', 'flash', 'flash_40', 'movie', 'movie_20']
   # else:
-  stimulus_rank = ['spontaneous', 'flashes', 'gabors',
-      'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
-        'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  # stimulus_rank = ['spontaneous', 'flashes', 'gabors',
+  #     'drifting_gratings', 'static_gratings', 'drifting_gratings_contrast',
+  #       'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+  stimulus_rank = ['spontaneous', 'flash_dark', 'flash_light', 'gabors',
+        'drifting_gratings', 'static_gratings',
+          'natural_scenes', 'natural_movie_one', 'natural_movie_three']
   stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
   stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
   cols = list(stimulus_rank_dict.keys())
@@ -1501,9 +1507,8 @@ def load_other_data(session_ids):
   a_file = open('./data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
   area_dict = pickle.load(a_file)
   # change the keys of area_dict from int to string
-  if type(list(area_dict.keys())[0]) == int:
-    int_2_str = dict((int(session_id), str(session_id)) for session_id in session_ids)
-    area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
+  int_2_str = dict((session_id, str(session_id)) for session_id in session_ids)
+  area_dict = dict((int_2_str[key], value) for (key, value) in area_dict.items())
   a_file.close()
   a_file = open('./data/ecephys_cache_dir/sessions/active_area_dict.pkl', 'rb')
   active_area_dict = pickle.load(a_file)
@@ -1574,7 +1579,7 @@ def load_highland_xcorr(directory, active_area_dict, weight):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
   for file in files:
-    if file.endswith(".npz") and ('gabors' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
       print(file)
       adj_mat = load_npz_3d(os.path.join(directory, file))
       confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
@@ -2752,10 +2757,8 @@ def size_of_each_community(G_dict, sign, measure, n, max_reso=None, max_method='
   image_name = './plots/size_of_each_community_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
   plt.savefig(image_name)
 
-def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_method='none'):
-  rows, cols = get_rowcol(G_dict)
-  if max_reso is None:
-    max_reso = np.ones((len(rows), len(cols)))
+def distribution_community_size(comms_dict, measure, n, max_neg_reso=None, max_method='none'):
+  rows, cols = get_rowcol(comms_dict)
   fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
   left, width = .25, .5
   bottom, height = .25, .5
@@ -2776,15 +2779,12 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
         # rotation='vertical',
         transform=plt.gca().transAxes, fontsize=20, rotation=90)
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      if nx.is_directed(G):
-        G = G.to_undirected()
-      unweight = {(i, j):1 for i,j in G.edges()}
-      nx.set_edge_attributes(G, unweight, 'weight')
-      comms = nx_comm.louvain_communities(G, weight='weight', resolution=max_reso[row_ind, col_ind])
-      # part = community.best_partition(G, weight='weight')
-      # metric = community.modularity(part, G, weight='weight')
-      _, freq = comm2histogram(comms, density=False, binning=False)
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      joined_comms = []
+      for comms in comms_list:
+        joined_comms += comms
+      _, freq = comm2histogram(joined_comms, density=False, binning=False)
       size, counts = np.unique(freq, return_counts=True)
       # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
       plt.plot(size, counts / counts.sum(),'go-', label='size', alpha=0.4)
@@ -2795,9 +2795,45 @@ def distribution_community_size(G_dict, sign, measure, n, max_reso=None, max_met
       plt.xscale('symlog')
       plt.yscale('log')
   # plt.show()
-  plt.suptitle('{} community size distribution'.format(sign), size=25)
+  plt.suptitle('community size distribution', size=25)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/comm_distribution_size_{}_{}_{}_{}fold.jpg'.format(sign, max_method, measure, n)
+  image_name = './plots/comm_distribution_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  plt.savefig(image_name)
+
+def distribution_community_size_mean(comms_dict, measure, n, max_neg_reso=None, max_method='none'):
+  rows, cols = get_rowcol(comms_dict)
+  fig = plt.figure(figsize=(4*len(cols), 2*len(cols)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col_ind, col in enumerate(cols):
+    print(col)
+    joined_comms = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list:
+        joined_comms += comms
+    _, freq = comm2histogram(joined_comms, density=False, binning=False)
+    size, counts = np.unique(freq, return_counts=True)
+    # plt.plot(size, np.array(freq) / sum(freq),'go-', label='size', alpha=0.4)
+    plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    ind += 1
+    plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    plt.plot(size, counts / counts.sum(),'go-', label='size', alpha=0.4)
+    # plt.legend(loc='upper right', fontsize=7)
+    xlabel = 'size of community'
+    plt.xlabel(xlabel)
+    plt.ylabel('number of nodes')
+    plt.xscale('symlog')
+    plt.yscale('log')
+  # plt.show()
+  plt.suptitle('mean community size distribution', size=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  image_name = './plots/comm_distribution_mean_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
   plt.savefig(image_name)
 
 def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=False, Q=100):
@@ -4232,6 +4268,70 @@ def plot_directed_multi_degree_distributions(G_dict, sign, measure, n, weight=No
   # plt.show()
   plt.savefig(image_name, dpi=300)
   # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
+
+def seq2histogram(degseq, weight=None):
+    if weight == None:
+      dmax=max(degseq)+1
+      deg_seq = np.arange(0, dmax)
+      freq= [ 0 for d in range(dmax) ]
+      for d in degseq:
+          freq[d] += 1
+    else:
+      freq, bin_edges = np.histogram(degseq, density=True)
+      deg_seq = (bin_edges[:-1] + bin_edges[1:]) / 2
+    return deg_seq, freq
+
+def plot_directed_degree_distributions(G_dict, measure, n, weight=None, cc=False):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 2*len(cols)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col_ind, col in enumerate(cols):
+    print(col)
+    in_degree_seq, out_degree_seq = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      if cc:
+        if nx.is_directed(G):
+          Gcc = sorted(nx.weakly_connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+        else:
+          Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
+          G = G.subgraph(Gcc[0])
+      nodes = G.nodes()
+      in_degree = dict(G.in_degree(weight=weight))
+      in_degseq=[in_degree.get(k,0) for k in nodes]
+      out_degree = dict(G.out_degree(weight=weight))
+      out_degseq=[out_degree.get(k,0) for k in nodes]
+      in_degree_seq += in_degseq
+      out_degree_seq += out_degseq
+    in_degrees, in_degree_freq = seq2histogram(in_degree_seq, weight=weight)
+    out_degrees, out_degree_freq = seq2histogram(out_degree_seq, weight=weight)
+    if weight == None:
+      in_degrees, in_degree_freq = in_degrees[1:], in_degree_freq[1:]
+      out_degrees, out_degree_freq = out_degrees[1:], out_degree_freq[1:]
+    
+    plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    plt.plot(in_degrees, np.array(in_degree_freq) / sum(in_degree_freq),'go-', label='in-degree', alpha=0.4)
+    plt.plot(out_degrees, np.array(out_degree_freq) / sum(out_degree_freq),'bo-', label='out-degree', alpha=0.4)
+    plt.legend(loc='upper right', fontsize=7)
+    xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+    plt.xlabel(xlabel)
+    plt.ylabel('Frequency')
+    plt.xscale('symlog')
+    plt.yscale('log')
+      
+  plt.tight_layout()
+  image_name = './plots/directed_degree_distribution_weighted_{}_{}fold.jpg' if weight is not None else './plots/directed_degree_distribution_unweighted_{}_{}fold.jpg'
+  # plt.show()
+  plt.savefig(image_name.format(measure, n), dpi=300)
 
 def plot_heatmap_xcorr_FR(corr, bins):
   divnorm=colors.TwoSlopeNorm(vcenter=0.)
@@ -5717,255 +5817,6 @@ def plot_multi_pie_chart_census_030T(triad_count, triad_types, measure, n, incoh
     elif rows[0] == 'mean':
       fname = fname.replace('030T', 'meanmice_030T')
   plt.savefig(fname.format(measure, n))
-
-def count_signed_triplet_connection_p(G):
-  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
-  nodes = list(G.nodes())
-  edge_sign = nx.get_edge_attributes(G,'sign')
-  for node_i in range(len(nodes)):
-    for node_j in range(len(nodes)):
-      if node_i != node_j:
-        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
-        if edge_sum == 0:
-          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
-            num4 += 1
-          else:
-            num0 += 1
-        elif edge_sum == 1:
-          num1 += 1
-        elif edge_sum == 2:
-          num3 += 1
-        elif edge_sum == -1:
-          num2 += 1
-        elif edge_sum == -2:
-          num5 += 1
-
-  total_num = num0+num1+num2+num3+num4+num5
-  assert total_num == len(nodes) * (len(nodes) - 1)
-  assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
-  p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
-  return p0, p1, p2, p3, p4, p5
-
-def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, measure, n, log=False, scale=True):
-  ind = 1
-  rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(23, 4))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
-  if scale:
-    ylim = 0
-    for col in cols:
-      for row in rows:
-        G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-        signs = list(nx.get_edge_attributes(G, "sign").values())
-        p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
-        p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
-        ylim = max(ylim, p0 / p_signed_pair_func['0'](p_pos, p_neg), p1 / p_signed_pair_func['1'](p_pos, p_neg), p2 / p_signed_pair_func['2'](p_pos, p_neg), p3 / p_signed_pair_func['3'](p_pos, p_neg), p4 / p_signed_pair_func['4'](p_pos, p_neg), p5 / p_signed_pair_func['5'](p_pos, p_neg))
-  for col in cols:
-    print(col)
-    plt.subplot(1, 7, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    all_pair_count = defaultdict(lambda: [])
-    for row in rows:
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      signs = list(nx.get_edge_attributes(G, "sign").values())
-      p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
-      p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
-      all_pair_count['0'].append(p0 / p_signed_pair_func['0'](p_pos, p_neg))
-      all_pair_count['+'].append(p1 / p_signed_pair_func['1'](p_pos, p_neg))
-      all_pair_count['-'].append(p2 / p_signed_pair_func['2'](p_pos, p_neg))
-      all_pair_count['++'].append(p3 / p_signed_pair_func['3'](p_pos, p_neg))
-      all_pair_count['+-'].append(p4 / p_signed_pair_func['4'](p_pos, p_neg))
-      all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
-    
-    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
-    plt.boxplot(triad_counts, showfliers=False)
-    plt.xticks(list(range(1, len(triad_counts)+1)), triad_types, rotation=0)
-    left, right = plt.xlim()
-    plt.hlines(1, xmin=left, xmax=right, color='r', linestyles='--', linewidth=0.5)
-    # plt.hlines(1, color='r', linestyles='--')
-    if scale:
-      if not log:
-        plt.ylim(top=ylim)
-      else:
-        plt.yscale('log')
-        plt.ylim(top=ylim)
-    # plt.hist(data.flatten(), bins=12, density=True)
-    # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
-    # plt.xlabel('region')
-    # plt.xlabel('size')
-    plt.ylabel('relative count')
-  plt.suptitle('Relative count of signed pairs', size=30)
-  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/relative_count_signed_pair_scale_{}_{}fold.jpg' if scale else './plots/relative_count_signed_pair_{}_{}fold.jpg'
-  # plt.show()
-  plt.savefig(image_name.format(measure, n))
-
-def get_neuron_pair_common_neighbor_census(G, nodei, nodej, cns, direct=True):
-  cn_census = defaultdict((lambda: 0))
-  for cn in cns:
-    if G.has_edge(nodei, cn) and G.has_edge(cn, nodei):
-      cn_typei = '2' + ('+' if G[nodei][cn]['sign']>0 else '-')+('+' if G[cn][nodei]['sign']>0 else '-')
-    elif G.has_edge(nodei, cn):
-      cn_typei = '0' + ('+' if G[nodei][cn]['sign']>0 else '-')
-    elif G.has_edge(cn, nodei):
-      cn_typei = '1' + ('+' if G[cn][nodei]['sign']>0 else '-')
-    if G.has_edge(nodej, cn) and G.has_edge(cn, nodej):
-      cn_typej = '2' + ('+' if G[nodej][cn]['sign']>0 else '-')+('+' if G[cn][nodej]['sign']>0 else '-')
-    elif G.has_edge(nodej, cn):
-      cn_typej = '0' + ('+' if G[nodej][cn]['sign']>0 else '-')
-    elif G.has_edge(cn, nodej):
-      cn_typej = '1' + ('+' if G[cn][nodej]['sign']>0 else '-')
-    if direct:
-      cn_type = ''.join([cn_typei, cn_typej])
-    else:
-      cn_type = ''.join(sorted([cn_typei, cn_typej]))
-    cn_type = cn_type.replace('0', 'out').replace('1', 'in').replace('2', 'bi')
-    cn_census[cn_type] += 1
-  return cn_census
-
-def get_common_neighbor_census(G, pair_type='+'):
-  direct = True if pair_type in ['+', '-', '+-'] else False
-  common_neighbor_census = defaultdict((lambda: 0))
-  nodes = list(G.nodes())
-  edge_sign = nx.get_edge_attributes(G,'sign')
-  for node_i in range(len(nodes)):
-    for node_j in range(len(nodes)):
-      if node_i != node_j:
-        common_neighbor = list(set([n for n in G.neighbors(nodes[node_i])]) & set([n for n in G.neighbors(nodes[node_j])]))
-        if len(common_neighbor):
-          edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
-          if (pair_type=='+-') and (edge_sum==0):
-            if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
-              if edge_sign.get((nodes[node_i], nodes[node_j]), 0)>0:
-                cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_i], nodes[node_j], common_neighbor, direct)
-              elif edge_sign.get((nodes[node_j], nodes[node_i]), 0)>0:
-                cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_j], nodes[node_i], common_neighbor, direct)
-            else:
-              continue
-          elif (pair_type=='+') and (edge_sum==1):
-            if edge_sign.get((nodes[node_i], nodes[node_j]), 0)>0:
-              cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_i], nodes[node_j], common_neighbor, direct)
-            else:
-              cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_j], nodes[node_i], common_neighbor, direct)
-          elif (pair_type=='++') and (edge_sum==2):
-            cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_i], nodes[node_j], common_neighbor, direct)
-          elif (pair_type=='-') and (edge_sum==-1):
-            if edge_sign.get((nodes[node_i], nodes[node_j]), 0)<0:
-              cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_i], nodes[node_j], common_neighbor, direct)
-            else:
-              cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_j], nodes[node_i], common_neighbor, direct)
-          elif (pair_type=='--') and (edge_sum==-2):
-            cn_census = get_neuron_pair_common_neighbor_census(G, nodes[node_i], nodes[node_j], common_neighbor, direct)
-          else:
-            continue
-          for cn_type in cn_census:
-            common_neighbor_census[cn_type] += cn_census[cn_type]
-  return common_neighbor_census
-
-def plot_common_neighbor_census(G_dict, pair_type, cn_types, measure, n, log=False):
-  rows, cols = get_rowcol(G_dict)
-  all_cn_census = {}
-  scale_max = 0
-  for col in cols:
-    print(col)
-    all_cn_census[col] = {cn_type:0 for cn_type in cn_types}
-    for row in rows:
-      common_neighbor_census = get_common_neighbor_census(G_dict[row][col], pair_type=pair_type)
-      for cn_type in common_neighbor_census:
-        all_cn_census[col][cn_type] += common_neighbor_census[cn_type]
-    for ct in all_cn_census[col]:
-      if all_cn_census[col][ct] > scale_max:
-        scale_max = all_cn_census[col][ct]
-  if len(cn_types) == 64:
-    fig = plt.figure(figsize=(48, 18))
-  else:
-    fig = plt.figure(figsize=(30, 18))
-  ind = 1
-  for col in cols:
-    plt.subplot(7, 1, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    plt.bar(all_cn_census[col].keys(), all_cn_census[col].values())
-    plt.ylabel('count')
-    if log:
-      plt.yscale('log')
-      plt.ylim(top=10**np.ceil(np.log10(scale_max)))
-    else:
-      plt.ylim(top=scale_max)
-  plt.suptitle('Count of common neighbor for neuron pair {}'.format(pair_type), size=30)
-  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/common_neighbor_count_{}_{}_{}fold.jpg' if not log else './plots/common_neighbor_count_log_{}_{}_{}fold.jpg'
-  plt.savefig(image_name.format(pair_type, measure, n))
-
-def get_common_neighbor_num(G, pair_type='+'):
-  common_neighbor_num = defaultdict((lambda: 0))
-  nodes = list(G.nodes())
-  edge_sign = nx.get_edge_attributes(G,'sign')
-  for node_i in range(len(nodes)):
-    for node_j in range(len(nodes)):
-      if node_i != node_j:
-        common_neighbor = list(set([n for n in G.neighbors(nodes[node_i])]) & set([n for n in G.neighbors(nodes[node_j])]))
-        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
-        if (pair_type=='+-') and (edge_sum==0):
-          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
-            common_neighbor_num[len(common_neighbor)] += 1
-          else:
-            continue
-        elif (pair_type=='+') and (edge_sum==1):
-          common_neighbor_num[len(common_neighbor)] += 1
-        elif (pair_type=='++') and (edge_sum==2):
-          common_neighbor_num[len(common_neighbor)] += 1
-        elif (pair_type=='-') and (edge_sum==-1):
-          common_neighbor_num[len(common_neighbor)] += 1
-        elif (pair_type=='--') and (edge_sum==-2):
-          common_neighbor_num[len(common_neighbor)] += 1
-        else:
-          continue
-  return common_neighbor_num
-
-def plot_common_neighbor_num_distribution(G_dict, pair_type, measure, n):
-  rows, cols = get_rowcol(G_dict)
-  all_cn_num = {}
-  scale_max = 0
-  for col in cols:
-    print(col)
-    all_cn_num[col] = defaultdict(lambda:0)
-    for row in rows:
-      common_neighbor_num = get_common_neighbor_num(G_dict[row][col], pair_type=pair_type)
-      for cn_type in common_neighbor_num:
-        all_cn_num[col][cn_type] += common_neighbor_num[cn_type]
-    max_key = max(all_cn_num[col].keys())
-    for k in range(max_key):
-      if k not in all_cn_num[col]:
-        all_cn_num[col][k] = 0
-    all_cn_num[col] = dict(sorted(all_cn_num[col].items()))
-    norm = sum(all_cn_num[col].values())
-    for ct in all_cn_num[col]:
-      all_cn_num[col][ct] = all_cn_num[col][ct] / norm
-      if all_cn_num[col][ct] > scale_max:
-        scale_max = all_cn_num[col][ct]
-  fig = plt.figure(figsize=(6, 18))
-  ind = 1
-  for col in cols:
-    plt.subplot(7, 1, ind)
-    plt.gca().set_title(col, fontsize=20, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
-    plt.bar(all_cn_num[col].keys(), all_cn_num[col].values())
-    plt.axvline(x=sum([k*v for k,v in all_cn_num[col].items()]), color='r', linestyle='--')
-    plt.xlabel('number of common neighbors')
-    plt.ylabel('probability')
-    plt.ylim(top=scale_max)
-  plt.suptitle('Distribution of common neighbor for neuron pair {}'.format(pair_type), size=15)
-  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  image_name = './plots/common_neighbor_num_distribution_{}_{}_{}fold.jpg'.format(pair_type, measure, n)
-  plt.savefig(image_name)
 
 def signed_triad_region_census(all_triads, area_dict):
   rows, cols = get_rowcol(all_triads)
