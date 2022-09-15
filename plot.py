@@ -651,7 +651,7 @@ def plot_pos_neg_box(G_dict, measure, n, density=False):
     y = 'number of connections'
   fig = plt.figure(figsize=(5, 5))
   # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
-  ax = sns.boxplot(x='stimulus', y=y, hue="type", data=df, palette="muted")
+  ax = sns.boxplot(x='stimulus', y=y, hue="type", data=df, palette="muted", showfliers = False)
   plt.xticks(fontsize=10, rotation=90)
   ax.set(xlabel=None)
   plt.tight_layout()
@@ -1193,12 +1193,12 @@ plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', True, activ
 plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
 # %%
 # scatter plot of intra/inter duration over stimulus
-color_pa = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+color_pa = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
 plot_intra_inter_scatter(offset_dict, G_ccg_dict, 'total', 'offset', active_area_dict, measure, n, color_pa)
 plot_intra_inter_scatter(duration_dict, G_ccg_dict, 'total', 'duration', active_area_dict, measure, n, color_pa)
 # %%
 ################ box plot of inter intra region offset ratio
-color_pa = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+color_pa = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
 plot_intra_inter_ratio_box(offset_dict, G_ccg_dict, 'offset', active_area_dict, measure, n, color_pa)
 plot_intra_inter_ratio_box(duration_dict, G_ccg_dict, 'duration', active_area_dict, measure, n, color_pa)
 # %%
@@ -1311,6 +1311,52 @@ top_purity_gnm = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, max
 top_purity_config = plot_top_Hcomm_purity(comms_dict, 1, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 # top_purity_config = plot_top_Hcomm_purity(comms_dict, 10, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
+def plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  ind = 1
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig = plt.figure(figsize=(7, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  size_dict = {}
+  purity_dict = {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        data = []
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data.append((size, purity))
+        size_col += [k for k,v in data if k>=4]
+        purity_col += [v for k,v in data if k>=4]
+    size_dict[col] = size_col
+    purity_dict[col] = purity_col
+  color_list = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  for col_ind, col in enumerate(size_dict):
+    plt.scatter(size_dict[col], purity_dict[col], color=color_list[col_ind], label=col, alpha=0.8)
+  plt.legend()
+  # plt.xscale('log')
+  plt.xlabel('community size')
+  plt.ylabel('purity')
+  plt.title('{} purity VS community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/Hcomm_purity_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.show()
+  plt.savefig(image_name)
 #################### scatter of purity VS community size
 plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
@@ -1371,6 +1417,7 @@ plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_config, max_me
 #%%
 #################### 2D distribution of purity and community size
 plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='scatter')
+plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
 # plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='kde')
 # plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
@@ -1527,6 +1574,101 @@ pos_neg_link_individual(S_ccg_dict, measure, n, density=True)
 ######################## excitaroty link VS inhibitory link box
 plot_pos_neg_box(S_ccg_dict, measure, n, density=False)
 # plot_pos_neg_box(S_ccg_dict, measure, n, density=True)
+#%%
+######################## excitatory link VS inhibitoray link with intra/inter region
+def plot_bar_pos_neg_intra_inter(G_dict, active_area_dict, measure, n):
+  df = pd.DataFrame(columns=['fraction of connections', 'type', 'region'])
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(7*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_exci, inter_exci, intra_inhi, inter_inhi = 0, 0, 0, 0
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      signs = nx.get_edge_attributes(G, "sign")
+      active_area = active_area_dict[row]
+      edges = list(G.edges())
+      for nodei, nodej in edges:
+        if active_area[nodei] == active_area[nodej]:
+          if signs[(nodei, nodej)] > 0:
+            intra_exci += 1
+          else:
+            intra_inhi += 1
+        else:
+          if signs[(nodei, nodej)] > 0:
+            inter_exci += 1
+          else:
+            inter_inhi += 1
+    intra_sum, inter_sum = intra_exci+intra_inhi, inter_exci+inter_inhi
+    intra_exci /= intra_sum
+    intra_inhi /= intra_sum
+    inter_exci /= inter_sum
+    inter_inhi /= inter_sum
+    ax=plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(col, fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    df = pd.concat([df, pd.DataFrame([[intra_exci, 'excitatory', 'intra']], columns=['fraction of connections', 'type', 'region']), 
+                pd.DataFrame([[inter_exci, 'excitatory', 'inter']], columns=['fraction of connections', 'type', 'region']),
+                pd.DataFrame([[intra_inhi, 'inhibitory', 'intra']], columns=['fraction of connections', 'type', 'region']),
+                pd.DataFrame([[inter_inhi, 'inhibitory', 'inter']], columns=['fraction of connections', 'type', 'region'])], ignore_index=True)
+    df['fraction of connections'] = pd.to_numeric(df['fraction of connections'])
+
+    palette ={"excitatory": "firebrick", "inhibitory": "darkblue"}
+    ax = sns.barplot(x='region', y='fraction of connections', hue='type', data=df, palette=palette)
+    ax.set(xlabel=None)
+  plt.tight_layout()
+  figname = './plots/ex_in_intra_inter_{}_{}fold.jpg'
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig(figname.format(measure, n))
+
+plot_bar_pos_neg_intra_inter(S_ccg_dict, active_area_dict, measure, n)
+#%%
+def plot_scatter_pos_neg_ratio_intra_inter(G_dict, active_area_dict, measure, n):
+  color_list = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  rows, cols = get_rowcol(G_dict)
+  for col_ind, col in enumerate(cols):
+    intra_ratio, inter_ratio = [], []
+    for row_ind, row in enumerate(rows):
+      intra_exci, inter_exci, intra_inhi, inter_inhi = 0, 0, 0, 0
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      signs = nx.get_edge_attributes(G, "sign")
+      active_area = active_area_dict[row]
+      edges = list(G.edges())
+      for nodei, nodej in edges:
+        if active_area[nodei] == active_area[nodej]:
+          if signs[(nodei, nodej)] > 0:
+            intra_exci += 1
+          else:
+            intra_inhi += 1
+        else:
+          if signs[(nodei, nodej)] > 0:
+            inter_exci += 1
+          else:
+            inter_inhi += 1
+      intra_sum, inter_sum = intra_exci+intra_inhi, inter_exci+inter_inhi
+      intra_exci /= intra_sum
+      intra_inhi /= intra_sum
+      inter_exci /= inter_sum
+      inter_inhi /= inter_sum
+      intra_ratio.append(intra_exci/intra_inhi)
+      inter_ratio.append(inter_exci/inter_inhi)
+    plt.scatter(intra_ratio, inter_ratio, label=col, color=color_list[col_ind], alpha=0.8)
+  plt.legend()
+  plt.title('excitatory/inhibitory ratio')
+  plt.xlabel('ratio for intra-region links')
+  plt.ylabel('ratio for inter-region links')
+  plt.tight_layout()
+  figname = './plots/ex_in_ratio_intra_inter_{}_{}fold.jpg'
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig(figname.format(measure, n))
+
+plot_scatter_pos_neg_ratio_intra_inter(S_ccg_dict, active_area_dict, measure, n)
 #%%
 ################# relative count of neuron pair
 p_pair_func = {
