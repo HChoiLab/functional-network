@@ -2415,7 +2415,7 @@ def plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_res
         purity_col += [v for k,v in data if k>=4]
     size_dict[col] = size_col
     purity_dict[col] = purity_col
-  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  color_list = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
   for col_ind, col in enumerate(size_dict):
     plt.scatter(size_dict[col], purity_dict[col], color=color_list[col_ind], label=col, alpha=0.8)
   plt.legend()
@@ -2488,7 +2488,7 @@ def plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, 
         size_col += [s for s,p in data if s>=4]
         purity_col += [p for s,p in data if s>=4]
     df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array([col] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'stimulus'])], ignore_index=True)
-  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  color_list = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
   df['community size'] = pd.to_numeric(df['community size'])
   df['purity'] = pd.to_numeric(df['purity'])
   if kind == 'scatter':
@@ -2848,7 +2848,7 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
   random_graphs = []
-  for num in range(num_rewire):
+  for num in tqdm(range(num_rewire)):
     # print(G.number_of_nodes(), G.number_of_edges())
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
@@ -2876,6 +2876,42 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
       G = origin_G.copy()
       swaps = nx.connected_double_edge_swap(G, nswap=Q*G.number_of_edges(), _window_threshold=3)
       print('Number of successful swaps: {}'.format(swaps))
+    elif algorithm == 'directed_double_edge_swap':
+      G = origin_G.copy()
+      nswap = Q*G.number_of_edges()
+      max_tries = 1e75
+      n_tries = 0
+      swapcount = 0
+      keys, out_degrees = zip(*G.out_degree())  # keys, degree
+      cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
+      discrete_sequence = nx.utils.discrete_sequence
+      while swapcount < nswap:
+        #        if random.random() < 0.5: continue # trick to avoid periodicities?
+        # pick two random edges without creating edge list
+        # choose source node indices from discrete distribution
+        (ui, xi) = discrete_sequence(2, cdistribution=cdf, seed=None)
+        if ui == xi:
+            continue  # same source, skip
+        u = keys[ui]  # convert index to label
+        x = keys[xi]
+        # choose target uniformly from neighbors
+        v = np.random.choice(list(G[u]))
+        y = np.random.choice(list(G[x]))
+        if v == y:
+          continue  # same target, skip
+        if (y not in G[u]) and (v not in G[x]):  # don't create existed edges
+          G.add_edge(u, y)
+          G.add_edge(x, v)
+          G.remove_edge(u, v)
+          G.remove_edge(x, y)
+          swapcount += 1
+        if n_tries >= max_tries:
+          e = (
+            f"Maximum number of swap attempts ({n_tries}) exceeded "
+            f"before desired swaps achieved ({nswap})."
+          )
+          raise nx.NetworkXAlgorithmError(e)
+        n_tries += 1
     # add link weights
     for ind, e in enumerate(G.edges()):
       G[e[0]][e[1]][weight] = weights[ind]
@@ -4822,6 +4858,38 @@ def add_offset(G_dict, offset_dict):
       S_dict[row][col] = S
   return S_dict
 
+def add_duration(G_dict, duration_dict):
+  rows, cols = get_rowcol(G_dict)
+  S_dict = {}
+  for row in rows:
+    S_dict[row] = {}
+    for col in cols:
+      duration_mat = duration_dict[row][col]
+      G = G_dict[row][col]
+      nodes = sorted(list(G.nodes()))
+      duration = {}
+      for edge in G.edges():
+        duration[edge] = duration_mat[nodes.index(edge[0]), nodes.index(edge[1])]
+      S = G.copy()
+      nx.set_edge_attributes(S, duration, 'duration')
+      S_dict[row][col] = S
+  return S_dict
+
+def add_delay(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  S_dict = {}
+  for row in rows:
+    S_dict[row] = {}
+    for col in cols:
+      G = G_dict[row][col]
+      nodes = sorted(list(G.nodes()))
+      delay = {}
+      for edge in G.edges():
+        delay[edge] = G.get_edge_data(*edge)['offset'] + G.get_edge_data(*edge)['duration']
+      S = G.copy()
+      nx.set_edge_attributes(S, delay, 'delay')
+      S_dict[row][col] = S
+  return S_dict
 # This section calculates balace in triads with respect to direction.
 # We first extract the transitive triads, then we break the transitive triads to semi-cycles, and finally 
 # calculate balance in each semicycle. The triad is balance only if all its semicycles are balance. 
