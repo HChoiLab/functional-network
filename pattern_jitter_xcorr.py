@@ -19,6 +19,8 @@ active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
 n = 4
 S_ccg_dict = add_sign(G_ccg_dict)
 S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
+S_ccg_dict = add_duration(S_ccg_dict, duration_dict)
+S_ccg_dict = add_delay(S_ccg_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 #%%
@@ -2232,7 +2234,7 @@ def multi_comm_efficiency(G_dict, measure, n, significance, cc=False):
       hubs = [k for k, v in degree.items() if v > hub_threshold]
       distri = []
       for hub in hubs:
-        p = nx.shortest_path_length(G, source=hub, weight='offset')
+        p = nx.shortest_path_length(G, source=hub, weight='delay')
         distri += [v for k, v in p.items() if v > 0]
       sns.histplot(data=distri, kde=True, linewidth=0)
   plt.suptitle('hub significance level {} fold'.format(significance), size=50)
@@ -2241,22 +2243,88 @@ def multi_comm_efficiency(G_dict, measure, n, significance, cc=False):
 
 multi_comm_efficiency(S_ccg_dict, measure, n, 3, cc=False)
 #%%
+from scipy.optimize import minimize
+from scipy.special import factorial
+from scipy.optimize import curve_fit
+from scipy import stats
+
+
+def poisson(k, lamb):
+    """poisson pdf, parameter lamb is the fit parameter"""
+    return (lamb**k/factorial(k)) * np.exp(-lamb)
+
+def negative_log_likelihood(params, data):
+    """
+    The negative log-Likelihood-Function
+    """
+    lnl = - np.sum(np.log(poisson(data, params[0])))
+    return lnl
+
+def negative_log_likelihood(params, data):
+    ''' better alternative using scipy '''
+    return -stats.poisson.logpmf(data, params[0]).sum()
+
+def gauss(x, mu, sigma, A):
+    return A*np.exp(-(x-mu)**2/2/sigma**2)
+
+def bimodal(x, loc, scale, mu2, sigma2, A2):
+    return stats.expon.pdf(x, loc, scale)+gauss(x,mu2,sigma2,A2)
+
+def fit_distribution(data, distribution='gamma'):
+  if distribution=='gamma':
+    xx = np.linspace(1,max(data),int(max(data)))
+    ag,bg,cg = stats.gamma.fit(data)  
+    pdf = stats.gamma.pdf(xx, ag, bg,cg)  
+  elif distribution=='poisson':
+    result = minimize(negative_log_likelihood,  # function to minimize
+                      x0=np.ones(1),            # start value
+                      args=(data,),             # additional arguments for function
+                      method='Powell',          # minimization method, see docs
+                      )
+    x_plot = np.linspace(1,max(data),100)
+    pdf = stats.poisson.pmf(x_plot, result.x)
+  elif distribution=='exponential':
+    P = stats.expon.fit(data)
+    xx = np.linspace(1,max(data),100)
+    pdf = stats.expon.pdf(xx, *P)
+    print(P)
+  elif distribution=='powerlaw':
+    P = stats.powerlaw.fit(data)
+    xx = np.linspace(1,max(data),100)
+    pdf = stats.powerlaw.pdf(xx, *P)
+  elif distribution=='lognormal':
+    P = stats.lognorm.fit(data)
+    xx = np.linspace(1,max(data),100)
+    pdf = stats.lognorm.pdf(xx, *P)
+  elif distribution=='mixed':
+    y, x=np.histogram(data, 100)
+    x=(x[1:]+x[:-1])/2 # for len(x)==len(y)
+    expected = (1.0, 5.0, 10, 3, .05)
+    params, cov = curve_fit(bimodal, x, y, expected)
+    xx = np.linspace(x.min(), x.max(), 500)
+    pdf = bimodal(xx, *params)
+  return xx, pdf
+
+def get_distri(G, weight, node_type, significance):
+  degree = dict(G.degree(weight=weight))
+  if node_type=='hub':
+    hub_threshold = np.mean(list(degree.values())) + significance * np.std(list(degree.values()))
+    nodes = [k for k, v in degree.items() if v > hub_threshold]
+  elif node_type=='all':
+    nodes = G.nodes()
+  temp_distri = []
+  for node in nodes:
+    p = nx.shortest_path_length(G, source=node, weight='delay')
+    temp_distri += [v for k, v in p.items() if v > 0]
+  return temp_distri
+
 ############# communication efficiency
-def comm_efficiency(G_dict, measure, n, significance, cc=False):
-  ind = 1
+def get_comm_efficiency(G_dict, weight, node_type='hub', significance=3, algorithm=None, cc=False):
   rows, cols = get_rowcol(G_dict)
-  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
-  left, width = .25, .5
-  bottom, height = .25, .5
-  right = left + width
-  top = bottom + height
+  distri = {}
   for col_ind, col in enumerate(cols):
     print(col)
-    distri = []
-    plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
-    plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
-    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    ind += 1
+    distri[col] = []
     for row_ind, row in enumerate(rows):
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       if cc:
@@ -2266,25 +2334,96 @@ def comm_efficiency(G_dict, measure, n, significance, cc=False):
         else:
           Gcc = sorted(nx.connected_components(G), key=len, reverse=True)
           G = G.subgraph(Gcc[0])
-      # node_idx = sorted(active_area_dict[row].keys())
-      # reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
-      # G = nx.relabel_nodes(G, reverse_mapping)
-      degree = dict(G.degree(weight=weight))
-      hub_threshold = np.mean(list(degree.values())) + significance * np.std(list(degree.values()))
-      hubs = [k for k, v in degree.items() if v > hub_threshold]
-      
-      for hub in hubs:
-        p = nx.shortest_path_length(G, source=hub, weight='offset')
-        distri += [v for k, v in p.items() if v > 0]
-    sns.histplot(data=distri, kde=True, linewidth=0, stat='probability')
-    plt.axvline(x=np.nanmean(distri), color='r', linestyle='--')
+      if algorithm is None:
+        distri[col] += get_distri(G, weight, node_type, significance)
+      else:
+        G_rands = random_graph_generator(G, 10, algorithm, weight='delay', cc=False, Q=100)
+        for G_rand in G_rands:
+          distri[col] += get_distri(G_rand, weight, node_type, significance)
+  return distri
+
+# comm_efficiency(S_ccg_dict, measure, n, None, 'hub', 3, cc=False)
+# comm_efficiency(S_ccg_dict, measure, n, None, 'all', cc=False)
+distri = get_comm_efficiency(S_ccg_dict, None, 'all', 3, algorithm=None, cc=False)
+# distri_gnm = get_comm_efficiency(S_ccg_dict, None, 'all', 3, algorithm='Gnm', cc=False)
+# distri_swap = get_comm_efficiency(S_ccg_dict, None, 'all', 3, algorithm='directed_double_edge_swap', cc=False)
+#%%
+def plot_comm_efficiency(distri, measure, n, node_type, significance, algorithm=None):
+  cols = list(distri.keys())
+  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col in distri:
+    print(col)
+    ax=plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(col, fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    sns.histplot(data=distri[col], linewidth=0, stat='probability', binwidth=1)
+    plt.axvline(x=np.nanmean(distri[col]), color='r', linestyle='--')
+    # sns.kdeplot(data=distri)
+    if col in ['spontaneous']:
+      distribution = 'gamma'# gamma for G and Gnm, exponential for dswap
+    if col in ['flash_dark', 'flash_light', 'natural_movie_one', 'natural_movie_three']:
+      distribution = 'lognormal'
+    elif col in ['drifting_gratings', 'static_gratings', 'natural_scenes']:
+      distribution = 'exponential'
+    xx, pdf = fit_distribution(distri[col], distribution)    
+    plt.plot(xx,pdf,'r-', lw=2, alpha=0.6, label='gamma pdf')
     plt.xlabel('communication delay (ms)', size=20)
     plt.ylabel('probability', size=20)
-  plt.suptitle('hub neurons significance level {} fold'.format(significance), size=50)
+    ax.text(0.5, 0.5, distribution, size=12, ha="center", 
+         transform=ax.transAxes)
+    # plt.text(2, 0.65, distribution)
+  suptitle = '{} neurons'.format(node_type)
+  if algorithm is not None:
+    suptitle = suptitle.replace(node_type, '{} '.format(algorithm)+node_type)
+  if node_type=='hub':
+    suptitle += ' significance level {} fold'.format(significance)
+  plt.suptitle(suptitle, size=50)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/comm_efficiency_{}_{}_{}fold.jpg'.format(significance, measure, n))
+  figname = './plots/comm_efficiency_{}_{}_{}fold.jpg'.format(node_type, measure, n)
+  if algorithm is not None:
+    figname = figname.replace('efficiency', 'efficiency{}'.format(algorithm))
+  if node_type=='hub':
+    figname = figname.replace('hub', 'hub_{}'.format(significance))
+  plt.savefig(figname)
 
-comm_efficiency(S_ccg_dict, measure, n, 3, cc=False)
+# plot_comm_efficiency(distri, measure, n, 'all', 3, algorithm=None)
+# plot_comm_efficiency(distri_gnm, measure, n, 'all', 3, algorithm='Gnm')
+plot_comm_efficiency(distri_swap, measure, n, 'all', 3, algorithm='directed_double_edge_swap')
+#%%
+############# compare average of communication delay of G, Gnm and Gswap
+def comm_efficiency_comparison(distri, distri_gnm, distri_swap, measure, n):
+  df = pd.DataFrame(columns=['stimulus', 'mean communication delay (ms)', 'network'])
+  for col in distri:
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col])[:,None], np.array([np.mean(distri[col])])[:,None], np.array(['real network'])[:,None]), 1), columns=['stimulus', 'mean communication delay (ms)', 'network'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col])[:,None], np.array([np.mean(distri_gnm[col])])[:,None], np.array(['Gnm'])[:,None]), 1), columns=['stimulus', 'mean communication delay (ms)', 'network'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col])[:,None], np.array([np.mean(distri_swap[col])])[:,None], np.array(['swap'])[:,None]), 1), columns=['stimulus', 'mean communication delay (ms)', 'network'])], ignore_index=True)
+  df['mean communication delay (ms)'] = pd.to_numeric(df['mean communication delay (ms)'])
+  ax = sns.barplot(x='stimulus', y='mean communication delay (ms)', hue='network', data=df)
+  ax.set(xlabel=None)
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  plt.savefig('./plots/comm_efficiency_comparison_{}_{}fold.jpg'.format(measure, n))
+comm_efficiency_comparison(distri, distri_gnm, distri_swap, measure, n)
+#%%
+#%%
+############# compare average of communication delay of G, Gnm and Gswap
+def comm_efficiency_scatter(distri, distri_gnm, distri_swap, measure, n):
+  color_list = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+  for col in distri:
+    plt.scatter(np.mean(distri[col])/np.mean(distri_gnm[col]), np.mean(distri[col])/np.mean(distri_swap[col]), label=col, color=color_list[cols.index(col)])
+  plt.legend()
+  plt.xlabel('mean delay ratio real network/Gnm')
+  plt.ylabel('mean delay ratio real network/Gswap')
+  # plt.plot(np.arange(*plt.gca().get_ylim()), np.arange(*plt.gca().get_ylim()), 'k--')
+  plt.tight_layout()
+  plt.savefig('./plots/comm_efficiency_scatter_{}_{}fold.jpg'.format(measure, n))
+comm_efficiency_scatter(distri, distri_gnm, distri_swap, measure, n)
 #%%
 plot_directed_multi_degree_distributions(G_ccg_dict, 'total', measure, n, weight='weight', cc=False)
 # plot_directed_multi_degree_distributions(pos_G_dict, 'pos', measure, n, weight='weight', cc=False)
