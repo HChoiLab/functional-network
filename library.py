@@ -823,9 +823,10 @@ def get_all_ccg(matrix, window=100, disable=True): ### fastest, only causal corr
         px, py = norm_mata[row_a, :], norm_matb[row_b, :]
         T = as_strided(py[window:], shape=(window+1, M + window),
                         strides=(-py.strides[0], py.strides[0])) # must be py[window:], why???????????
-        ccg[row_b, row_a, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
+        # positive time lag is on neuron b, a->b
+        ccg[row_a, row_b, :] = (T @ px) / ((M-np.arange(window+1))/1000 * np.sqrt(firing_rates[row_a] * firing_rates[row_b]))
     else:
-        ccg[row_b, row_a, :] = np.zeros(window+1)
+        ccg[row_a, row_b, :] = np.zeros(window+1)
   return ccg
 
 def save_ccg_corrected(sequences, fname, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
