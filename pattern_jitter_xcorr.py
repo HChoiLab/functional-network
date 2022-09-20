@@ -12,6 +12,7 @@ if not os.path.exists(path):
 G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
 measure = 'ccg'
 G_ccg_dict = remove_gabor(G_ccg_dict)
+######### removed neurons from thalamic region
 G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
 offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
 duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regions)
@@ -4596,3 +4597,16 @@ def plot_bipartisan(ng_dict, rows, cols, area_dict, regions, measure, n):
   plt.savefig(figname.format(measure, n))
 
 plot_bipartisan(ng_dict, rows, cols, area_dict, visual_regions, measure, n)
+
+#%%
+################# get correlation window fraction
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+start_time = time.time()
+c_window = get_correlation_window(directory, offset_dict, duration_dict)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+with open('c_window.pkl', 'wb') as f:
+  pickle.dump(c_window, f)
+#%%
+with open('c_window.pkl', 'rb') as f:
+  c_window_l = pickle.load(f)
+plot_multi_correlation_window(c_window_l, measure, n)
