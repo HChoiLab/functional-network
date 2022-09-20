@@ -59,7 +59,6 @@ def safe_division(n, d):
 
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
-        super(pattern_jitter,self).__init__()
         self.num_sample = num_sample
         self.sequences = np.array(sequences)
         if len(self.sequences.shape) > 1:
@@ -6833,3 +6832,85 @@ def get_meso_macro_balance(S):
   #print("Average solve time",np.mean(solveTime))
   #print("Solve time Standard Deviation",np.std(solveTime))
   return node_group, cohesiveness, divisiveness, frustration_index, F
+
+############### find the correlation window (percentage) for each significant edge
+############### use offset, duration dict with thalamic regions, otherwise shape not matching
+def get_correlation_window(directory, offset_dict, duration_dict):
+  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+  rows, cols = get_rowcol(offset_dict)
+  # cols.remove('flash_dark')
+  # cols.remove('flash_light')
+  c_window = {}
+  for row in rows:
+    c_window[row] = {}
+    for col in cols:
+      file = row + '_' + col + '.npz'
+      print(file)
+      adj_mat = load_npz_3d(os.path.join('./data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/', file))
+      c_window[row][col] = []
+      offset_mat, duration_mat = offset_dict[row][col], duration_dict[row][col]   
+      sequences = load_npz_3d(os.path.join(directory, file))
+      active_neuron_inds = np.load(os.path.join(inds_path, row+'.npy'))
+      sequences = sequences[active_neuron_inds]
+      num_neuron, num_trial, T = sequences.shape
+      # print(adj_mat.shape, offset_mat.shape, duration_mat.shape, (num_neuron, num_neuron))
+      assert adj_mat.shape == offset_mat.shape == duration_mat.shape == (num_neuron, num_neuron) # remove thalamic region
+      assert np.where(~np.isnan(adj_mat))[0].shape[0] == np.where(~np.isnan(offset_mat))[0].shape[0] == np.where(~np.isnan(duration_mat))[0].shape[0]
+      for row_a, row_b in zip(*np.where(~np.isnan(adj_mat))): # each significant edge
+        if adj_mat[row_a, row_b] > 0: # only for positive correlation
+          offset, duration = int(offset_mat[row_a, row_b]), int(duration_mat[row_a, row_b])
+          tfa, tla, tfa_ast, tla_ast, tfb, tlb, tfb_ast, tlb_ast = [[] for _ in range(8)]
+          for m in range(num_trial):
+            # print('Trial {} / {}'.format(m+1, num_trial))
+            matrix = sequences[:,m,:]
+            fr_rowa = np.count_nonzero(matrix[row_a]) / (matrix.shape[1]/1000) # Hz instead of kHz
+            fr_rowb = np.count_nonzero(matrix[row_b]) / (matrix.shape[1]/1000)
+            if fr_rowa * fr_rowb > 0: # there could be no spike in a certain trial
+              for pad_len in range(offset, offset+duration+1): # min duration is 0
+                s_a = np.pad(matrix[row_a], (0, pad_len), 'constant', constant_values=(0,0)) # false for incorrect CCG, should be opposite padding
+                s_b = np.pad(matrix[row_b], (pad_len, 0), 'constant', constant_values=(0,0))
+                prod = s_a * s_b
+                perioda, periodb, periodp = np.where(s_a>0)[0], np.where(s_b>0)[0], np.where(prod>0)[0]
+                if len(periodp):
+                  tfa.append(perioda[0])
+                  tla.append(perioda[-1])
+                  tfa_ast.append(periodp[0])
+                  tla_ast.append(periodp[-1])
+                  tfb.append(periodb[0])
+                  tlb.append(periodb[-1])
+                  tfb_ast.append(periodp[0]-pad_len)
+                  tlb_ast.append(periodp[-1]-pad_len)
+
+          # if len(tla) and len(tfa) and len(tlb) and len(tfb) and len(tla_ast) and len(tfa_ast) and len(tlb_ast) and len(tfb_ast):
+          Ta, Tb, Ta_ast, Tb_ast = max(tla)-min(tfa)+1, max(tlb)-min(tfb)+1, max(tla_ast)-min(tfa_ast)+1, max(tlb_ast)-min(tfb_ast)+1 # count start and end
+          c_window[row][col].append(min(Ta_ast/Ta, Tb_ast/Tb))
+        # print(min(Ta_ast/Ta, Tb_ast/Tb))
+  return c_window
+
+def plot_multi_correlation_window(c_window, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(c_window)
+  fig = plt.figure(figsize=(9*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns.histplot(data=c_window[row][col], stat='probability', kde=True, linewidth=0)
+      plt.axvline(x=np.nanmean(c_window[row][col]), color='r', linestyle='--')
+  plt.suptitle('correlation window')
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/multi_correlation_window{}_{}fold.jpg'.format(measure, n))
