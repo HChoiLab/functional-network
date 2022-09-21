@@ -6911,6 +6911,48 @@ def plot_multi_correlation_window(c_window, measure, n):
       ind += 1
       sns.histplot(data=c_window[row][col], stat='probability', kde=True, linewidth=0)
       plt.axvline(x=np.nanmean(c_window[row][col]), color='r', linestyle='--')
-  plt.suptitle('correlation window')
+  plt.suptitle('correlation window', size=50)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   plt.savefig('./plots/multi_correlation_window{}_{}fold.jpg'.format(measure, n))
+
+def plot_state(G_dict, row_ind, active_area_dict, measure, n, timesteps=20):
+  # fig, axs = plt.subplots(1, len(cols),figsize=(30,20))
+  rows, cols = get_rowcol(G_dict)
+  row = rows[row_ind]
+  plt.figure(figsize=(40, 20))
+  np.random.seed(1)
+  # S_init = 2*np.random.rand(G.number_of_nodes())-1
+  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+      S_init += [round(np.linspace(-1, 1, len(uniq_areas))[a_ind], 2)] * areas.count(area)
+  S_init = np.array(S_init)
+  for col_ind, col in enumerate(cols):
+    G = G_dict[row][col]
+    A = nx.to_numpy_array(G)
+    A[A.nonzero()] = 1
+    A += 5*np.diag(A.sum(0)) # add itself
+    no_neighbor = np.where(A.sum(0)==0)[0]
+    A[no_neighbor, no_neighbor] = 1
+    A = A.astype(float)
+    A/=A.sum(0)
+    T = A.T
+    S = S_init.copy()
+    # steps = 20
+    state_variation= np.zeros((A.shape[0], timesteps))
+    state_variation[:, 0] = S_init
+    for ts in range(1, timesteps):
+      S = T @ S
+      state_variation[:, ts] = S
+    plt.subplot(1, len(cols), col_ind+1)
+    # plt.imshow(my_image1, vmin=0, vmax=10, cmap='jet', aspect='auto')
+    plt.imshow(state_variation, aspect='auto', cmap='rainbow')
+    plt.title(col)
+    plt.xlabel('step')
+    plt.ylabel('neuron number')
+  plt.colorbar()
+  plt.tight_layout()
+  plt.savefig('./plots/state_vetor_{}_{}_{}fold.jpg'.format(row, measure, n))
+  plt.show()
