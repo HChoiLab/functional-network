@@ -4610,3 +4610,120 @@ with open('c_window.pkl', 'wb') as f:
 with open('c_window.pkl', 'rb') as f:
   c_window_l = pickle.load(f)
 plot_multi_correlation_window(c_window_l, measure, n)
+#%%
+################# time to return to source neuron
+def get_return_time(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  time_dict = {}
+  for row in rows:
+    print(row)
+    time_dict[row] = {}
+    for col in cols:
+      time_dict[row][col] = []
+      G = G_dict[row][col].copy()
+      nodes = G.nodes()
+      for node in nodes:
+        shortest_time = []
+        successors = G.successors(node)
+        for s in successors:
+          if nx.has_path(G, s, node):
+            shortest_time.append(nx.shortest_path_length(G, source=node, target=s)+nx.shortest_path_length(G, source=s, target=node))
+            # shortest_time.append(nx.shortest_path_length(G, source=node, target=s, weight='delay')+nx.shortest_path_length(G, source=s, target=node, weight='delay'))
+        if len(shortest_time):
+          time_dict[row][col].append(min(shortest_time))
+        # else:
+        #   time_dict[row][col].append(0)
+  return time_dict
+
+time_dict = get_return_time(S_ccg_dict)
+# %%
+def plot_return_time(time_dict, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(time_dict)
+  fig = plt.figure(figsize=(9*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      sns.histplot(data=time_dict[row][col], stat='probability', kde=True, linewidth=0)
+      plt.axvline(x=np.nanmean(time_dict[row][col]), color='r', linestyle='--')
+      plt.xlabel('return hops')
+      # plt.xlabel('return time ms')
+  plt.suptitle('return hops', size=50)
+  # plt.suptitle('return time (ms)', size=50)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/multi_return_hop{}_{}fold.jpg'.format(measure, n))
+
+plot_return_time(time_dict, measure, n)
+# %%
+################## initilize each neuron with one state (color) and propagate
+def getRGBfromI(RGBint):
+  # [0, 16777215]
+  blue =  RGBint & 255
+  green = (RGBint >> 8) & 255
+  red =   (RGBint >> 16) & 255
+  return red, green, blue
+
+def getIfromRGB(rgb):
+  red = rgb[0]
+  green = rgb[1]
+  blue = rgb[2]
+  print(red, green, blue)
+  RGBint = (red<<16) + (green<<8) + blue
+  return RGBint
+# %%
+def plot_state_RGB(G,timesteps=20):
+  # fig, axs = plt.subplots(1, len(cols),figsize=(30,20))
+  plt.figure(figsize=(40, 20))
+  np.random.seed(0)
+  S_init = np.random.randint(low=0, high=16777215, size=G.number_of_nodes())
+  for col_ind, col in enumerate(cols):
+    G = G_ccg_dict[row][col]
+    A = nx.to_numpy_array(G)
+    A[A.nonzero()] = 1
+    A += 500*np.diag(A.sum(0)) # add itself
+    no_neighbor = np.where(A.sum(0)==0)[0]
+    A[no_neighbor, no_neighbor] = 1
+    A = A.astype(float)
+    A/=A.sum(0)
+    T = A.T
+    S = S_init.copy()
+    # steps = 20
+    state_variation= np.zeros((A.shape[0], timesteps, 3))
+    r,g,b = getRGBfromI(S_init)
+    state_variation[:, 0, 0] = r
+    state_variation[:, 0, 1] = g
+    state_variation[:, 0, 2] = b
+    for ts in range(1, timesteps):
+      S = (T @ S).astype(int)
+      r,g,b = getRGBfromI(S)
+      state_variation[:, ts, 0] = r
+      state_variation[:, ts, 1] = g
+      state_variation[:, ts, 2] = b
+    plt.subplot(1, len(cols), col_ind+1)
+    # plt.imshow(my_image1, vmin=0, vmax=10, cmap='jet', aspect='auto')
+    plt.imshow(state_variation.astype(int), aspect='auto')
+    plt.title(col)
+  plt.tight_layout()
+  plt.show()
+
+plot_state_RGB(G, timesteps=20)
+#%%
+for row_ind in range(8):
+  print(row_ind)
+  plot_state(G_ccg_dict, row_ind, active_area_dict, measure, n, timesteps=50)
+# %%
