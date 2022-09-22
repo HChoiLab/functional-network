@@ -194,6 +194,40 @@ def plot_intra_inter_kde(data_dict, G_dict, sign, name, density, active_area_dic
   figname = './plots/intra_inter_density_kde_{}_{}_{}_{}fold.jpg' if density else './plots/intra_inter_count_kde_{}_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(name, sign, measure, n))
 
+def plot_intra_inter_kde_G(G_dict, name, density, active_area_dict, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 5))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_data, inter_data = [], []
+    for row_ind, row in enumerate(rows):
+      active_area = active_area_dict[row]
+      G = G_dict[row][col].copy()
+      for edge in G.edges():
+        if active_area[edge[0]] == active_area[edge[1]]:
+          intra_data.append(G[edge[0]][edge[1]][name])
+        else:
+          inter_data.append(G[edge[0]][edge[1]][name])
+    df = pd.concat([pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(['intra-region'] * len(intra_data))[:,None]), 1), columns=['data', 'type']), 
+              pd.DataFrame(np.concatenate((np.array(inter_data)[:,None], np.array(['inter-region'] * len(inter_data))[:,None]), 1), columns=['data', 'type'])], ignore_index=True)
+    df['data'] = pd.to_numeric(df['data'])
+    ax = plt.subplot(1, num_col, col_ind+1)
+    sns.kdeplot(data=df, x='data', hue='type', bw_adjust=1.5, cut=0, common_norm=not density)
+    if density:
+      plt.ylabel('Probability')
+    else:
+      plt.ylabel('Count')
+    plt.title(col, size=25)
+    # plt.xlim(0, 12)
+    plt.xlabel(name)
+  # plt.legend()
+  plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_density_kde_{}_{}_{}fold.jpg' if density else './plots/intra_inter_count_kde_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, measure, n))
+
 def plot_intra_inter_scatter(data_dict, G_dict, sign, name, active_area_dict, measure, n, color_pa):
   rows, cols = get_rowcol(data_dict)
   num_row, num_col = len(rows), len(cols)
@@ -1191,6 +1225,42 @@ plot_intra_inter_kde(offset_dict, G_ccg_dict, 'total', 'offset', True, active_ar
 plot_intra_inter_kde(offset_dict, G_ccg_dict, 'total', 'offset', False, active_area_dict, measure, n)
 plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', True, active_area_dict, measure, n)
 plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
+#%%
+plot_intra_inter_kde_G(S_ccg_dict, 'delay', True, active_area_dict, measure, n)
+#%%
+def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, measure, n, color_pa):
+  rows, cols = get_rowcol(G_dict)
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5, 5))
+  df = pd.DataFrame(columns=['data', 'type', 'col'])
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_data, inter_data = [], []
+    for row_ind, row in enumerate(rows):
+      active_area = active_area_dict[row]
+      G = G_dict[row][col].copy()
+      for edge in G.edges():
+        if active_area[edge[0]] == active_area[edge[1]]:
+          intra_data.append(G[edge[0]][edge[1]][name])
+        else:
+          inter_data.append(G[edge[0]][edge[1]][name])
+    df = pd.concat([df, pd.DataFrame([[np.mean(intra_data), np.mean(inter_data), col]],
+                   columns=['intra-region', 'inter-region', 'col'])])
+  df['intra-region'] = pd.to_numeric(df['intra-region'])
+  df['inter-region'] = pd.to_numeric(df['inter-region'])
+  ax = sns.scatterplot(data=df, x='intra-region', y='inter-region', hue='col', palette=color_pa, s=100)
+  xliml, xlimu = ax.get_xlim()
+  plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
+  plt.title(name, size=25)
+  # plt.xlim(0, 12)
+  # plt.legend()
+  # plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_scatter_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(name, measure, n))
+color_pa = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, measure, n, color_pa)
 # %%
 # scatter plot of intra/inter duration over stimulus
 color_pa = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
