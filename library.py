@@ -6911,11 +6911,49 @@ def plot_multi_correlation_window(c_window, measure, n):
       ind += 1
       sns.histplot(data=c_window[row][col], stat='probability', kde=True, linewidth=0)
       plt.axvline(x=np.nanmean(c_window[row][col]), color='r', linestyle='--')
+      plt.xticks(fontsize=20, rotation=0)
   plt.suptitle('correlation window', size=50)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   plt.savefig('./plots/multi_correlation_window{}_{}fold.jpg'.format(measure, n))
 
-def plot_state(G_dict, row_ind, active_area_dict, measure, n, timesteps=20):
+def plot_correlation_window_box(c_window, measure, n):
+  rows, cols = get_rowcol(c_window)
+  fig = plt.figure(figsize=(7, 5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  cf = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    cf_col = []
+    for row_ind, row in enumerate(rows):
+      cf_col += c_window[row][col]
+    cf.append(cf_col)
+  plt.boxplot(cf, showfliers=False)
+  plt.xticks(list(range(1, len(cf)+1)), cols, rotation=90)
+  # plt.hist(data.flatten(), bins=12, density=True)
+  # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+  # plt.xlabel('region')
+  plt.ylabel('CF')
+  plt.suptitle('correlation window fraction', size=15)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/box_correlation_window{}_{}fold.jpg'.format(measure, n))
+
+def reorder_area(vector, current_order, areas_num, target_order):
+  region_num = np.cumsum(areas_num)
+  current_idx = [current_order.index(a) for a in target_order]
+  new_vector = []
+  for idx in current_idx:
+    if idx > 0:
+      new_vector.append(vector[region_num[idx-1]:region_num[idx]])
+    else:
+      new_vector.append(vector[0:region_num[idx]])
+  return np.concatenate(new_vector)
+
+########################### Message passing ##########################
+##################### plot state change with area in hierarchical order
+def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps=20):
   # fig, axs = plt.subplots(1, len(cols),figsize=(30,20))
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -6925,15 +6963,21 @@ def plot_state(G_dict, row_ind, active_area_dict, measure, n, timesteps=20):
   areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
   S_init = []
   for a_ind, area in enumerate(uniq_areas):
-      S_init += [round(np.linspace(-1, 1, len(uniq_areas))[a_ind], 2)] * areas.count(area)
+    S_init += [round(np.linspace(-1, 1, len(uniq_areas))[area_plot_order.index(area)], 2)] * areas.count(area)
   S_init = np.array(S_init)
   for col_ind, col in enumerate(cols):
     G = G_dict[row][col]
     A = nx.to_numpy_array(G)
     A[A.nonzero()] = 1
-    A += 5*np.diag(A.sum(0)) # add itself
+    # A += 5*np.diag(A.sum(0)) # based on its degree
+    A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
     no_neighbor = np.where(A.sum(0)==0)[0]
     A[no_neighbor, no_neighbor] = 1
     A = A.astype(float)
@@ -6942,17 +6986,23 @@ def plot_state(G_dict, row_ind, active_area_dict, measure, n, timesteps=20):
     S = S_init.copy()
     # steps = 20
     state_variation= np.zeros((A.shape[0], timesteps))
-    state_variation[:, 0] = S_init
+    state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
     for ts in range(1, timesteps):
       S = T @ S
-      state_variation[:, ts] = S
+      state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
     plt.subplot(1, len(cols), col_ind+1)
+    if col_ind == 0:
+      cmap = cm.get_cmap('rainbow')
+      norm = colors.Normalize(vmin=-1, vmax=1)
+      for ind, t_pos in enumerate(text_pos):
+        plt.text(-12., t_pos, area_plot_order[ind], size=20, color=cmap(norm(np.linspace(-1, 1, len(uniq_areas))[ind])))
     # plt.imshow(my_image1, vmin=0, vmax=10, cmap='jet', aspect='auto')
     plt.imshow(state_variation, aspect='auto', cmap='rainbow')
     plt.title(col)
     plt.xlabel('step')
     plt.ylabel('neuron number')
   plt.colorbar()
-  plt.tight_layout()
-  plt.savefig('./plots/state_vetor_{}_{}_{}fold.jpg'.format(row, measure, n))
-  plt.show()
+  plt.suptitle('{}, epsilon = {}'.format(row, epsilon), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
+  # plt.show()
