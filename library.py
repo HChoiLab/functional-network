@@ -5,15 +5,18 @@ import numpy as np
 import pandas as pd
 import os
 import itertools
-import scipy
+from itertools import cycle
+# import scipy
 from scipy.stats import shapiro
 from scipy.stats import normaltest
+from scipy.spatial import distance
 from tqdm import tqdm
 import pickle
 import time
 import sys
 import re
-import random
+# import random
+from mpl_toolkits.axes_grid1 import axes_grid
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cm
@@ -36,6 +39,7 @@ from scipy import sparse
 # from plfit import plfit
 import collections
 from collections import defaultdict
+# from sklearn.manifold import TSNE
 from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
 import gurobipy as gp
@@ -7005,4 +7009,238 @@ def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps
   plt.suptitle('{}, epsilon = {}'.format(row, epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
+  # plt.show()
+
+def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  row, col = rows[row_ind], cols[col_ind]
+  np.random.seed(1)
+  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+  S_init = np.array(S_init)
+  print(col)
+  G = G_dict[row][col]
+  A = nx.to_numpy_array(G)
+  A[A.nonzero()] = 1
+  # A += 5*np.diag(A.sum(0)) # based on its degree
+  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+  no_neighbor = np.where(A.sum(0)==0)[0]
+  A[no_neighbor, no_neighbor] = 1
+  A = A.astype(float)
+  A/=A.sum(0)
+  T = A.T
+  S = S_init.copy()
+  state_variation= np.zeros((A.shape[0], timesteps, 6))
+  state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
+  for ts in range(1, timesteps):
+    S = T @ S
+    state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+  colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+  cmap_list = cycle([colors.LinearSegmentedColormap.from_list("", ["white",c]) for c in colors_])
+  steps = [0, 2, 5, 10, 199]
+  nrows = 1
+  ncols = len(steps)
+  naxes = 6
+  fig = plt.figure(figsize=(6, 10))
+  for t_ind, ts in enumerate(steps):
+    ag = axes_grid.Grid(fig, (nrows, ncols, t_ind+1), (1, naxes), axes_pad=0)
+    ag.axes_all[2].set_title('step {}'.format(ts), size=10)
+    for j in range(naxes):
+      sns.heatmap(pd.DataFrame(state_variation[:,ts,j]), ax=ag[j], cbar=False, cmap=cmap_list.__next__(), xticklabels=False, yticklabels=False) # pad is the space between cbar and heatmap, aspect is the ratio of long to short dimensions   , cbar=True, cbar_kws={"orientation": "vertical", 'location':'left', "shrink": .8, 'pad': 0.01, 'aspect': 6}
+    if t_ind == 0:
+      for ind, t_pos in enumerate(text_pos):
+        plt.text(-8., t_pos, area_plot_order[ind], size=10, color=colors_[ind])
+  plt.subplots_adjust(wspace=0.5, hspace=0.5)
+  plt.suptitle('{}, {}, epsilon = {}'.format(row, col, epsilon), size=13)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}_{}fold.jpg'.format(epsilon, row, col, measure, n))
+  # plt.show()
+
+##################### plot state distance
+def plot_state_jsdistance(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  row = rows[row_ind]
+  np.random.seed(1)
+  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+  S_init = np.array(S_init)
+  fig = plt.figure(figsize=(4*len(cols), 2*len(cols)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    plt.subplot(2, int(np.ceil(len(cols)/2)), col_ind+1)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    G = G_dict[row][col]
+    A = nx.to_numpy_array(G)
+    A[A.nonzero()] = 1
+    # A += 5*np.diag(A.sum(0)) # based on its degree
+    A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+    no_neighbor = np.where(A.sum(0)==0)[0]
+    A[no_neighbor, no_neighbor] = 1
+    A = A.astype(float)
+    A/=A.sum(0)
+    T = A.T
+    S = S_init.copy()
+    state_variation= np.zeros((A.shape[0], timesteps, 6))
+    state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
+    for ts in range(1, timesteps):
+      S = T @ S
+      state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+    distances = np.zeros((A.shape[0], timesteps))
+    for ts in range(timesteps):
+      for neuron in range(A.shape[0]):
+        distances[neuron, ts] = distance.jensenshannon(state_variation[neuron, 0], state_variation[neuron, ts])
+    plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+    area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+    colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+    for i in range(len(area_plot_order)):
+      region_distance = distances[area_inds[i]:area_inds[i+1]]
+      mean, std = region_distance.mean(0), region_distance.std(0)
+      plt.plot(range(timesteps), mean, color=colors_[5-i], label=area_plot_order[i], alpha=0.8)
+      # plt.fill_between(range(timesteps), mean-std, mean+std, color=colors_[5-i], alpha=0.2)
+    plt.legend()
+    plt.xlabel('step')
+    plt.ylabel('JS distance')
+  plt.suptitle('{}, epsilon = {}'.format(row, epsilon), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_jsdistance_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
+  # plt.show()
+
+##################### plot state region fraction
+def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  fig = plt.figure(figsize=(4*len(cols), 2*len(cols)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    plt.subplot(2, int(np.ceil(len(cols)/2)), col_ind+1)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    region_fraction = np.zeros((len(area_plot_order), len(rows), timesteps))
+    for row_ind, row in enumerate(rows):
+      if row_ind != 1:
+        G = G_dict[row][col]
+        areas = [active_area_dict[row][node] for node in G.nodes()]
+        indexes = np.unique(areas, return_index=True)[1]
+        uniq_areas = [areas[index] for index in sorted(indexes)]
+        uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+        S_init = []
+        for a_ind, area in enumerate(uniq_areas):
+          S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+        S_init = np.array(S_init)
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        # A += 5*np.diag(A.sum(0)) # based on its degree
+        A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+        no_neighbor = np.where(A.sum(0)==0)[0]
+        A[no_neighbor, no_neighbor] = 1
+        A = A.astype(float)
+        A/=A.sum(0)
+        T = A.T
+        S = S_init.copy()
+        state_variation= np.zeros((A.shape[0], timesteps, 6))
+        state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
+        for ts in range(1, timesteps):
+          S = T @ S
+          state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+        plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        for region_ind, region in enumerate(area_plot_order):
+          region_loc = np.where(one_hot[region_ind])[0][0]
+          region_fraction[region_ind, row_ind] = state_variation[area_inds[region_ind]:area_inds[region_ind+1], :, region_loc].mean(0)
+      
+    colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+    for i in range(len(area_plot_order)):
+      mean, std = region_fraction[i,[0,2,3,4,5]].mean(0), region_fraction[i,[0,2,3,4,5]].std(0)
+      plt.plot(range(timesteps), mean, color=colors_[5-i], label=area_plot_order[i], alpha=0.9)
+      # plt.fill_between(range(timesteps), mean-std, mean+std, color=colors_[5-i], alpha=0.2)
+    plt.legend()
+    plt.ylim(0.2, 1.05)
+    plt.xlabel('step')
+    plt.ylabel('region fraction')
+  plt.suptitle('epsilon = {}'.format(epsilon), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  # plt.show()
+
+##################### plot state steady distribution for each region
+def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  # one_hot = np.array([[0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 0], [0, 0, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0], [0, 1, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0]])
+  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  fig = plt.figure(figsize=(5*len(cols), 4*len(area_plot_order)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    steady_distribution = np.zeros((len(area_plot_order), 2, len(area_plot_order)))
+    s_distri = {r:[] for r in area_plot_order}
+    for row_ind, row in enumerate(rows):
+      if row_ind != 1:
+        G = G_dict[row][col]
+        areas = [active_area_dict[row][node] for node in G.nodes()]
+        indexes = np.unique(areas, return_index=True)[1]
+        uniq_areas = [areas[index] for index in sorted(indexes)]
+        uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+        S_init = []
+        for a_ind, area in enumerate(uniq_areas):
+          S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+        S_init = np.array(S_init)
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        # A += 5*np.diag(A.sum(0)) # based on its degree
+        A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+        no_neighbor = np.where(A.sum(0)==0)[0]
+        A[no_neighbor, no_neighbor] = 1
+        A = A.astype(float)
+        A/=A.sum(0)
+        T = A.T
+        S = S_init.copy()
+        state_variation= np.zeros((A.shape[0], timesteps, 6))
+        state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
+        for ts in range(1, timesteps):
+          S = T @ S
+          state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+        plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        for region_ind, region in enumerate(area_plot_order):
+          s_distri[region].append(state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, :].mean(0))
+    for region_ind, region in enumerate(area_plot_order):
+      steady_distribution[region_ind, 0] = np.vstack((s_distri[region])).mean(0)
+      steady_distribution[region_ind, 1] = np.vstack((s_distri[region])).std(0)
+    colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+    for i in range(len(area_plot_order)):
+      ax = plt.subplot(len(area_plot_order), len(cols), i*len(cols)+col_ind+1)
+      if i == 0:
+        plt.gca().set_title(col, fontsize=20, rotation=0)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      
+      ax.bar(range(len(area_plot_order)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=0.6, ecolor='black', color=colors_, capsize=10)
+      ax.set_ylabel(area_plot_order[i])
+      ax.set_xticks(range(len(area_plot_order)))
+      ax.set_xticklabels(area_plot_order)
+      plt.ylim(0, 1.)
+
+  plt.suptitle('epsilon = {}'.format(epsilon), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
