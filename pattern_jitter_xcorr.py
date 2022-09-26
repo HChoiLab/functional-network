@@ -4609,7 +4609,10 @@ with open('c_window.pkl', 'wb') as f:
 #%%
 with open('c_window.pkl', 'rb') as f:
   c_window_l = pickle.load(f)
+#%%
 plot_multi_correlation_window(c_window_l, measure, n)
+#%%
+plot_correlation_window_box(c_window_l, measure, n)
 #%%
 ################# time to return to source neuron
 def get_return_time(G_dict):
@@ -4723,7 +4726,128 @@ def plot_state_RGB(G,timesteps=20):
 
 plot_state_RGB(G, timesteps=20)
 #%%
-for row_ind in range(8):
+# plot_state(G_ccg_dict, 7, 4, active_area_dict, measure, n, timesteps=50)
+epsilon_list = [0, 5, 10, 20, 50, 100]
+# epsilon = 5
+for row_ind in range(2, 8):
   print(row_ind)
-  plot_state(G_ccg_dict, row_ind, active_area_dict, measure, n, timesteps=50)
+  for epsilon in epsilon_list:
+    plot_state(G_ccg_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps=50)
+#%%
+##################### plot state change with one hot encoding
+# plot_state_onehot(G_ccg_dict, 7, 3, 80, active_area_dict, measure, n, timesteps=50)
+for row_ind in range(0, 8):
+  print(row_ind)
+  if row_ind != 1:
+    for col_ind in range(0, 8):
+      plot_state_onehot(G_ccg_dict, row_ind, col_ind, 4, active_area_dict, measure, n, timesteps=200)
+# %%
+def plot_time_degree(G_dict, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(9*len(cols), 6*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=30, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=30, rotation=90)
+      G = G_dict[row][col]
+      out_degree, time, duration, delay = [], [], [], []
+      for node in G.nodes():
+        if G.out_degree(node):
+          out_degree.append(G.out_degree(node))
+          temp1, temp2, temp3 = [], [], []
+          for neighbor in G.successors(node):
+            temp1.append(G[node][neighbor]['offset'])
+            temp2.append(G[node][neighbor]['duration'])
+            temp3.append(G[node][neighbor]['delay'])
+          time.append(np.mean(temp1))
+          duration.append(np.mean(temp2))
+          delay.append(np.mean(temp3))
+
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      plt.scatter(out_degree, time, label='time lag', color='r', alpha=0.4)
+      plt.scatter(out_degree, duration, label='duration', color='b', alpha=0.4)
+      plt.scatter(out_degree, delay, label='delay', color='g', alpha=0.4)
+      plt.xlabel('out degree')
+      plt.ylabel('t (ms)')
+      plt.legend()
+      # plt.xlabel('return time ms')
+  # plt.suptitle('return time (ms)', size=50)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/multi_time_degree{}_{}fold.jpg'.format(measure, n))
+
+plot_time_degree(S_ccg_dict, measure, n)
+# %%
+def plot_time_degree_edge(G_dict, measure, n):
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col in cols:
+    print(col)
+    degree, offset, duration, delay = [], [], [], []
+    for row in rows:
+      G = G_dict[row][col]
+      for edge in G.edges():
+        offset.append(G[edge[0]][edge[1]]['offset'])
+        duration.append(G[edge[0]][edge[1]]['duration'])
+        delay.append(G[edge[0]][edge[1]]['delay'])
+        degree.append(sum([G.out_degree(edge[0]), G.in_degree(edge[1])])/2)
+    uniq_degree = sorted(set(degree))
+    degree, offset, duration, delay = np.array(degree), np.array(offset), np.array(duration), np.array(delay)
+    offset_mean, offset_std, duration_mean, duration_std, delay_mean, delay_std = [[] for _ in range(6)]
+    for d in uniq_degree:
+      idx = np.where(degree==d)[0]
+      offset_mean.append(offset[idx].mean())
+      offset_std.append(offset[idx].std())
+      duration_mean.append(duration[idx].mean())
+      duration_std.append(duration[idx].std())
+      delay_mean.append(delay[idx].mean())
+      delay_std.append(delay[idx].std())
+
+    offset_mean, offset_std, duration_mean, duration_std, delay_mean, delay_std = np.array(offset_mean), np.array(offset_std), np.array(duration_mean), np.array(duration_std), np.array(delay_mean), np.array(delay_std)
+    ax=plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(col, fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    plt.plot(uniq_degree, offset_mean, label='time lag', color='r', alpha=0.4)
+    plt.fill_between(uniq_degree, offset_mean - offset_std, offset_mean + offset_std, color='r', alpha=0.2)
+    plt.plot(uniq_degree, duration_mean, label='duration lag', color='b', alpha=0.4)
+    plt.fill_between(uniq_degree, duration_mean - duration_std, duration_mean + duration_std, color='b', alpha=0.2)
+    plt.plot(uniq_degree, delay_mean, label='delay', color='g', alpha=0.4)
+    plt.fill_between(uniq_degree, delay_mean - delay_std, delay_mean + delay_std, color='g', alpha=0.2)
+    plt.xlabel('mean degree')
+    plt.ylabel('t (ms)')
+    plt.legend()
+  plt.tight_layout()
+  figname = './plots/time_degree_edge_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
+plot_time_degree_edge(S_ccg_dict, measure, n)
+# %%
+# plot_state_jsdistance(G_ccg_dict, 7, 4, active_area_dict, measure, n, timesteps=200)
+for row_ind in range(0, 8):
+  print(row_ind)
+  if row_ind != 1:
+    plot_state_jsdistance(G_ccg_dict, row_ind, 4, active_area_dict, measure, n, timesteps=200)
+#%%
+plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+#%%
+plot_steady_distribution(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
 # %%
