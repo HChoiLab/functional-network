@@ -4673,75 +4673,6 @@ def plot_return_time(time_dict, measure, n):
 
 plot_return_time(time_dict, measure, n)
 # %%
-################## initilize each neuron with one state (color) and propagate
-def getRGBfromI(RGBint):
-  # [0, 16777215]
-  blue =  RGBint & 255
-  green = (RGBint >> 8) & 255
-  red =   (RGBint >> 16) & 255
-  return red, green, blue
-
-def getIfromRGB(rgb):
-  red = rgb[0]
-  green = rgb[1]
-  blue = rgb[2]
-  print(red, green, blue)
-  RGBint = (red<<16) + (green<<8) + blue
-  return RGBint
-# %%
-def plot_state_RGB(G,timesteps=20):
-  # fig, axs = plt.subplots(1, len(cols),figsize=(30,20))
-  plt.figure(figsize=(40, 20))
-  np.random.seed(0)
-  S_init = np.random.randint(low=0, high=16777215, size=G.number_of_nodes())
-  for col_ind, col in enumerate(cols):
-    G = G_ccg_dict[row][col]
-    A = nx.to_numpy_array(G)
-    A[A.nonzero()] = 1
-    A += 500*np.diag(A.sum(0)) # add itself
-    no_neighbor = np.where(A.sum(0)==0)[0]
-    A[no_neighbor, no_neighbor] = 1
-    A = A.astype(float)
-    A/=A.sum(0)
-    T = A.T
-    S = S_init.copy()
-    # steps = 20
-    state_variation= np.zeros((A.shape[0], timesteps, 3))
-    r,g,b = getRGBfromI(S_init)
-    state_variation[:, 0, 0] = r
-    state_variation[:, 0, 1] = g
-    state_variation[:, 0, 2] = b
-    for ts in range(1, timesteps):
-      S = (T @ S).astype(int)
-      r,g,b = getRGBfromI(S)
-      state_variation[:, ts, 0] = r
-      state_variation[:, ts, 1] = g
-      state_variation[:, ts, 2] = b
-    plt.subplot(1, len(cols), col_ind+1)
-    # plt.imshow(my_image1, vmin=0, vmax=10, cmap='jet', aspect='auto')
-    plt.imshow(state_variation.astype(int), aspect='auto')
-    plt.title(col)
-  plt.tight_layout()
-  plt.show()
-
-plot_state_RGB(G, timesteps=20)
-#%%
-# plot_state(G_ccg_dict, 7, 4, active_area_dict, measure, n, timesteps=50)
-epsilon_list = [0, 5, 10, 20, 50, 100]
-# epsilon = 5
-for row_ind in range(2, 8):
-  print(row_ind)
-  for epsilon in epsilon_list:
-    plot_state(G_ccg_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps=50)
-#%%
-##################### plot state change with one hot encoding
-# plot_state_onehot(G_ccg_dict, 7, 3, 80, active_area_dict, measure, n, timesteps=50)
-for row_ind in range(0, 8):
-  print(row_ind)
-  if row_ind != 1:
-    for col_ind in range(0, 8):
-      plot_state_onehot(G_ccg_dict, row_ind, col_ind, 4, active_area_dict, measure, n, timesteps=200)
-# %%
 def plot_time_degree(G_dict, measure, n):
   ind = 1
   rows, cols = get_rowcol(G_dict)
@@ -4840,6 +4771,23 @@ def plot_time_degree_edge(G_dict, measure, n):
   plt.savefig(figname)
 
 plot_time_degree_edge(S_ccg_dict, measure, n)
+#%%
+################## initilize each neuron with 1-d state (color) and propagate
+# plot_state(G_ccg_dict, 7, 4, active_area_dict, measure, n, timesteps=50)
+epsilon_list = [0, 5, 10, 20, 50, 100]
+# epsilon = 5
+for row_ind in range(2, 8):
+  print(row_ind)
+  for epsilon in epsilon_list:
+    plot_state(G_ccg_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps=50)
+#%%
+##################### plot state change with one hot encoding
+# plot_state_onehot(G_ccg_dict, 7, 3, 4, active_area_dict, measure, n, timesteps=200)
+for row_ind in range(0, 8):
+  print(row_ind)
+  if row_ind != 1:
+    for col_ind in range(0, 8):
+      plot_state_onehot(G_ccg_dict, row_ind, col_ind, 4, active_area_dict, measure, n, timesteps=200)
 # %%
 # plot_state_jsdistance(G_ccg_dict, 7, 4, active_area_dict, measure, n, timesteps=200)
 for row_ind in range(0, 8):
@@ -4849,5 +4797,25 @@ for row_ind in range(0, 8):
 #%%
 plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
 #%%
+for row in rows:
+  uniq_area, counts = np.unique(list(active_area_dict[row].values()),return_counts=True)
+  print(row, [x for _, x in sorted(zip(counts, uniq_area), reverse=True)])
+#%%
+df = pd.DataFrame(index=rows, columns=cols)
+for row in rows:
+  for col_ind in range(1, 5):
+    col = cols[col_ind]
+    G = G_ccg_dict[row][col]
+    uniq_area = np.unique(list(active_area_dict[row].values()))
+    area_count = []
+    for area in uniq_area:
+      nodes = [node for node in active_area_dict[row] if active_area_dict[row][node]==area]
+      area_count.append(sum([G.in_degree(node) for node in nodes]))
+    df.loc[row][col] = uniq_area[np.argmax(area_count)]
+df.drop(['spontaneous', 'natural_scenes', 'natural_movie_one', 'natural_movie_three'], axis=1)
+#%%
 plot_steady_distribution(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+# %%
+x = np.array([[.9, 0, 0.05, 0.03, 0.02], [.8, .1, .02, .06, .02]])
+inv_sigmoid(x)
 # %%
