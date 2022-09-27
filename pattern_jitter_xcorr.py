@@ -4795,12 +4795,25 @@ for row_ind in range(0, 8):
   if row_ind != 1:
     plot_state_jsdistance(G_ccg_dict, row_ind, 4, active_area_dict, measure, n, timesteps=200)
 #%%
+################# original region fraction for each region
 plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
 #%%
+################# bar plot of steady state for each region and stimulus
+plot_steady_distribution(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+#%%
+################# dominance score
+plot_dominance_score(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+#%%
+################# steps to convergence
+epsilon_list = np.arange(0, 202, 2)
+plot_step2convergence(G_ccg_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=2000)
+#%%
+################# rank region based on size
 for row in rows:
   uniq_area, counts = np.unique(list(active_area_dict[row].values()),return_counts=True)
   print(row, [x for _, x in sorted(zip(counts, uniq_area), reverse=True)])
 #%%
+################# rank region based on out degree
 df = pd.DataFrame(index=rows, columns=cols)
 for row in rows:
   for col_ind in range(1, 5):
@@ -4814,8 +4827,5 @@ for row in rows:
     df.loc[row][col] = uniq_area[np.argmax(area_count)]
 df.drop(['spontaneous', 'natural_scenes', 'natural_movie_one', 'natural_movie_three'], axis=1)
 #%%
-plot_steady_distribution(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
-# %%
-x = np.array([[.9, 0, 0.05, 0.03, 0.02], [.8, .1, .02, .06, .02]])
-inv_sigmoid(x)
+
 # %%
