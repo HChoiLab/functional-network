@@ -7173,8 +7173,8 @@ def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, ti
     plt.ylabel('region fraction')
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  # plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
-  plt.show()
+  plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  # plt.show()
 
 ##################### plot state steady distribution for each region
 def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
@@ -7218,4 +7218,124 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   plt.savefig('./plots/state_vetor_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  # plt.show()
+
+def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  fig = plt.figure(figsize=(5*len(cols), 4))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    dominance_score = np.zeros((len(area_plot_order), 2))
+    s_score = []
+    for row_ind, row in enumerate(rows):
+      if row_ind != 1:
+        G = G_dict[row][col]
+        areas = [active_area_dict[row][node] for node in G.nodes()]
+        # indexes = np.unique(areas, return_index=True)[1]
+        # uniq_areas = [areas[index] for index in sorted(indexes)]
+        # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+        _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
+        # plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+        # area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        s_score.append(state_variation[:, -1, :].mean(0) / state_variation[:, 0, :].mean(0))
+    dominance_score[:, 0] = np.vstack((s_score)).mean(0)
+    dominance_score[:, 1] = np.vstack((s_score)).std(0)
+    colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+    ax = plt.subplot(1, len(cols), col_ind+1)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    
+    ax.bar(range(len(area_plot_order)), dominance_score[:, 0], yerr=dominance_score[:, 1], align='center', alpha=0.6, ecolor='black', color=colors_, capsize=10)
+    ax.set_xticks(range(len(area_plot_order)))
+    ax.set_xticklabels(area_plot_order)
+    if col_ind == 0:
+      plt.ylabel('dominance score')
+    # plt.ylim(-.5, 4.5)
+
+  plt.suptitle('epsilon = {}'.format(epsilon), size=30)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.savefig('./plots/state_vetor_dominance_score_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  # plt.show()
+
+def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
+  areas = [active_area[node] for node in G.nodes()]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
+  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+    S_init += [one_hot[a_ind, :]] * areas.count(area)
+  S_init = np.array(S_init)
+  A = nx.to_numpy_array(G)
+  A[A.nonzero()] = 1
+  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+  no_neighbor = np.where(A.sum(0)==0)[0]
+  A[no_neighbor, no_neighbor] = 1
+  A = A.astype(float)
+  A/=A.sum(0)
+  T = A.T
+  old_S = S_init.copy()
+  step2conv = np.zeros(len(area_plot_order))
+  step2conf = np.ones(len(area_plot_order)) * step2confirm
+  area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  for ts in range(1, maxsteps):
+    # S = T @ S
+    new_S = softmax(inv_sigmoid((T @ T) @ old_S), axis=1)
+    for area_ind, area in enumerate(uniq_areas):
+      if step2conv[area_plot_order.index(area)] <= 0: # else it's already found
+        if np.allclose(new_S[area_inds[area_ind]:area_inds[area_ind+1]], old_S[area_inds[area_ind]:area_inds[area_ind+1]]):
+          step2conf[area_plot_order.index(area)] -= 1
+        else:
+          step2conf[area_plot_order.index(area)] = step2confirm
+        if step2conf[area_plot_order.index(area)] <= 0:
+          step2conv[area_plot_order.index(area)] = ts - step2confirm
+    if (step2conv > 0).all():
+      break
+    else:
+      old_S = new_S.copy()
+  if (step2conv==0).sum() > 0:
+    regions = [area_plot_order[ind] for ind in np.where(step2conv==0)[0]]
+    print('Reach maximal step {} for region(s) {}'.format(maxsteps, regions))
+    step2conv[step2conv==0] = maxsteps
+  return step2conv
+
+def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=1000):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  fig = plt.figure(figsize=(5*len(cols), 4))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    step2convergence = np.zeros((len(area_plot_order), len(rows), len(epsilon_list)))
+    for row_ind, row in enumerate(rows):
+      print(row)
+      if row_ind != 1:
+        G = G_dict[row][col]
+        for e_ind, epsilon in enumerate(epsilon_list):
+          step2convergence[:, row_ind, e_ind] = propagation2convergence(G, epsilon, area_plot_order, active_area_dict[row], step2confirm=step2confirm, maxsteps=maxsteps)
+          
+    colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+    ax = plt.subplot(1, len(cols), col_ind+1)
+    plt.gca().set_title(col, fontsize=20, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    
+    for area_ind, area in enumerate(area_plot_order):
+      ymean, yerr = step2convergence[area_ind].mean(0), 2 * step2convergence[area_ind].std(0)
+      # plt.errorbar(epsilon_list, ymean, yerr=yerr, label=area, alpha=0.6, color=colors_[area_ind])
+      plt.plot(epsilon_list, ymean, label=area, alpha=0.6, color=colors_[area_ind])
+    plt.legend()
+    plt.xlabel('epsilon')
+    if col_ind == 0:
+      plt.ylabel('steps to convergence')
+    # plt.ylim(-.5, 4.5)
+
+  plt.tight_layout()
+  plt.savefig('./plots/state_vetor_step2convergence_{}_{}fold.jpg'.format(measure, n))
   # plt.show()
