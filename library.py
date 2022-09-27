@@ -10,6 +10,7 @@ from itertools import cycle
 from scipy.stats import shapiro
 from scipy.stats import normaltest
 from scipy.spatial import distance
+from scipy.special import softmax
 from tqdm import tqdm
 import pickle
 import time
@@ -7011,28 +7012,34 @@ def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps
   plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
   # plt.show()
 
-def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measure, n, timesteps=20):
-  rows, cols = get_rowcol(G_dict)
-  row, col = rows[row_ind], cols[col_ind]
-  np.random.seed(1)
-  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+def inv_sigmoid(x):
+  x = np.array(x)
+  y = np.zeros_like(x)
+  valid_inds = (x > 0) & (x < 1)
+  large_inds = x >= 1
+  small_inds = x <= 0
+  y[valid_inds] = np.log(x[valid_inds]/(1-x[valid_inds]))
+  y[large_inds] = 1000 # enough for softmax to be 1
+  y[small_inds] = -1000 # enough for softmax to be 0
+  return y
+
+def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
+  areas = [active_area[node] for node in G.nodes()]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
   areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
   areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
   text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
-  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
+  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
   S_init = []
   for a_ind, area in enumerate(uniq_areas):
     S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
   S_init = np.array(S_init)
-  print(col)
-  G = G_dict[row][col]
   A = nx.to_numpy_array(G)
   A[A.nonzero()] = 1
-  # A += 5*np.diag(A.sum(0)) # based on its degree
   A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
   no_neighbor = np.where(A.sum(0)==0)[0]
   A[no_neighbor, no_neighbor] = 1
@@ -7043,11 +7050,20 @@ def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measu
   state_variation= np.zeros((A.shape[0], timesteps, 6))
   state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
   for ts in range(1, timesteps):
-    S = T @ S
+    # S = T @ S
+    S = softmax(inv_sigmoid((T @ T) @ S), axis=1)
     state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+  return text_pos, state_variation
+
+def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measure, n, timesteps=20):
+  rows, cols = get_rowcol(G_dict)
+  row, col = rows[row_ind], cols[col_ind]
+  np.random.seed(1) 
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  text_pos, state_variation = message_propagation(G_dict[row][col], epsilon, active_area_dict[row], area_plot_order, timesteps)
   colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
   cmap_list = cycle([colors.LinearSegmentedColormap.from_list("", ["white",c]) for c in colors_])
-  steps = [0, 2, 5, 10, 199]
+  steps = [0, 10, 15, 20, 199]
   nrows = 1
   ncols = len(steps)
   naxes = 6
@@ -7140,55 +7156,32 @@ def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, ti
       if row_ind != 1:
         G = G_dict[row][col]
         areas = [active_area_dict[row][node] for node in G.nodes()]
-        indexes = np.unique(areas, return_index=True)[1]
-        uniq_areas = [areas[index] for index in sorted(indexes)]
-        uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-        S_init = []
-        for a_ind, area in enumerate(uniq_areas):
-          S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
-        S_init = np.array(S_init)
-        A = nx.to_numpy_array(G)
-        A[A.nonzero()] = 1
-        # A += 5*np.diag(A.sum(0)) # based on its degree
-        A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-        no_neighbor = np.where(A.sum(0)==0)[0]
-        A[no_neighbor, no_neighbor] = 1
-        A = A.astype(float)
-        A/=A.sum(0)
-        T = A.T
-        S = S_init.copy()
-        state_variation= np.zeros((A.shape[0], timesteps, 6))
-        state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
-        for ts in range(1, timesteps):
-          S = T @ S
-          state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+        _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
         plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
         area_inds = [0] + np.cumsum(plot_areas_num).tolist()
         for region_ind, region in enumerate(area_plot_order):
           region_loc = np.where(one_hot[region_ind])[0][0]
-          region_fraction[region_ind, row_ind] = state_variation[area_inds[region_ind]:area_inds[region_ind+1], :, region_loc].mean(0)
-      
+          region_fraction[region_ind, row_ind] = state_variation[area_inds[region_ind]:area_inds[region_ind+1], :, region_loc].mean(0) 
     colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
     for i in range(len(area_plot_order)):
       mean, std = region_fraction[i,[0,2,3,4,5]].mean(0), region_fraction[i,[0,2,3,4,5]].std(0)
-      plt.plot(range(timesteps), mean, color=colors_[5-i], label=area_plot_order[i], alpha=0.9)
-      # plt.fill_between(range(timesteps), mean-std, mean+std, color=colors_[5-i], alpha=0.2)
+      plt.plot(range(timesteps), mean, color=colors_[i], label=area_plot_order[i], alpha=0.9)
+      # plt.fill_between(range(timesteps), mean-std, mean+std, color=colors_[i], alpha=0.2)
     plt.legend()
     plt.ylim(0.2, 1.05)
     plt.xlabel('step')
     plt.ylabel('region fraction')
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
-  # plt.show()
+  # plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  plt.show()
 
 ##################### plot state steady distribution for each region
 def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
   area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
-  # one_hot = np.array([[0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 0], [0, 0, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0], [0, 1, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0]])
-  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
   fig = plt.figure(figsize=(5*len(cols), 4*len(area_plot_order)))
   for col_ind, col in enumerate(cols):
     print(col)
@@ -7198,28 +7191,10 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
       if row_ind != 1:
         G = G_dict[row][col]
         areas = [active_area_dict[row][node] for node in G.nodes()]
-        indexes = np.unique(areas, return_index=True)[1]
-        uniq_areas = [areas[index] for index in sorted(indexes)]
-        uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-        S_init = []
-        for a_ind, area in enumerate(uniq_areas):
-          S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
-        S_init = np.array(S_init)
-        A = nx.to_numpy_array(G)
-        A[A.nonzero()] = 1
-        # A += 5*np.diag(A.sum(0)) # based on its degree
-        A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-        no_neighbor = np.where(A.sum(0)==0)[0]
-        A[no_neighbor, no_neighbor] = 1
-        A = A.astype(float)
-        A/=A.sum(0)
-        T = A.T
-        S = S_init.copy()
-        state_variation= np.zeros((A.shape[0], timesteps, 6))
-        state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
-        for ts in range(1, timesteps):
-          S = T @ S
-          state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+        # indexes = np.unique(areas, return_index=True)[1]
+        # uniq_areas = [areas[index] for index in sorted(indexes)]
+        # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+        _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
         plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
         area_inds = [0] + np.cumsum(plot_areas_num).tolist()
         for region_ind, region in enumerate(area_plot_order):
