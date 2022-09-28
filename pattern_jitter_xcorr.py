@@ -4027,6 +4027,52 @@ signed_triad_count = signed_triad_census(all_triads)
 summice_signed_triad_count = summice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 #%%
+################## motif intensity and coherence
+start_time = time.time()
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+intensity_dict, coherence_dict = get_signed_intensity_coherence(G_ccg_dict, motif_types)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# rows, cols = get_rowcol(G_ccg_dict)
+# row, col = rows[0], cols[0]
+# algorithm='directed_double_edge_swap'
+# num_baseline = 10
+# i_dict, c_dict = defaultdict(lambda: np.zeros(num_baseline)), defaultdict(lambda: np.zeros(num_baseline))
+# G = G_ccg_dict[row][col]
+# random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
+# #%%
+# motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+# for g_ind, random_graph in enumerate(random_graphs):
+#   print(g_ind)
+#   motifs_by_type = nx.triads_by_type(random_graph)
+#   for motif_type in motif_types:
+#     print(motif_type)
+#     motifs = motifs_by_type[motif_type]
+#     for motif in motifs:
+#       intensity, coherence = get_motif_intensity_coherence(motif)
+#       signed_motif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+#       i_dict[signed_motif_type][g_ind] += intensity
+#       c_dict[signed_motif_type][g_ind] += coherence
+#%%
+start_time = time.time()
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='directed_double_edge_swap', num_baseline=10)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+with open('baseline_intensity_dict.pkl', 'wb') as f:
+  pickle.dump(baseline_intensity_dict, f)
+with open('baseline_coherence_dict.pkl', 'wb') as f:
+  pickle.dump(baseline_coherence_dict, f)
+#%%
+with open('intensity_dict.pkl', 'wb') as f:
+  pickle.dump(intensity_dict, f)
+with open('coherence_dict.pkl', 'wb') as f:
+  pickle.dump(coherence_dict, f)
+#%%
+with open('intensity_dict.pkl', 'rb') as f:
+  intensity_dict = pickle.load(f)
+with open('coherence_dict.pkl', 'rb') as f:
+  coherence_dict = pickle.load(f)
+#%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_color = {'030T':'Green', '120D':'Blue', '120U':'Red', '300':'Grey'}
