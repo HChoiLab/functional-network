@@ -4808,6 +4808,11 @@ plot_dominance_score(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
 epsilon_list = np.arange(0, 202, 2)
 plot_step2convergence(G_ccg_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=2000)
 #%%
+################# stable region fraction against epsilon
+epsilon_list = np.arange(0, 202, 2)
+# epsilon_list = np.arange(0, 51, 1)
+plot_region_frac_epsilon(G_ccg_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=2000)
+#%%
 ################# rank region based on size
 for row in rows:
   uniq_area, counts = np.unique(list(active_area_dict[row].values()),return_counts=True)
