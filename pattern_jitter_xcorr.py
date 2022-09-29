@@ -4032,46 +4032,70 @@ start_time = time.time()
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
 intensity_dict, coherence_dict = get_signed_intensity_coherence(G_ccg_dict, motif_types)
 print("--- %s minutes" % ((time.time() - start_time)/60))
-#%%
-# rows, cols = get_rowcol(G_ccg_dict)
-# row, col = rows[0], cols[0]
-# algorithm='directed_double_edge_swap'
-# num_baseline = 10
-# i_dict, c_dict = defaultdict(lambda: np.zeros(num_baseline)), defaultdict(lambda: np.zeros(num_baseline))
-# G = G_ccg_dict[row][col]
-# random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
-# #%%
-# motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
-# for g_ind, random_graph in enumerate(random_graphs):
-#   print(g_ind)
-#   motifs_by_type = nx.triads_by_type(random_graph)
-#   for motif_type in motif_types:
-#     print(motif_type)
-#     motifs = motifs_by_type[motif_type]
-#     for motif in motifs:
-#       intensity, coherence = get_motif_intensity_coherence(motif)
-#       signed_motif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
-#       i_dict[signed_motif_type][g_ind] += intensity
-#       c_dict[signed_motif_type][g_ind] += coherence
+with open('intensity_dict.pkl', 'wb') as f:
+  pickle.dump(intensity_dict, f)
+with open('coherence_dict.pkl', 'wb') as f:
+  pickle.dump(coherence_dict, f)
 #%%
 start_time = time.time()
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
 baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='directed_double_edge_swap', num_baseline=10)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 with open('baseline_intensity_dict.pkl', 'wb') as f:
-  pickle.dump(baseline_intensity_dict, f)
+  pickle.dump(defaultdict_to_dict(baseline_intensity_dict), f)
 with open('baseline_coherence_dict.pkl', 'wb') as f:
-  pickle.dump(baseline_coherence_dict, f)
-#%%
-with open('intensity_dict.pkl', 'wb') as f:
-  pickle.dump(intensity_dict, f)
-with open('coherence_dict.pkl', 'wb') as f:
-  pickle.dump(coherence_dict, f)
+  pickle.dump(defaultdict_to_dict(baseline_coherence_dict), f)
 #%%
 with open('intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('coherence_dict.pkl', 'rb') as f:
   coherence_dict = pickle.load(f)
+#%%
+with open('baseline_intensity_dict.pkl', 'rb') as f:
+  baseline_intensity_dict = pickle.load(f)
+with open('baseline_coherence_dict.pkl', 'rb') as f:
+  baseline_coherence_dict = pickle.load(f)
+#%%
+################## z score for motif intensity and coherence
+rows, cols = get_rowcol(G_ccg_dict)
+signed_motif_types = set()
+for row in rows:
+  for col in cols:
+    signed_motif_types = signed_motif_types.union(set(list(intensity_dict[row][col].keys())).union(set(list(baseline_intensity_dict[row][col].keys()))))
+signed_motif_types = list(signed_motif_types)
+#%%
+################## average intensity across session
+whole_df = pd.DataFrame()
+for row in rows:
+  for col in cols:
+    motif_list, baseline_motif_list = [], []
+    for motif_type in signed_motif_types:
+      motif_list.append([motif_type, row, col, intensity_dict[row][col].get(motif_type, 0), baseline_intensity_dict[row][col].get(motif_type, np.zeros(10)).mean(), 
+                      baseline_intensity_dict[row][col].get(motif_type, np.zeros(10)).std(), coherence_dict[row][col].get(motif_type, 0), 
+                      baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).mean(), baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).std()])
+    df = pd.DataFrame(motif_list, columns =['signed motif type', 'session', 'stimulus', 'intensity', 'intensity mean', 'intensity std', 'coherence', 'coherence mean', 'coherence std']) 
+    whole_df = pd.concat([whole_df, df], ignore_index=True, sort=False)
+    # whole_df.set_index('signed motif type', inplace=True)
+    # whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
+whole_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).mean() # average over session
+whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
+whole_df['coherence z score'] = (whole_df['coherence']-whole_df['coherence mean'])/whole_df['coherence std']
+whole_df = whole_df[~whole_df.isin([np.nan, np.inf, -np.inf]).any(1)] # remove invalid rows
+print(whole_df)
+#%%
+################## Z score threshold of intensity
+threshold = 20
+session_inds = whole_df['intensity'] >= 4 # at least 1 motif for each session on average
+significant_inds = (whole_df['intensity z score']>threshold) | (whole_df['intensity z score']<-threshold)
+significant_df = whole_df[session_inds & significant_inds][['stimulus', 'signed motif type', 'intensity', 'intensity z score', 'coherence', 'coherence z score']]
+significant_df.set_index('stimulus', inplace=True)
+#%%
+################## Z score threshold of intensity for flash
+threshold = 4
+session_inds = whole_df['intensity'] >= 4 # at least 1 motif for each session on average
+significant_inds = (whole_df['intensity z score']>threshold) | (whole_df['intensity z score']<-threshold)
+flash_inds = (whole_df['stimulus'].isin(['flash_dark', 'flash_light']))
+whole_df[session_inds & significant_inds & flash_inds]
 #%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
