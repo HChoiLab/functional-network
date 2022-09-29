@@ -5655,6 +5655,17 @@ def get_signed_intensity_coherence_baseline(G_dict, motif_types, algorithm='dire
             coherence_dict[row][col][signed_motif_type][g_ind] += coherence
   return intensity_dict, coherence_dict
 
+def defaultdict_to_dict(defaultdict):
+  rows, cols = get_rowcol(defaultdict)
+  out_dict = {}
+  for row in rows:
+    out_dict[row] = {}
+    for col in cols:
+      out_dict[row][col] = {}
+      for k in defaultdict[row][col]:
+        out_dict[row][col][k] = defaultdict[row][col][k]
+  return out_dict
+
 def tran2ffl(edge_order, triad_type):
   triads = []
   if triad_type == '030T':
