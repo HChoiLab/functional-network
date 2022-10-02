@@ -4832,10 +4832,10 @@ def add_sign(G_dict):
     for col in cols:
       G = G_dict[row][col]
       weights = nx.get_edge_attributes(G,'weight')
-      A = nx.to_numpy_array(G)
+      A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
       A[A.nonzero()] = 1
       S = nx.from_numpy_array(A, create_using=nx.DiGraph)
-      node_idx = list(G.nodes())
+      node_idx = sorted(G.nodes())
       mapping = {i:node_idx[i] for i in range(len(node_idx))}
       S = nx.relabel_nodes(S, mapping)
       for (n1, n2, d) in S.edges(data=True):
@@ -7137,7 +7137,7 @@ def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps
   plt.figure(figsize=(40, 20))
   np.random.seed(1)
   # S_init = 2*np.random.rand(G.number_of_nodes())-1
-  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+  areas = [active_area_dict[row][node] for node in sorted(G_dict[row][cols[0]].nodes())]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7151,7 +7151,7 @@ def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps
   S_init = np.array(S_init)
   for col_ind, col in enumerate(cols):
     G = G_dict[row][col]
-    A = nx.to_numpy_array(G)
+    A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
     A[A.nonzero()] = 1
     # A += 5*np.diag(A.sum(0)) # based on its degree
     A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
@@ -7196,7 +7196,7 @@ def inv_sigmoid(x):
   return y
 
 def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
-  areas = [active_area[node] for node in G.nodes()]
+  areas = [active_area[node] for node in sorted(G.nodes())]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7210,13 +7210,31 @@ def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
   for a_ind, area in enumerate(uniq_areas):
     S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
   S_init = np.array(S_init)
-  A = nx.to_numpy_array(G)
+  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
+  A[A<0] = 0 # only keep excitatory links
   A[A.nonzero()] = 1
+
+  # disproportional to region size
+  # area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  # for region_ind in range(len(uniq_areas)):
+  #   nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
+  #   A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = 1 / uniq_areas_num[region_ind]
+
+  # first normalize neighbors then add self loop
+  # no_neighbor = np.where(A.sum(0)==0)[0]
+  # A[no_neighbor, no_neighbor] = 1
+  # A = A.astype(float)
+  # A/=A.sum(0)
+  # A += (1+epsilon)*np.eye(A.shape[0])
+  # A/=A.sum(0)
+
+  # neurons with more neighbors are more vulnerable
   A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-  no_neighbor = np.where(A.sum(0)==0)[0]
-  A[no_neighbor, no_neighbor] = 1
+  # no_neighbor = np.where(A.sum(0)==0)[0]
+  # A[no_neighbor, no_neighbor] = 1
   A = A.astype(float)
   A/=A.sum(0)
+
   T = A.T
   S = S_init.copy()
   state_variation= np.zeros((A.shape[0], timesteps, 6))
@@ -7259,7 +7277,7 @@ def plot_state_jsdistance(G_dict, row_ind, epsilon, active_area_dict, measure, n
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
   np.random.seed(1)
-  areas = [active_area_dict[row][node] for node in G_dict[row][cols[0]].nodes()]
+  areas = [active_area_dict[row][node] for node in sorted(G_dict[row][cols[0]].nodes())]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7276,7 +7294,7 @@ def plot_state_jsdistance(G_dict, row_ind, epsilon, active_area_dict, measure, n
     plt.gca().set_title(col, fontsize=20, rotation=0)
     plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     G = G_dict[row][col]
-    A = nx.to_numpy_array(G)
+    A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
     A[A.nonzero()] = 1
     # A += 5*np.diag(A.sum(0)) # based on its degree
     A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
@@ -7327,7 +7345,7 @@ def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, ti
     for row_ind, row in enumerate(rows):
       if row_ind != 1:
         G = G_dict[row][col]
-        areas = [active_area_dict[row][node] for node in G.nodes()]
+        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
         _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
         plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
         area_inds = [0] + np.cumsum(plot_areas_num).tolist()
@@ -7362,7 +7380,7 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
     for row_ind, row in enumerate(rows):
       if row_ind != 1:
         G = G_dict[row][col]
-        areas = [active_area_dict[row][node] for node in G.nodes()]
+        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
         # indexes = np.unique(areas, return_index=True)[1]
         # uniq_areas = [areas[index] for index in sorted(indexes)]
         # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7405,7 +7423,7 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
     for row_ind, row in enumerate(rows):
       if row_ind != 1:
         G = G_dict[row][col]
-        areas = [active_area_dict[row][node] for node in G.nodes()]
+        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
         # indexes = np.unique(areas, return_index=True)[1]
         # uniq_areas = [areas[index] for index in sorted(indexes)]
         # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7433,7 +7451,7 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
   # plt.show()
 
 def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
-  areas = [active_area[node] for node in G.nodes()]
+  areas = [active_area[node] for node in sorted(G.nodes())]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7444,7 +7462,7 @@ def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confi
   for a_ind, area in enumerate(uniq_areas):
     S_init += [one_hot[a_ind, :]] * areas.count(area)
   S_init = np.array(S_init)
-  A = nx.to_numpy_array(G)
+  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
   A[A.nonzero()] = 1
   A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
   no_neighbor = np.where(A.sum(0)==0)[0]
@@ -7513,7 +7531,7 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
   # plt.show()
 
 def propagation_till_convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
-  areas = [active_area[node] for node in G.nodes()]
+  areas = [active_area[node] for node in sorted(G.nodes())]
   indexes = np.unique(areas, return_index=True)[1]
   uniq_areas = [areas[index] for index in sorted(indexes)]
   uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
@@ -7524,7 +7542,7 @@ def propagation_till_convergence(G, epsilon, area_plot_order, active_area, step2
   for a_ind, area in enumerate(uniq_areas):
     S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
   S_init = np.array(S_init)
-  A = nx.to_numpy_array(G)
+  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
   A[A.nonzero()] = 1
   A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
   no_neighbor = np.where(A.sum(0)==0)[0]
@@ -7574,7 +7592,7 @@ def plot_region_frac_epsilon(G_dict, epsilon_list, active_area_dict, measure, n,
       print(row)
       if row_ind != 1:
         G = G_dict[row][col]
-        areas = [active_area_dict[row][node] for node in G.nodes()]
+        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
         for e_ind, epsilon in enumerate(epsilon_list):
           state_variation = propagation_till_convergence(G, epsilon, area_plot_order, active_area_dict[row], step2confirm=step2confirm, maxsteps=maxsteps)
           plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
