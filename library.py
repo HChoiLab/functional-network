@@ -56,7 +56,7 @@ session_ids = ['719161530','750332458','750749662','754312389','755434585','7560
 # stimulus_names = ['spontaneous', 'flashes', 'gabors',
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-stimulus_names = ['spontaneous', 'flash_dark', 'flash_light', 'gabors',
+stimulus_names = ['spontaneous', 'flash_dark', 'flash_light',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 
@@ -7670,3 +7670,45 @@ def plot_multi_connectivity_matrix(G_dict, active_area_dict, measure, n):
   plt.tight_layout()
   plt.savefig('./plots/connectivity_matrix_{}_{}.jpg'.format(measure, n))
   # plt.show()
+
+def region_FR(session_ids, stimulus_names, regions, active_area_dict):
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  if not os.path.isdir(directory):
+    os.mkdir(directory)
+  FR = np.zeros((len(regions), len(stimulus_names), len(session_ids)))
+  for se_ind, session_id in enumerate(session_ids):
+    active_area = active_area_dict[session_id]
+    node_idx = sorted(active_area.keys())
+    for st_ind, stimulus_name in enumerate(stimulus_names):
+      file = str(session_id) + '_' + stimulus_name + '.npz'
+      print(file)
+      sequences = load_npz_3d(os.path.join(directory, file))
+      for r_ind, region in enumerate(regions):
+        active_nodes = [node for node in node_idx if active_area[node]==region]
+        if len(active_nodes):
+          active_node_inds = np.array([node_idx.index(node) for node in active_nodes])
+          # print(active_node_inds.shape)
+          # print(sequences[active_node_inds].shape, sequences[active_node_inds].mean(0).mean(1).sum(1).shape, sequences.shape[2])
+          FR[r_ind, st_ind, se_ind] = sequences[active_node_inds].mean(1).sum(1).mean(0) / sequences.shape[2]
+  return FR
+
+def plot_FR_region(FR, stimulus_names, regions):
+  for se_ind in range(FR.shape[2]):
+    if np.any(FR[:,:,se_ind] == 0):
+      se_ind2remove = se_ind
+      break
+  s_inds = list(range(FR.shape[2]))
+  s_inds.remove(se_ind2remove)
+  name = 'firing rate (Hz)'
+  df = pd.DataFrame()
+  for r_ind, region in enumerate(regions):
+    for se_ind, session_id in enumerate(session_ids):
+      df = pd.concat([df, pd.DataFrame(np.concatenate((FR[r_ind, :, se_ind][:,None], np.array(stimulus_names)[:,None], np.array([region] * len(stimulus_names))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
+  df[name] = pd.to_numeric(df[name]) * 1000 # kHz to Hz
+  plt.figure(figsize=(17, 7))
+  hue_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+  ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=hue_order, data=df, palette=colors_, boxprops=dict(alpha=.6))
+  ax.set(xlabel=None)
+  plt.title('firing rate (Hz) of each region with stimulus', size=15)
+  plt.savefig('./plots/FR_region_stimulus_{}_{}fold.jpg'.format(measure, n))
