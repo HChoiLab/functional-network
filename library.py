@@ -18,6 +18,7 @@ import sys
 import re
 # import random
 from mpl_toolkits.axes_grid1 import axes_grid
+from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cm
@@ -55,7 +56,7 @@ session_ids = ['719161530','750332458','750749662','754312389','755434585','7560
 # stimulus_names = ['spontaneous', 'flashes', 'gabors',
 #         'drifting_gratings', 'static_gratings',
 #           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-stimulus_names = ['spontaneous', 'flash_dark,', 'flash_light', 'gabors',
+stimulus_names = ['spontaneous', 'flash_dark', 'flash_light', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
 
@@ -7181,7 +7182,7 @@ def plot_state(G_dict, row_ind, epsilon, active_area_dict, measure, n, timesteps
   plt.colorbar()
   plt.suptitle('{}, epsilon = {}'.format(row, epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
+  plt.savefig('./plots/state_vector_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
   # plt.show()
 
 def inv_sigmoid(x):
@@ -7269,7 +7270,7 @@ def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measu
   plt.subplots_adjust(wspace=0.5, hspace=0.5)
   plt.suptitle('{}, {}, epsilon = {}'.format(row, col, epsilon), size=13)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_epislon_{}_{}_{}_{}_{}fold.jpg'.format(epsilon, row, col, measure, n))
+  plt.savefig('./plots/state_vector_epislon_{}_{}_{}_{}_{}fold.jpg'.format(epsilon, row, col, measure, n))
   # plt.show()
 
 ##################### plot state distance
@@ -7326,7 +7327,7 @@ def plot_state_jsdistance(G_dict, row_ind, epsilon, active_area_dict, measure, n
     plt.ylabel('JS distance')
   plt.suptitle('{}, epsilon = {}'.format(row, epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_jsdistance_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
+  plt.savefig('./plots/state_vector_jsdistance_epislon_{}_{}_{}_{}fold.jpg'.format(epsilon, row, measure, n))
   # plt.show()
 
 ##################### plot state region fraction
@@ -7363,7 +7364,7 @@ def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, ti
     plt.ylabel('region fraction')
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  plt.savefig('./plots/state_vector_region_fraction_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
 ##################### plot state steady distribution for each region
@@ -7407,7 +7408,7 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
 
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  plt.savefig('./plots/state_vector_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
 def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
@@ -7447,7 +7448,7 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
 
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vetor_dominance_score_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  plt.savefig('./plots/state_vector_dominance_score_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
 def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
@@ -7527,7 +7528,7 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
     # plt.ylim(-.5, 4.5)
 
   plt.tight_layout()
-  plt.savefig('./plots/state_vetor_step2convergence_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/state_vector_step2convergence_{}_{}fold.jpg'.format(measure, n))
   # plt.show()
 
 def propagation_till_convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
@@ -7616,6 +7617,56 @@ def plot_region_frac_epsilon(G_dict, epsilon_list, active_area_dict, measure, n,
     plt.ylim(.2, .9)
 
   plt.tight_layout()
-  plt.savefig('./plots/state_vetor_region_frac_epsilon_{}_{}fold.jpg'.format(measure, n))
-  # plt.savefig('./plots/state_vetor_region_frac_epsilon_zoomin_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/state_vector_region_frac_epsilon_{}_{}fold.jpg'.format(measure, n))
+  # plt.savefig('./plots/state_vector_region_frac_epsilon_zoomin_{}_{}fold.jpg'.format(measure, n))
+  # plt.show()
+
+def plot_multi_connectivity_matrix(G_dict, active_area_dict, measure, n):
+  ind = 1
+  rows, cols = get_rowcol(G_dict)
+  fig = plt.figure(figsize=(4*len(cols), 3*len(rows)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+  colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    ordered_nodes = [] # order nodes based on hierarchical order 
+    for area in area_plot_order:
+      for node in active_area:
+        if active_area[node] == area:
+          ordered_nodes.append(node)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(len(rows), len(cols), ind)
+      if row_ind == 0:
+        plt.gca().set_title(cols[col_ind], fontsize=20, rotation=0)
+      if col_ind == 0:
+        plt.gca().text(0, 0.5 * (bottom + top), rows[row_ind],
+        horizontalalignment='left',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=plt.gca().transAxes, fontsize=20, rotation=90)
+      plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ind += 1
+      G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
+      A = nx.to_numpy_array(G, nodelist=ordered_nodes)
+      A[A.nonzero()] = 1
+      plt.imshow(A, cmap=plt.cm.Greys)
+      areas = [active_area[node] for node in ordered_nodes]
+      indexes = np.unique(areas, return_index=True)[1]
+      uniq_areas = [areas[index] for index in sorted(indexes)]
+      uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+      area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+      for region_ind in range(len(uniq_areas)):
+        color_ind = area_plot_order.index(uniq_areas[region_ind])
+        plt.gca().add_patch(Rectangle((area_inds[region_ind]-1,area_inds[region_ind]-1),uniq_areas_num[region_ind],uniq_areas_num[region_ind],linewidth=1,edgecolor=colors_[color_ind],facecolor='none'))
+      plt.gca().invert_xaxis()
+      plt.xticks([])
+      plt.yticks([])
+  # plt.colorbar()
+  plt.tight_layout()
+  plt.savefig('./plots/connectivity_matrix_{}_{}.jpg'.format(measure, n))
   # plt.show()
