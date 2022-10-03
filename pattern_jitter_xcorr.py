@@ -3529,143 +3529,6 @@ directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(mea
 save_ccg_corrected_highland(directory, measure, min_spike=min_spike, max_duration=max_duration, maxlag=12, n=n)
 print("--- %s minutes in total" % ((time.time() - start_time)/60))
 # %%
-#%%
-################ plot example significant ccg for highland
-def plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=7, window=100):
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if '_bl' not in file and 'gabors' not in file and '719161530' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
-      print(file)
-      mouseID = file.split('_')[0]
-      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      try: 
-        ccg = load_npz_3d(os.path.join(directory, file))
-      except:
-        ccg = load_sparse_npz(os.path.join(directory, file))
-      try:
-        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      except:
-        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      num_nodes = ccg.shape[0]
-      significant_ccg,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
-      significant_ccg[:] = np.nan
-      significant_offset[:] = np.nan
-      significant_duration[:] = np.nan
-      ccg_corrected = ccg - ccg_jittered
-      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
-      inds_2plot = []
-      for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
-        print('duration {}'.format(duration))
-        highland_ccg, confidence_level, offset, indx = find_highland(ccg_corrected, min_spike, duration, maxlag, n)
-        if np.sum(indx):
-          significant_ccg[indx] = highland_ccg[indx]
-          significant_offset[indx] = offset[indx]
-          significant_duration[indx] = duration
-      
-      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
-      print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
-      np.random.shuffle(significant_inds)
-
-      for duration in np.arange(0,9,1):
-        duration_inds = np.where(significant_duration==duration)
-        if len(duration_inds[0]):
-          indexes = np.arange(len(duration_inds[0]))
-          np.random.shuffle(indexes)
-          inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
-
-      
-      fig = plt.figure(figsize=(5*3, 5*3))
-      for ind, (row_a, row_b) in enumerate(inds_2plot):
-        ax = plt.subplot(3, 3, ind+1)
-        highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-        plt.plot(np.arange(window+1), ccg_corrected[row_a, row_b])
-        plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.--', markersize=12, alpha=0.6)
-        if ind % 3 == 0:
-          plt.ylabel('signigicant CCG corrected', size=20)
-        if ind // 3 == 3 - 1:
-          plt.xlabel('time lag (ms)', size=20)
-      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
-      plt.savefig('./plots/sample_significant_ccg_{}fold_highland_{}_{}.jpg'.format(n, mouseID, stimulus_name))
-
-np.seterr(divide='ignore', invalid='ignore')
-measure = 'ccg'
-min_spike = 50
-max_duration = 12
-maxlag = 12
-n = 4
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-plot_example_ccg_highland(directory, measure, min_spike=50, max_duration=max_duration, maxlag=maxlag, n=n)
-#%%
-################ plot example significant ccg for highland smoothed
-def plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_duration=6, maxlag=12, n=7, window=100):
-  files = os.listdir(directory)
-  files.sort(key=lambda x:int(x[:9]))
-  for file in files:
-    if '_bl' not in file and 'gabors' not in file and '719161530' in file: #   and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
-      print(file)
-      mouseID = file.split('_')[0]
-      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-      try: 
-        ccg = load_npz_3d(os.path.join(directory, file))
-      except:
-        ccg = load_sparse_npz(os.path.join(directory, file))
-      try:
-        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      except:
-        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-      num_nodes = ccg.shape[0]
-      significant_ccg,significant_offset,significant_duration=np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes)),np.zeros((num_nodes,num_nodes))
-      significant_ccg[:] = np.nan
-      significant_offset[:] = np.nan
-      significant_duration[:] = np.nan
-      ccg_corrected = ccg - ccg_jittered
-      # corr = (ccg_corrected - ccg_corrected.mean(-1)[:, :, None])
-      inds_2plot = []
-      for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
-        print('duration {}'.format(duration))
-        highland_ccg, confidence_level, offset, indx = find_highland(ccg_corrected, min_spike, duration, maxlag, n)
-        if np.sum(indx):
-          significant_ccg[indx] = highland_ccg[indx]
-          significant_offset[indx] = offset[indx]
-          significant_duration[indx] = duration
-      
-      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
-      print('Number of significant links: {}, density {}'.format(len(significant_inds), len(significant_inds)/(num_nodes*(num_nodes-1))))
-      np.random.shuffle(significant_inds)
-
-      for duration in range(max_duration+1):
-        duration_inds = np.where(significant_duration==duration)
-        if len(duration_inds[0]):
-          indexes = np.arange(len(duration_inds[0]))
-          np.random.shuffle(indexes)
-          inds_2plot.append([duration_inds[0][indexes[0]], duration_inds[1][indexes[0]]])
-
-      
-      fig = plt.figure(figsize=(5*3, 5*3))
-      for ind, (row_a, row_b) in enumerate(inds_2plot[:9]):
-        ax = plt.subplot(3, 3, ind+1)
-        filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
-        ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
-        highland_lag = np.array([int(significant_offset[row_a,row_b])])
-        plt.plot(np.arange(len(ccg_plot)), ccg_plot)
-        plt.plot(highland_lag, ccg_plot[highland_lag], 'r.--', markersize=12, alpha=0.6)
-        if ind % 3 == 0:
-          plt.ylabel('signigicant CCG corrected', size=20)
-        if ind // 3 == 3 - 1:
-          plt.xlabel('time lag (ms)', size=20)
-      plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
-      plt.savefig('./plots/sample_significant_ccg_{}fold_highland_smoothed_{}_{}.jpg'.format(n, mouseID, stimulus_name))
-
-np.seterr(divide='ignore', invalid='ignore')
-measure = 'ccg'
-min_spike = 50
-max_duration = 12
-maxlag = 12
-n = 4
-directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected/'.format(measure)
-plot_example_ccg_highland_smoothed(directory, measure, min_spike=50, max_duration=max_duration, maxlag=maxlag, n=n)
-# %%
 def plot_corr_data_stimulus(data_dict, measure, n, name):
   rows, cols = get_rowcol(data_dict)
   fig = plt.figure(figsize=(6, 6))
@@ -4095,7 +3958,8 @@ threshold = 4
 session_inds = whole_df['intensity'] >= 4 # at least 1 motif for each session on average
 significant_inds = (whole_df['intensity z score']>threshold) | (whole_df['intensity z score']<-threshold)
 flash_inds = (whole_df['stimulus'].isin(['flash_dark', 'flash_light']))
-whole_df[session_inds & significant_inds & flash_inds]
+significant_flash_df = whole_df[session_inds & significant_inds & flash_inds][['stimulus', 'signed motif type', 'intensity', 'intensity z score', 'coherence', 'coherence z score']]
+significant_flash_df.set_index('stimulus', inplace=True)
 #%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
@@ -4868,8 +4732,17 @@ for row_ind in range(0, 8):
 ################# original region fraction for each region
 plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
 #%%
+################# weight transition probability by inverse of region size
+# rows, cols = get_rowcol(G_ccg_dict)
+# row, col = rows[0], cols[0]
+# G = G_ccg_dict[row][col]
+# epsilon = 4
+# active_area = active_area_dict[row]
+# area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+# timesteps = 100
+#%%
 ################# bar plot of steady state for each region and stimulus
-plot_steady_distribution(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+plot_steady_distribution(G_ccg_dict, 0, active_area_dict, measure, n, timesteps=200)
 #%%
 ################# dominance score
 plot_dominance_score(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
@@ -4898,9 +4771,15 @@ for row in rows:
     area_count = []
     for area in uniq_area:
       nodes = [node for node in active_area_dict[row] if active_area_dict[row][node]==area]
-      area_count.append(sum([G.in_degree(node) for node in nodes]))
+      area_count.append(sum([G.out_degree(node) for node in nodes]))
     df.loc[row][col] = uniq_area[np.argmax(area_count)]
 df.drop(['spontaneous', 'natural_scenes', 'natural_movie_one', 'natural_movie_three'], axis=1)
 #%%
-
+##################### plot connectivity matrix
+plot_multi_connectivity_matrix(G_ccg_dict, active_area_dict, measure, n)
 # %%
+#%%
+##################### plot FR per region VS stimulus
+FR = region_FR(session_ids, stimulus_names, visual_regions, active_area_dict)
+#%%
+plot_FR_region(FR, stimulus_names, visual_regions)
