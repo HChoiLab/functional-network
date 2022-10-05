@@ -9,6 +9,7 @@ from itertools import cycle
 # import scipy
 from scipy.stats import shapiro
 from scipy.stats import normaltest
+from scipy.stats import entropy
 from scipy.spatial import distance
 from scipy.special import softmax
 from tqdm import tqdm
@@ -7692,7 +7693,7 @@ def region_FR(session_ids, stimulus_names, regions, active_area_dict):
           FR[r_ind, st_ind, se_ind] = sequences[active_node_inds].mean(1).sum(1).mean(0) / sequences.shape[2]
   return FR
 
-def plot_FR_region(FR, stimulus_names, regions):
+def plot_FR_region(FR, stimulus_names, regions, measure, n):
   for se_ind in range(FR.shape[2]):
     if np.any(FR[:,:,se_ind] == 0):
       se_ind2remove = se_ind
@@ -7712,3 +7713,138 @@ def plot_FR_region(FR, stimulus_names, regions):
   ax.set(xlabel=None)
   plt.title('firing rate (Hz) of each region with stimulus', size=15)
   plt.savefig('./plots/FR_region_stimulus_{}_{}fold.jpg'.format(measure, n))
+
+############################ one more significance test for CCG signal
+def unique_with_tolerance(sequence, TOL=1e-3):
+  seq = sequence.copy()
+  seq.sort()
+  diff = np.append(True, np.diff(seq))
+  unique_values = seq[diff>TOL]
+  return unique_values
+
+def normalized_entropy_with_tolerance(sequence, TOL=1e-7):
+  seq = sequence.copy()
+  seq.sort()
+  diff = np.append(True, np.diff(seq))
+  unique_values = seq[diff>TOL]
+  num_repeats = np.diff(np.append(np.where(diff>TOL)[0], len(diff)))
+  discretized_seq = np.repeat(unique_values, num_repeats)
+  _, counts = np.unique(discretized_seq, return_counts=True)
+  return entropy(counts, base=2)  / entropy([1] * len(seq), base=2)
+
+def test_portion_above_threshold(directory, threshold):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  df_n, df_p = pd.DataFrame(index=session_ids, columns=stimulus_names), pd.DataFrame(index=session_ids, columns=stimulus_names)
+  for file in files:
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      print(file)
+      significant_ccg = load_npz_3d(os.path.join(directory, file))
+      significant_duration = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+      ccg = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file))
+      ccg_jittered = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      num = 0
+      for row_a, row_b in significant_inds:
+        filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+        sig = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+        # uniq = unique_with_tolerance(sig, 1e-7)
+        # if len(uniq)/len(sig) >= threshold:
+        entropy = normalized_entropy_with_tolerance(sig, TOL=1e-7)
+        if entropy >= threshold:
+          num += 1
+      df_n.loc[mouseID, stimulus_name] = num
+      df_p.loc[mouseID, stimulus_name] = num / len(significant_inds)
+  return df_n, df_p
+
+def plot_uniq_comparison(directory, threshold, n):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('755434585' in file) and ('flash_light' in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      print(file)
+      significant_ccg = load_npz_3d(os.path.join(directory, file))
+      significant_duration = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+      significant_offset = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
+      ccg = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file))
+      ccg_jittered = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      inds_2plot = []
+      for row_a, row_b in significant_inds:
+        filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+        sig = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+        # uniq = unique_with_tolerance(sig, 1e-7)
+        # if len(uniq)/len(sig) >= threshold:
+        entropy = normalized_entropy_with_tolerance(sig, TOL=1e-7)
+        if entropy < threshold:
+          inds_2plot.append((row_a, row_b))
+  fig = plt.figure(figsize=(5*3, 5*3))
+  for ind, (row_a, row_b) in enumerate(inds_2plot[:9]):
+    ax = plt.subplot(3, 3, ind+1)
+    filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+    ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+    highland_lag = np.array([int(significant_offset[row_a,row_b])])
+    plt.plot(np.arange(len(ccg_plot)), ccg_plot)
+    plt.plot(highland_lag, ccg_plot[highland_lag], 'r.--', markersize=12, alpha=0.6)
+    # uniq = unique_with_tolerance(ccg_plot, 1e-7)
+    # plt.title(len(uniq)/len(ccg_plot))
+    entropy = normalized_entropy_with_tolerance(ccg_plot, TOL=1e-7)
+    plt.title(entropy)
+    if ind % 3 == 0:
+      plt.ylabel('signigicant CCG corrected', size=20)
+    if ind // 3 == 3 - 1:
+      plt.xlabel('time lag (ms)', size=20)
+  # plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+  plt.savefig('./plots/sample_significant_ccg_{}fold_below_threshold_entropy_{}_{}.jpg'.format(n, mouseID, stimulus_name))
+  # plt.show()
+
+def get_normalized_entropy_distri(directory):
+  distri = defaultdict(lambda: [])
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('gabor' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      print(file)
+      significant_ccg = load_npz_3d(os.path.join(directory, file))
+      significant_duration = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+      ccg = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file))
+      ccg_jittered = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      for row_a, row_b in significant_inds:
+        filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+        sig = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+        distri[stimulus_name].append(normalized_entropy_with_tolerance(sig, 1e-7))
+  ordered_dict = {stimulus_name:distri[stimulus_name] for stimulus_name in stimulus_names}
+  return ordered_dict
+
+def plot_normalized_entropy(distri, measure, n):
+  cols = list(distri.keys())
+  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  ind = 1
+  for col in distri:
+    print(col)
+    ax=plt.subplot(2, int(np.ceil(len(cols)/2)), ind)
+    plt.gca().set_title(col, fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    ind += 1
+    sns.histplot(data=distri[col], linewidth=0, stat='probability')
+    plt.axvline(x=np.nanmean(distri[col]), color='r', linestyle='--')
+    # plt.xlim(0, 1)
+    plt.xlabel('normalized entropy', size=20)
+    plt.ylabel('probability', size=20)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  figname = './plots/normalized_entropy_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
