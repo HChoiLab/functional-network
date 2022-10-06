@@ -2506,6 +2506,8 @@ def plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, 
   # plt.yscale('log')
   # plt.xlabel('community size')
   # plt.ylabel('purity')
+  # plt.xlim(-5, 250)
+  # plt.ylim(0.12, 1.02)
   plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
   plt.tight_layout()
   image_name = './plots/dist2D_Hcomm_size_{}_{}_{}_{}fold.jpg'.format(kind, max_method, measure, n)
@@ -7197,55 +7199,7 @@ def inv_sigmoid(x):
   y[small_inds] = -1000 # enough for softmax to be 0
   return y
 
-def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
-  areas = [active_area[node] for node in sorted(G.nodes())]
-  indexes = np.unique(areas, return_index=True)[1]
-  uniq_areas = [areas[index] for index in sorted(indexes)]
-  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-  areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
-  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
-  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
-  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
-  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
-  S_init = []
-  for a_ind, area in enumerate(uniq_areas):
-    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
-  S_init = np.array(S_init)
-  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
-  A[A<0] = 0 # only keep excitatory links
-  A[A.nonzero()] = 1
 
-  # disproportional to region size
-  # area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
-  # for region_ind in range(len(uniq_areas)):
-  #   nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
-  #   A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = 1 / uniq_areas_num[region_ind]
-
-  # first normalize neighbors then add self loop
-  # no_neighbor = np.where(A.sum(0)==0)[0]
-  # A[no_neighbor, no_neighbor] = 1
-  # A = A.astype(float)
-  # A/=A.sum(0)
-  # A += (1+epsilon)*np.eye(A.shape[0])
-  # A/=A.sum(0)
-
-  # neurons with more neighbors are more vulnerable
-  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-  # no_neighbor = np.where(A.sum(0)==0)[0]
-  # A[no_neighbor, no_neighbor] = 1
-  A = A.astype(float)
-  A/=A.sum(0)
-
-  T = A.T
-  S = S_init.copy()
-  state_variation= np.zeros((A.shape[0], timesteps, 6))
-  state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
-  for ts in range(1, timesteps):
-    # S = T @ S
-    S = softmax(inv_sigmoid((T @ T) @ S), axis=1)
-    state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
-  return text_pos, state_variation
 
 def plot_state_onehot(G_dict, row_ind, col_ind, epsilon, active_area_dict, measure, n, timesteps=20):
   rows, cols = get_rowcol(G_dict)
@@ -7369,6 +7323,55 @@ def plot_state_region_fraction(G_dict, epsilon, active_area_dict, measure, n, ti
   # plt.show()
 
 ##################### plot state steady distribution for each region
+def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
+  areas = [active_area[node] for node in sorted(G.nodes())]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
+  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
+  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+  S_init = np.array(S_init)
+  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='sign')
+  A[A<0] = 0 # only keep excitatory links
+  A[A.nonzero()] = 1
+  offset_mat = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='offset')
+  A[offset_mat==0] = 0 # remove 0 time lag edges (common input)
+  # disproportional to region size
+  # area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  # for region_ind in range(len(uniq_areas)):
+  #   nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
+  #   A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = 1 / uniq_areas_num[region_ind]
+
+  # first normalize neighbors then add self loop
+  # no_neighbor = np.where(A.sum(0)==0)[0]
+  # A[no_neighbor, no_neighbor] = 1
+  # A = A.astype(float)
+  # A/=A.sum(0)
+  # A += (1+epsilon)*np.eye(A.shape[0])
+  # A/=A.sum(0)
+
+  # neurons with more in neighbors are more vulnerable
+  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+  A = A.astype(float)
+  A/=A.sum(0)
+
+  T = A.T
+  S = S_init.copy()
+  state_variation= np.zeros((A.shape[0], timesteps, 6))
+  state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
+  for ts in range(1, timesteps):
+    # S = T @ S
+    S = softmax(inv_sigmoid((T @ T) @ S), axis=1)
+    state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
+  return text_pos, state_variation
+
 def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
@@ -7402,11 +7405,11 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
       plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
       
       ax.bar(range(len(area_plot_order)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=0.6, ecolor='black', color=colors_, capsize=10)
-      ax.set_ylabel(area_plot_order[i])
+      ax.set_ylabel(area_plot_order[i], fontsize=20)
       ax.set_xticks(range(len(area_plot_order)))
-      ax.set_xticklabels(area_plot_order)
+      ax.set_xticklabels(area_plot_order, fontsize=15)
       plt.ylim(0, 1.)
-
+  
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   plt.savefig('./plots/state_vector_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
@@ -7445,11 +7448,11 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
     ax.set_xticklabels(area_plot_order)
     if col_ind == 0:
       plt.ylabel('dominance score')
-    # plt.ylim(-.5, 4.5)
+    plt.ylim(0, 3.2)
 
   plt.suptitle('epsilon = {}'.format(epsilon), size=30)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.savefig('./plots/state_vector_dominance_score_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
+  plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
 def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
@@ -7654,8 +7657,11 @@ def plot_multi_connectivity_matrix(G_dict, active_area_dict, measure, n):
       ind += 1
       G = G_dict[row][col] if col in G_dict[row] else nx.DiGraph()
       A = nx.to_numpy_array(G, nodelist=ordered_nodes)
-      A[A.nonzero()] = 1
-      plt.imshow(A, cmap=plt.cm.Greys)
+      A[A>0] = 1
+      A[A<0] = -1
+      plt.imshow(A, cmap=plt.cm.RdBu_r)
+      # A[A.nonzero()] = 1
+      # plt.imshow(A, cmap=plt.cm.Greys)
       areas = [active_area[node] for node in ordered_nodes]
       indexes = np.unique(areas, return_index=True)[1]
       uniq_areas = [areas[index] for index in sorted(indexes)]
@@ -7848,3 +7854,45 @@ def plot_normalized_entropy(distri, measure, n):
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
   figname = './plots/normalized_entropy_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname)
+
+def keep_edges_above_threshold(directory, threshold):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      print(file)
+      significant_ccg = load_npz_3d(os.path.join(directory, file))
+      significant_duration = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+      significant_offset = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
+      significant_confidence = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
+      ccg = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file))
+      ccg_jittered = load_sparse_npz(os.path.join(directory.replace('adj_mat_ccg_highland_corrected', 'adj_mat_ccg_corrected'), file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      row_as, row_bs = [], []
+      for row_a, row_b in significant_inds:
+        filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+        sig = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+        # uniq = unique_with_tolerance(sig, 1e-7)
+        # if len(uniq)/len(sig) >= threshold:
+        entropy = normalized_entropy_with_tolerance(sig, TOL=1e-7)
+        if entropy >= threshold:
+          row_as.append(row_a)
+          row_bs.append(row_b)
+      print(len(row_as)/len(significant_inds))
+      inds = (np.array(row_as), np.array(row_bs))
+      filtered_ccg,filtered_confidence,filtered_offset,filtered_duration= [np.zeros_like(significant_ccg), np.zeros_like(significant_ccg), np.zeros_like(significant_ccg), np.zeros_like(significant_ccg)]
+      filtered_ccg[:] = np.nan
+      filtered_confidence[:] = np.nan
+      filtered_offset[:] = np.nan
+      filtered_duration[:] = np.nan
+      filtered_ccg[inds] = significant_ccg[inds]
+      filtered_confidence[inds] = significant_confidence[inds]
+      filtered_offset[inds] = significant_offset[inds]
+      filtered_duration[inds] = significant_duration[inds]
+      print(len(np.where(~np.isnan(significant_ccg))[0]), len(np.where(~np.isnan(significant_confidence))[0]), len(np.where(~np.isnan(significant_offset))[0]), len(np.where(~np.isnan(significant_duration))[0]))
+      print(len(np.where(~np.isnan(filtered_ccg))[0]), len(np.where(~np.isnan(filtered_confidence))[0]), len(np.where(~np.isnan(filtered_offset))[0]), len(np.where(~np.isnan(filtered_duration))[0]))
+      save_npz(filtered_ccg, os.path.join(directory, file))
+      save_npz(filtered_confidence, os.path.join(directory, file.replace('.npz', '_confidence.npz')))
+      save_npz(filtered_offset, os.path.join(directory, file.replace('.npz', '_offset.npz')))
+      save_npz(filtered_duration, os.path.join(directory, file.replace('.npz', '_duration.npz')))
