@@ -1909,8 +1909,8 @@ plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics, measure, n)
 stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm')
 stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config')
 #%%
-stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
-stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+# stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
+# stat_modular_structure_Hamiltonian(G_ccg_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
 #%%
 ############### purity of community with Hamiltonian
 plot_Hcomm_size_purity(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
@@ -1926,6 +1926,12 @@ all_purity_config = plot_all_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max
 ############### weighted purity by community size
 weighted_purity_gnm = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_gnm, max_neg_reso=max_reso_gnm, max_method='gnm')
 weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### 2D distribution of purity and community size
+plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='scatter')
+plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
+# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='kde')
+# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 ############### community structure
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
@@ -4730,7 +4736,7 @@ for row_ind in range(0, 8):
     plot_state_jsdistance(G_ccg_dict, row_ind, 4, active_area_dict, measure, n, timesteps=200)
 #%%
 ################# original region fraction for each region
-plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+plot_state_region_fraction(G_ccg_dict, 0, active_area_dict, measure, n, timesteps=200)
 #%%
 ################# weight transition probability by inverse of region size
 # rows, cols = get_rowcol(G_ccg_dict)
@@ -4742,10 +4748,10 @@ plot_state_region_fraction(G_ccg_dict, 4, active_area_dict, measure, n, timestep
 # timesteps = 100
 #%%
 ################# bar plot of steady state for each region and stimulus
-plot_steady_distribution(G_ccg_dict, 0, active_area_dict, measure, n, timesteps=200)
+plot_steady_distribution(S_ccg_dict, 0, active_area_dict, measure, n, timesteps=200)
 #%%
 ################# dominance score
-plot_dominance_score(G_ccg_dict, 4, active_area_dict, measure, n, timesteps=200)
+plot_dominance_score(S_ccg_dict, 0, active_area_dict, measure, n, timesteps=200)
 #%%
 ################# steps to convergence
 epsilon_list = np.arange(0, 202, 2)
@@ -4782,4 +4788,27 @@ plot_multi_connectivity_matrix(G_ccg_dict, active_area_dict, measure, n)
 ##################### plot FR per region VS stimulus
 FR = region_FR(session_ids, stimulus_names, visual_regions, active_area_dict)
 #%%
-plot_FR_region(FR, stimulus_names, visual_regions)
+plot_FR_region(FR, stimulus_names, visual_regions, measure, n)
+#%%
+################# portion after threshold
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+threshold = 0.9
+df_n, df_p = test_portion_above_threshold(directory, threshold)
+#%%
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+threshold = 0.9
+n = 4
+plot_uniq_comparison(directory, threshold, n)
+#%%
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+distri = get_normalized_entropy_distri(directory)
+#%%
+measure = 'ccg'
+n = 4
+plot_normalized_entropy(distri, measure, n)
+#%%
+##################### keep edges above threshold
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+threshold = 0.9
+keep_edges_above_threshold(directory, threshold)
+# %%
