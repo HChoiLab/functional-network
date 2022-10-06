@@ -1876,6 +1876,16 @@ save_active_area_dict(area_dict)
 print_stat(G_ccg_dict)
 #%%
 plot_stat(G_ccg_dict, n, measure=measure)
+#%%
+################ box plot of intra region links ratio
+box_intra_link_ratio(G_ccg_dict, area_dict, visual_regions, measure, n)
+# %%
+################ violin/box plot of intra/inter region links
+plot_intra_inter_box(G_ccg_dict, area_dict, visual_regions)
+#%%
+######################## excitaroty link VS inhibitory link box
+plot_pos_neg_box(S_ccg_dict, measure, n, density=False)
+# plot_pos_neg_box(S_ccg_dict, measure, n, density=True)
 # %%
 ################## save community partitions and modularity/Hamiltonian VS resolution
 start_time = time.time()
@@ -1932,6 +1942,9 @@ plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_g
 plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
 # plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='kde')
 # plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
+#%%
+#################### average purity VS community size
+plot_scatter_mean_purity_Hcommsize_col(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 ############### community structure
 stat_modular_structure(G_ccg_dict, measure, n, max_reso=max_reso_gnm, max_method='gnm')
