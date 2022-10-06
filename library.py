@@ -7699,6 +7699,9 @@ def region_FR(session_ids, stimulus_names, regions, active_area_dict):
           FR[r_ind, st_ind, se_ind] = sequences[active_node_inds].mean(1).sum(1).mean(0) / sequences.shape[2]
   return FR
 
+def transparent_rgb(rgb, bg_rgb, alpha):
+  return [alpha * c1 + (1 - alpha) * c2 for (c1, c2) in zip(rgb, bg_rgb)]
+
 def plot_FR_region(FR, stimulus_names, regions, measure, n):
   for se_ind in range(FR.shape[2]):
     if np.any(FR[:,:,se_ind] == 0):
@@ -7715,7 +7718,8 @@ def plot_FR_region(FR, stimulus_names, regions, measure, n):
   plt.figure(figsize=(17, 7))
   hue_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
   colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
-  ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=hue_order, data=df, palette=colors_, boxprops=dict(alpha=.6))
+  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.5) for color in colors_]
+  ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=hue_order, data=df, palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
   ax.set(xlabel=None)
   plt.title('firing rate (Hz) of each region with stimulus', size=15)
   plt.savefig('./plots/FR_region_stimulus_{}_{}fold.jpg'.format(measure, n))
