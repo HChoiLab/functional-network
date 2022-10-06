@@ -12,6 +12,7 @@ from scipy.stats import normaltest
 from scipy.stats import entropy
 from scipy.spatial import distance
 from scipy.special import softmax
+from scipy.optimize import curve_fit
 from tqdm import tqdm
 import pickle
 import time
@@ -50,7 +51,8 @@ from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProj
 np.seterr(divide='ignore', invalid='ignore')
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
-
+stimulus_colors = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
+region_colors = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
 visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
 # session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
 session_ids = ['719161530','750332458','750749662','754312389','755434585','756029989','791319847','797828357']
@@ -1836,6 +1838,125 @@ def plot_stat(pos_G_dict, n, neg_G_dict=None, measure='xcorr'):
   figname = './plots/stats_pos_neg_{}_{}fold.jpg' if neg_G_dict is not None else './plots/stats_total_{}_{}fold.jpg'
   plt.savefig(figname.format(measure, n))
 
+def box_intra_link_ratio(G_dict, area_dict, regions, measure, n):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(G_dict)
+  # metric = np.zeros((len(rows), len(cols), 3))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    data = []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
+        nodes = list(G.nodes())
+        node_area = {key: area_dict[row][key] for key in nodes}
+        areas = list(node_area.values())
+        area_size = [areas.count(r) for r in regions]
+        A = nx.to_numpy_array(G)
+        A[A.nonzero()] = 1
+        for region_ind_i, region_i in enumerate(regions):
+          for region_ind_j, region_j in enumerate(regions):
+            region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+            region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+            region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+            region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+            if len(region_indices_i) and len(region_indices_j):
+              region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+        diag_indx = np.eye(len(regions),dtype=bool)
+        # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+        # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+        data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]) / np.sum(region_connection[row_ind, col_ind]))
+    # data = remove_outliers(data, 3)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(data)[:,None], np.array([col] * len(data))[:,None]), 1), columns=['ratio', 'stimulus'])], ignore_index=True)
+    df['ratio'] = pd.to_numeric(df['ratio'])
+  fig = plt.figure(figsize=(5, 5))
+  # ax = sns.violinplot(x='stimulus', y='ratio', data=df, palette="muted", scale='count', cut=0)
+  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=1.) for color in stimulus_colors]
+  ax = sns.boxplot(x='stimulus', y='ratio', data=df, palette=colors_transparency, showfliers=False)
+  plt.xticks(fontsize=10, rotation=90)
+  plt.title('ratio of intra region links')
+  # plt.yscale('log')
+  ax.set(xlabel=None)
+  plt.tight_layout()
+  # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/box_intra_ratio_{}_{}fold.jpg'.format(measure, n))
+
+def plot_intra_inter_box(G_dict, area_dict, regions):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(G_dict)
+  # metric = np.zeros((len(rows), len(cols), 3))
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    intra_data, inter_data = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[row][key] for key in nodes}
+      areas = list(node_area.values())
+      area_size = [areas.count(r) for r in regions]
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(regions),dtype=bool)
+      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+      intra_data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]))
+      inter_data.append(np.sum(region_connection[row_ind, col_ind][~diag_indx]))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(['intra-region'] * len(intra_data))[:,None], np.array([col] * len(intra_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+                pd.DataFrame(np.concatenate((np.array(inter_data)[:,None], np.array(['inter-region'] * len(inter_data))[:,None], np.array([col] * len(inter_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+    df['number of connections'] = pd.to_numeric(df['number of connections'])
+  fig = plt.figure(figsize=(5, 5))
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  ax = sns.boxplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted",showfliers=False)
+  plt.xticks(fontsize=10, rotation=90)
+  ax.set(xlabel=None)
+  plt.tight_layout()
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/box_intra_inter_{}_{}fold.jpg'.format(measure, n))
+
+def plot_pos_neg_box(G_dict, measure, n, density=False):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(G_dict)
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ex_data, in_data = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      if density:
+        ex_data.append(signs.count(1) / len(signs))
+        in_data.append(signs.count(-1) / len(signs))
+      else:
+        ex_data.append(signs.count(1))
+        in_data.append(signs.count(-1))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([col] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([col] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+    df['number of connections'] = pd.to_numeric(df['number of connections'])
+  if density:
+    y = 'density'
+    df['density'] = df['number of connections']
+  else:
+    y = 'number of connections'
+  fig = plt.figure(figsize=(5, 5))
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  ax = sns.boxplot(x='stimulus', y=y, hue="type", data=df, palette="muted", showfliers = False)
+  plt.xticks(fontsize=10, rotation=90)
+  ax.set(xlabel=None)
+  plt.tight_layout()
+  figname = './plots/box_ex_in_num_{}_{}fold.jpg' if not density else './plots/box_ex_in_density_{}_{}fold.jpg'
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig(figname.format(measure, n))
 
 #############################################################################
 # signed louvain algorithm with Hamiltonian for community detection in signed graphs
@@ -2514,6 +2635,59 @@ def plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, 
   # plt.show()
   plt.savefig(image_name)
 
+def plot_scatter_mean_purity_Hcommsize_col(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  size_dict = {}
+  purity_dict = {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    data = defaultdict(list)
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        # part = community.best_partition(G, weight='weight')
+        # comms, sizes = np.unique(list(part.values()), return_counts=True)
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          data[size].append(purity)
+    size_col = [k for k,v in data.items() if k>=4]
+    purity_col = [np.mean(v) for k,v in data.items() if k>=4]
+    size_dict[col] = size_col
+    purity_dict[col] = purity_col
+  fig = plt.figure(figsize=(9*len(cols)/2, 6*2))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(size_dict):
+    ax=plt.subplot(2, int(np.ceil(len(cols)/2)), col_ind+1)
+    plt.scatter(size_dict[col], purity_dict[col], color=stimulus_colors[col_ind], label=col, alpha=1)
+    # popt, pcov = curve_fit(func_powerlaw, size_dict[col], purity_dict[col], p0=[1, 1]) #, bounds=[[1e-3, 1e-3], [1e20, 50]]
+    # plt.plot(sorted(size_dict[col]), func_powerlaw(sorted(size_dict[col]), *popt), '-', color=stimulus_colors[col_ind], alpha=.8, linewidth=5)
+    plt.title(col, size=30)
+    coef = np.polyfit(size_dict[col], purity_dict[col], 1)
+    poly1d_fn = np.poly1d(coef) 
+    plt.plot(size_dict[col], poly1d_fn(size_dict[col]), '-', color=stimulus_colors[col_ind], alpha=.8, linewidth=5) #'--k'=black dashed line
+    # plt.xscale('log')
+    plt.xlabel('community size', fontsize=30)
+    plt.ylabel('purity', fontsize=30)
+    plt.xticks(fontsize=25)
+    plt.yticks(fontsize=25)
+  plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  image_name = './plots/Hcomm_mean_purity_size_col_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  plt.savefig(image_name)
+  # plt.show()
+
 def plot_all_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   ind = 1
   rows, cols = get_rowcol(G_dict)
@@ -2599,7 +2773,7 @@ def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None,
       c_size = np.array(c_size) / sum(c_size)
       w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
     weighted_purity.append(w_purity_col)
-  plt.boxplot(weighted_purity)
+  plt.boxplot(weighted_purity, showfliers=False)
   plt.xticks(list(range(1, len(weighted_purity)+1)), cols, rotation=90)
   # plt.hist(data.flatten(), bins=12, density=True)
   # plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
