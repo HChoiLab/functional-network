@@ -5776,6 +5776,67 @@ def get_motif_sign(motif, motif_type, weight='confidence'):
     sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
   return sign
 
+def _tricode(G, v, u, w):
+    """Returns the integer code of the given triad.
+
+    This is some fancy magic that comes from Batagelj and Mrvar's paper. It
+    treats each edge joining a pair of `v`, `u`, and `w` as a bit in
+    the binary representation of an integer.
+
+    """
+    combos = ((v, u, 1), (u, v, 2), (v, w, 4), (w, v, 8), (u, w, 16),
+              (w, u, 32))
+    return sum(x for u, v, x in combos if v in G[u])
+
+################### more efficient way of finding motifs
+def find_triads(G):
+  #: The integer codes representing each type of triad.
+  #: Triads that are the same up to symmetry have the same code.
+  TRICODES = (1, 2, 2, 3, 2, 4, 6, 8, 2, 6, 5, 7, 3, 8, 7, 11, 2, 6, 4, 8, 5, 9,
+              9, 13, 6, 10, 9, 14, 7, 14, 12, 15, 2, 5, 6, 7, 6, 9, 10, 14, 4, 9,
+              9, 12, 8, 13, 14, 15, 3, 7, 8, 11, 7, 12, 14, 15, 8, 14, 13, 15,
+              11, 15, 15, 16)
+  #: The names of each type of triad. The order of the elements is
+  #: important: it corresponds to the tricodes given in :data:`TRICODES`.
+  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U',
+                '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+  #: A dictionary mapping triad code to triad name.
+  TRICODE_TO_NAME = {i: TRIAD_NAMES[code - 1] for i, code in enumerate(TRICODES)}
+  triad_nodes = {name: set([]) for name in TRIAD_NAMES}
+  m = {v: i for i, v in enumerate(G)}
+  for v in G:
+      vnbrs = set(G.pred[v]) | set(G.succ[v])
+      for u in vnbrs:
+          if m[u] > m[v]:
+              unbrs = set(G.pred[u]) | set(G.succ[u])
+              neighbors = (vnbrs | unbrs) - {u, v}
+              not_neighbors = set(G.nodes()) - neighbors - {u, v}
+              # Find dyadic triads
+              for w in not_neighbors:
+                  if v in G[u] and u in G[v]:
+                      triad_nodes['102'].add(tuple(sorted([u, v, w])))
+                  else:
+                      triad_nodes['012'].add(tuple(sorted([u, v, w])))
+              for w in neighbors:
+                  if m[u] < m[w] or (m[v] < m[w] < m[u] and
+                                    v not in G.pred[w] and
+                                    v not in G.succ[w]):
+                      code = _tricode(G, v, u, w)
+                      triad_nodes[TRICODE_TO_NAME[code]].add(
+                          tuple(sorted([u, v, w])))
+  for triad_type in triad_nodes:
+    if len(triad_nodes[triad_type]):
+      G_list = []
+      for triad in triad_nodes[triad_type]:
+        G_list.append(G.subgraph(triad))
+      triad_nodes[triad_type] = G_list
+  # find null triads
+  # all_tuples = set()
+  # for s in triad_nodes.values():
+  #     all_tuples = all_tuples.union(s)
+  # triad_nodes['003'] = set(itertools.combinations(G.nodes(), 3)).difference(all_tuples)
+  return triad_nodes
+
 def get_motif_intensity_coherence(motif, weight='confidence'):
   edges = motif.edges()
   w_list = []
@@ -5796,7 +5857,8 @@ def get_signed_intensity_coherence(G_dict, motif_types):
       print(col)
       intensity_dict[row][col], coherence_dict[row][col] = {}, {}
       G = G_dict[row][col]
-      motifs_by_type = nx.triads_by_type(G)
+      motifs_by_type = find_triads(G) # faster
+      # motifs_by_type = nx.triads_by_type(G)
       for motif_type in motif_types:
         motifs = motifs_by_type[motif_type]
         # print(motif_type)
@@ -5820,9 +5882,10 @@ def get_signed_intensity_coherence_baseline(G_dict, motif_types, algorithm='dire
       intensity_dict[row][col], coherence_dict[row][col] = defaultdict(lambda: np.zeros(num_baseline)), defaultdict(lambda: np.zeros(num_baseline))
       G = G_dict[row][col]
       random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
-      for g_ind, random_graph in enumerate(random_graphs):
-        print(g_ind)
-        motifs_by_type = nx.triads_by_type(random_graph)
+      for g_ind, random_graph in tqdm(enumerate(random_graphs), total=num_baseline):
+        # print(g_ind)
+        motifs_by_type = find_triads(random_graph) # faster
+        # motifs_by_type = nx.triads_by_type(random_graph)
         for motif_type in motif_types:
           motifs = motifs_by_type[motif_type]
           # print(motif_type)
