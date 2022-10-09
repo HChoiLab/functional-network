@@ -5907,6 +5907,96 @@ def defaultdict_to_dict(defaultdict):
         out_dict[row][col][k] = defaultdict[row][col][k]
   return out_dict
 
+################## find significant signed motifs using z score for motif intensity and coherence
+################## first Z score, then average
+def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict):
+  rows, cols = get_rowcol(intensity_dict)
+  signed_motif_types = set()
+  for row in rows:
+    for col in cols:
+      signed_motif_types = signed_motif_types.union(set(list(intensity_dict[row][col].keys())).union(set(list(baseline_intensity_dict[row][col].keys()))))
+  signed_motif_types = list(signed_motif_types)
+  pseudo_intensity = np.zeros(100)
+  pseudo_intensity[0] = 5 # if a motif is not found in random graphs, assume it appeared once
+  whole_df = pd.DataFrame()
+  for col in cols:
+    for row in rows:
+      motif_list = []
+      for motif_type in signed_motif_types:
+        motif_list.append([motif_type, row, col, intensity_dict[row][col].get(motif_type, 0), baseline_intensity_dict[row][col].get(motif_type, pseudo_intensity).mean(), 
+                        baseline_intensity_dict[row][col].get(motif_type, pseudo_intensity).std(), coherence_dict[row][col].get(motif_type, 0), 
+                        baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).mean(), baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).std()])
+      df = pd.DataFrame(motif_list, columns =['signed motif type', 'session', 'stimulus', 'intensity', 'intensity mean', 'intensity std', 'coherence', 'coherence mean', 'coherence std']) 
+      whole_df = pd.concat([whole_df, df], ignore_index=True, sort=False)
+  whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
+  whole_df['coherence z score'] = (whole_df['coherence']-whole_df['coherence mean'])/whole_df['coherence std']
+  mean_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('mean') # average over session
+  std_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('std')
+  mean_df['intensity z score std'] = std_df['intensity z score']
+  return whole_df, mean_df, signed_motif_types
+
+def remove_outlier_meandf(whole_df, mean_df, signed_motif_types):
+  for stimulus_name in stimulus_names:
+    for motif_type in signed_motif_types:
+      mean_inds = (mean_df['stimulus']==stimulus_name) & (mean_df['signed motif type'] == motif_type)
+      mean, std = mean_df[mean_inds][['intensity z score', 'intensity z score std']].values.flatten()
+      whole_inds = (whole_df['stimulus'] ==stimulus_name) & (whole_df['signed motif type'] == motif_type)
+      no_outlier_inds = (whole_df.loc[whole_inds, 'intensity z score'] > mean - 2*std) & (whole_df.loc[whole_inds, 'intensity z score'] < mean + 2*std)
+      no_outlier_inds = no_outlier_inds[no_outlier_inds].index
+      mean_df.loc[mean_inds, ['intensity z score', 'intensity z score std']] = whole_df.loc[no_outlier_inds, 'intensity z score'].mean(), whole_df.loc[no_outlier_inds, 'intensity z score'].std()
+  return mean_df
+
+def plot_significant_motif(mean_df, threshold=10):
+  significant_inds = (mean_df['intensity z score']>threshold) | (mean_df['intensity z score']<-threshold)
+  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+  sorted_types = [sorted([smotif for smotif in mean_df.loc[significant_inds, 'signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  df_plot = mean_df[mean_df['signed motif type'].isin(sorted_types)]
+  df_plot.set_index('stimulus', inplace=True)
+  stimulus_order = [s for s in stimulus_names if df_plot.index.str.contains(s).sum()]
+  df_plot = df_plot.loc[stimulus_order]
+  df_plot.reset_index(inplace=True)
+  # want to keep stimulus and motif type in order, make them categorical
+  df_plot['signed motif type'] = pd.Categorical(df_plot['signed motif type'], sorted_types)
+  df_plot['stimulus'] = pd.Categorical(df_plot['stimulus'], stimulus_order)
+  df_plot = df_plot.sort_values(['signed motif type', 'stimulus'])
+  fig, ax = plt.subplots(figsize=(70, 12))
+  barplot = sns.barplot(data=df_plot, x='stimulus', y="intensity z score", hue="signed motif type", hue_order=sorted_types, ax=ax, errwidth=0, palette='tab20')
+  plt.xticks(fontsize=30)
+  plt.yticks(fontsize=25)
+  barplot.set(xlabel=None)
+  plt.setp(barplot.get_legend().get_texts(), fontsize='25') # for legend text
+  plt.setp(barplot.get_legend().get_title(), fontsize='0') # for legend title
+  sig_stim_motif = df_plot[(df_plot['intensity z score']>threshold) | (df_plot['intensity z score']<-threshold)][['stimulus', 'signed motif type']].values.tolist()
+  for i in range(len(sorted_types)):
+    for s_ind, bar in enumerate(barplot.containers[i]):
+      if [stimulus_names[s_ind], sorted_types[i]] in sig_stim_motif:
+        alpha = 1
+      else:
+        alpha = .2
+      bar.set_alpha(alpha)
+  x_coords = [p.get_x() + 0.5 * p.get_width() for p in barplot.patches]
+  y_coords = [p.get_height() for p in barplot.patches]
+  alpha_list = np.ones(df_plot.shape[0]) * 0.2
+  alpha_list[(df_plot["intensity z score"]>threshold) | (df_plot["intensity z score"]<-threshold)] = 1
+  color_l = [transparent_rgb(colors.to_rgb('k'), [1,1,1], alpha=alpha) for alpha in alpha_list]
+  barplot.errorbar(x=x_coords, y=y_coords, yerr=df_plot['intensity z score std'], fmt="none", ecolor=color_l)
+  plt.ylabel('Z score of intensity', fontsize=30)
+  plt.yscale('symlog')
+  plt.tight_layout()
+  plt.savefig('./plots/motif_z_score.jpg')
+  # plt.yscale('log')
+  # def change_width(ax, new_value) :
+  #     for patch in ax.patches :
+  #         current_width = patch.get_width()
+  #         diff = current_width - new_value
+  #         # we change the bar width
+  #         patch.set_width(new_value)
+  #         # we recenter the bar
+  #         patch.set_x(patch.get_x() + diff * .5)
+
+  # change_width(ax, .1)
+
 def tran2ffl(edge_order, triad_type):
   triads = []
   if triad_type == '030T':
