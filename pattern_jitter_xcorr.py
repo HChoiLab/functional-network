@@ -3938,18 +3938,11 @@ with open('baseline_intensity_dict.pkl', 'rb') as f:
 with open('baseline_coherence_dict.pkl', 'rb') as f:
   baseline_coherence_dict = pickle.load(f)
 #%%
-################## z score for motif intensity and coherence
-rows, cols = get_rowcol(G_ccg_dict)
-signed_motif_types = set()
-for row in rows:
-  for col in cols:
-    signed_motif_types = signed_motif_types.union(set(list(intensity_dict[row][col].keys())).union(set(list(baseline_intensity_dict[row][col].keys()))))
-signed_motif_types = list(signed_motif_types)
-#%%
 ################## average intensity across session
+################## first average, then Z score
 whole_df = pd.DataFrame()
-for row in rows:
-  for col in cols:
+for col in cols:
+  for row in rows:
     motif_list, baseline_motif_list = [], []
     for motif_type in signed_motif_types:
       motif_list.append([motif_type, row, col, intensity_dict[row][col].get(motif_type, 0), baseline_intensity_dict[row][col].get(motif_type, np.zeros(10)).mean(), 
@@ -3963,14 +3956,17 @@ whole_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).m
 whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
 whole_df['coherence z score'] = (whole_df['coherence']-whole_df['coherence mean'])/whole_df['coherence std']
 whole_df = whole_df[~whole_df.isin([np.nan, np.inf, -np.inf]).any(1)] # remove invalid rows
-print(whole_df)
+whole_df
 #%%
 ################## Z score threshold of intensity
-threshold = 20
+threshold = 10
 session_inds = whole_df['intensity'] >= 4 # at least 1 motif for each session on average
 significant_inds = (whole_df['intensity z score']>threshold) | (whole_df['intensity z score']<-threshold)
 significant_df = whole_df[session_inds & significant_inds][['stimulus', 'signed motif type', 'intensity', 'intensity z score', 'coherence', 'coherence z score']]
 significant_df.set_index('stimulus', inplace=True)
+stimulus_order = [s for s in stimulus_names if s in significant_df.index]
+significant_df = significant_df.loc[stimulus_order]
+significant_df
 #%%
 ################## Z score threshold of intensity for flash
 threshold = 4
@@ -3979,6 +3975,19 @@ significant_inds = (whole_df['intensity z score']>threshold) | (whole_df['intens
 flash_inds = (whole_df['stimulus'].isin(['flash_dark', 'flash_light']))
 significant_flash_df = whole_df[session_inds & significant_inds & flash_inds][['stimulus', 'signed motif type', 'intensity', 'intensity z score', 'coherence', 'coherence z score']]
 significant_flash_df.set_index('stimulus', inplace=True)
+stimulus_order = [s for s in stimulus_names if s in significant_flash_df.index]
+significant_flash_df = significant_flash_df.loc[stimulus_order]
+significant_flash_df
+#%%
+################## average intensity across session
+################## first Z score, then average
+whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict)
+#%%
+################## remove outlier from mean_df (outside 2 std)
+mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
+#%%
+############### make motif below threshold transparent
+plot_significant_motif(mean_df, threshold=10)
 #%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
