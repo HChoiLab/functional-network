@@ -3030,11 +3030,16 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
     # origin_G = nx.subgraph(origin_G, largest_cc)
   # weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
   weights = list(nx.get_edge_attributes(origin_G, weight).values())
-  np.random.shuffle(weights)
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
   random_graphs = []
+  nswap = Q*origin_G.number_of_edges()
+  max_tries = 1e75
+  keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
+  cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
+  discrete_sequence = nx.utils.discrete_sequence
   for num in tqdm(range(num_rewire)):
+    np.random.shuffle(weights)
     # print(G.number_of_nodes(), G.number_of_edges())
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
@@ -3102,13 +3107,8 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
     elif algorithm == 'uni_bi_swap':
       # swap u->v, x->y to u->y, x->v, u<->v, x<->y to u<->y, x<->v
       G = origin_G.copy()
-      nswap = Q*G.number_of_edges()
-      max_tries = 1e75
       n_tries = 0
       swapcount = 0
-      keys, out_degrees = zip(*G.out_degree())  # keys, degree
-      cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
-      discrete_sequence = nx.utils.discrete_sequence
       while swapcount < nswap:
         (ui, xi) = discrete_sequence(2, cdistribution=cdf, seed=None)
         if ui == xi:
@@ -5984,14 +5984,14 @@ def defaultdict_to_dict(defaultdict):
 
 ################## find significant signed motifs using z score for motif intensity and coherence
 ################## first Z score, then average
-def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict):
+def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100):
   rows, cols = get_rowcol(intensity_dict)
   signed_motif_types = set()
   for row in rows:
     for col in cols:
       signed_motif_types = signed_motif_types.union(set(list(intensity_dict[row][col].keys())).union(set(list(baseline_intensity_dict[row][col].keys()))))
   signed_motif_types = list(signed_motif_types)
-  pseudo_intensity = np.zeros(100)
+  pseudo_intensity = np.zeros(num_baseline)
   pseudo_intensity[0] = 5 # if a motif is not found in random graphs, assume it appeared once
   whole_df = pd.DataFrame()
   for col in cols:
