@@ -6072,6 +6072,46 @@ def plot_significant_motif(mean_df, threshold=10):
 
   # change_width(ax, .1)
 
+def plot_zscore_distribution(df, measure, n):
+  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+  fig = plt.figure(figsize=(9*len(stimulus_order)/2, 6*2))
+  for s_ind, stimulus in enumerate(stimulus_order):
+    print(stimulus)
+    data = df[df.stimulus==stimulus]['intensity z score']
+    ax=plt.subplot(2, int(np.ceil(len(stimulus_order)/2)), s_ind+1)
+    plt.gca().set_title(stimulus, fontsize=30, rotation=0)
+    plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+    sns.histplot(data=data, linewidth=0, stat='probability', binwidth=1)
+    plt.axvline(x=np.nanmean(data), color='r', linestyle='--')
+    plt.yscale('log')
+    plt.xscale('symlog')
+  plt.tight_layout()
+  figname = './plots/zscore_distribution_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
+def plot_zscore_all_motif(df, measure, n):
+  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+  fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(70, 6*len(stimulus_order)))
+  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  for s_ind, stimulus in enumerate(stimulus_order):
+    print(stimulus)
+    data = df[df.stimulus==stimulus]
+    ax = axes[s_ind]
+    ax.set_title(stimulus, fontsize=30, rotation=0)
+    barplot = sns.barplot(data=data, x="signed motif type", y="intensity z score", order=sorted_types, ax=ax)
+    ax.xaxis.set_tick_params(labelsize=15, rotation=90)
+    ax.yaxis.set_tick_params(labelsize=25)
+    ax.set_ylabel('Z score of intensity', fontsize=30)
+    # ax.set_ylim(top=60)
+    # plt.yscale('symlog')
+    barplot.set(xlabel=None)
+  plt.tight_layout()
+  figname = './plots/zscore_all_motifs_{}_{}fold.jpg'.format(measure, n)
+  # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
+  plt.savefig(figname)
+
 def tran2ffl(edge_order, triad_type):
   triads = []
   if triad_type == '030T':
