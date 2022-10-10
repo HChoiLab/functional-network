@@ -1,4 +1,5 @@
 # %%
+from selectors import EpollSelector
 from library import *
 import importlib
 import library
@@ -3921,11 +3922,21 @@ with open('coherence_dict.pkl', 'wb') as f:
 #%%
 start_time = time.time()
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
-baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='directed_double_edge_swap', num_baseline=10)
+baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='directed_double_edge_swap', num_baseline=100)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 with open('baseline_intensity_dict.pkl', 'wb') as f:
   pickle.dump(defaultdict_to_dict(baseline_intensity_dict), f)
 with open('baseline_coherence_dict.pkl', 'wb') as f:
+  pickle.dump(defaultdict_to_dict(baseline_coherence_dict), f)
+#%%
+# keep uni_bi directional edge distribution
+start_time = time.time()
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='uni_bi_swap', num_baseline=100)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+with open('unibi_baseline_intensity_dict.pkl', 'wb') as f:
+  pickle.dump(defaultdict_to_dict(baseline_intensity_dict), f)
+with open('unibi_baseline_coherence_dict.pkl', 'wb') as f:
   pickle.dump(defaultdict_to_dict(baseline_coherence_dict), f)
 #%%
 with open('intensity_dict.pkl', 'rb') as f:
