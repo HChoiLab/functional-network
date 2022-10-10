@@ -3019,6 +3019,9 @@ def distribution_community_size_mean(comms_dict, measure, n, max_neg_reso=None, 
   image_name = './plots/comm_distribution_mean_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
   plt.savefig(image_name)
 
+def remove_common(a, b):
+  return list(set(a).difference(b)), list(set(b).difference(a))
+
 def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=False, Q=100):
   origin_G = input_G.copy()
   if cc:
@@ -3096,10 +3099,82 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
           )
           raise nx.NetworkXAlgorithmError(e)
         n_tries += 1
+    elif algorithm == 'uni_bi_swap':
+      # swap u->v, x->y to u->y, x->v, u<->v, x<->y to u<->y, x<->v
+      G = origin_G.copy()
+      nswap = Q*G.number_of_edges()
+      max_tries = 1e75
+      n_tries = 0
+      swapcount = 0
+      keys, out_degrees = zip(*G.out_degree())  # keys, degree
+      cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
+      discrete_sequence = nx.utils.discrete_sequence
+      while swapcount < nswap:
+        (ui, xi) = discrete_sequence(2, cdistribution=cdf, seed=None)
+        if ui == xi:
+          continue  # same source, skip
+        u = keys[ui]  # convert index to label
+        x = keys[xi]
+        # choose target uniformly from neighbors
+        u_neigh, x_neigh = list(G[u]), list(G[x])
+        if x in u_neigh:
+          u_neigh.remove(x) # avoid self loop
+        if u in x_neigh:
+          x_neigh.remove(u) # avoid self loop
+        u_neigh, x_neigh = remove_common(u_neigh, x_neigh) # avoid existed edge
+        if (not len(u_neigh)) or (not len(x_neigh)):
+          continue
+        ns = list(itertools.product(u_neigh, x_neigh))
+        np.random.shuffle(ns)
+        for v, y in ns:
+          # for uni edges, they do not form new bidirectional edges
+          # for bi edges, they can be switched
+          if (u not in G[y]) and (x not in G[v]):
+            # unidirectional edges
+            if (u not in G[v]) and (x not in G[y]):
+              G.add_edge(u, y)
+              G.add_edge(x, v)
+              G.remove_edge(u, v)
+              G.remove_edge(x, y)
+              swapcount += 1
+              break
+            # bidirectional edges
+            elif (u in G[v]) and (x in G[y]):
+              G.add_edge(u, y)
+              G.add_edge(y, u)
+              G.add_edge(x, v)
+              G.add_edge(v, x)
+              G.remove_edge(u, v)
+              G.remove_edge(v, u)
+              G.remove_edge(x, y)
+              G.remove_edge(y, x)
+              swapcount += 2
+              break
+            else:
+              continue
+          else:
+            continue
+        if n_tries >= max_tries:
+          e = (
+            f"Maximum number of swap attempts ({n_tries}) exceeded "
+            f"before desired swaps achieved ({nswap})."
+          )
+          raise nx.NetworkXAlgorithmError(e)
+        n_tries += 1
     # add link weights
-    for ind, e in enumerate(G.edges()):
-      G[e[0]][e[1]][weight] = weights[ind]
+    if len(weights):
+      for ind, e in enumerate(G.edges()):
+        G[e[0]][e[1]][weight] = weights[ind]
     random_graphs.append(G)
+  # nodes = sorted(list(origin_G.nodes())) # test if degree distribution is the same
+  # indegree_seq = [origin_G.in_degree(node) for node in nodes]
+  # outdegree_seq = [origin_G.out_degree(node) for node in nodes]
+  # for random_G in random_graphs:
+  #   print(indegree_seq==[random_G.in_degree(node) for node in nodes], outdegree_seq==[random_G.out_degree(node) for node in nodes])
+  # for random_G in random_graphs: # test if sum of weights is the same
+  #   print(np.isclose(random_G.size(weight='weight'), origin_G.size(weight='weight')))
+  # for random_G in random_graphs: # test if pair distribution is the same
+  #   print(np.isclose(count_triplet_connection_p(random_G), count_triplet_connection_p(origin_G)).all())
   return random_graphs
 
 def get_modularity(G, weight='weight', resolution=1, comms=None):
@@ -5810,13 +5885,13 @@ def find_triads(G):
           if m[u] > m[v]:
               unbrs = set(G.pred[u]) | set(G.succ[u])
               neighbors = (vnbrs | unbrs) - {u, v}
-              not_neighbors = set(G.nodes()) - neighbors - {u, v}
+              # not_neighbors = set(G.nodes()) - neighbors - {u, v}
               # Find dyadic triads
-              for w in not_neighbors:
-                  if v in G[u] and u in G[v]:
-                      triad_nodes['102'].add(tuple(sorted([u, v, w])))
-                  else:
-                      triad_nodes['012'].add(tuple(sorted([u, v, w])))
+              # for w in not_neighbors:
+              #     if v in G[u] and u in G[v]:
+              #         triad_nodes['102'].add(tuple(sorted([u, v, w])))
+              #     else:
+              #         triad_nodes['012'].add(tuple(sorted([u, v, w])))
               for w in neighbors:
                   if m[u] < m[w] or (m[v] < m[w] < m[u] and
                                     v not in G.pred[w] and
