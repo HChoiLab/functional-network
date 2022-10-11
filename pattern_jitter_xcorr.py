@@ -1,5 +1,4 @@
 # %%
-from selectors import EpollSelector
 from library import *
 import importlib
 import library
@@ -3778,7 +3777,7 @@ plot_data_heatmap(scale_duration, duration_mat, 11, rows, cols, 'duration', meas
 #   for col in cols:
 #     for row in rows:
 #       S = S_ccg_dict[row][col]
-#       p0, p1, p2 = count_triplet_connection_p(S)
+#       p0, p1, p2 = count_pair_connection_p(S)
 p_pair_func = {
   '0': lambda p: (1 - p)**2,
   '1': lambda p: 2 * (p * (1-p)),
@@ -3868,7 +3867,7 @@ for region in visual_regions:
 #       G = nx.subgraph(G, area_nodes)
 #       G_triad_count = nx.triads.triadic_census(G)
 #       num_triplet = sum(G_triad_count.values())
-#       p0, p1, p2 = count_triplet_connection_p(G)
+#       p0, p1, p2 = count_pair_connection_p(G)
 #       for triad_type in G_triad_count:
 #         relative_c = safe_division(G_triad_count[triad_type], num_triplet * p_triad_func[triad_type](p0, p1, p2))
 #         all_triad_count[triad_type].append(relative_c)
@@ -3932,22 +3931,39 @@ with open('baseline_coherence_dict.pkl', 'wb') as f:
 # keep uni_bi directional edge distribution
 start_time = time.time()
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
-baseline_intensity_dict, baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='uni_bi_swap', num_baseline=100)
+unibi_baseline_intensity_dict, unibi_baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='uni_bi_swap', num_baseline=100)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 with open('unibi_baseline_intensity_dict.pkl', 'wb') as f:
-  pickle.dump(defaultdict_to_dict(baseline_intensity_dict), f)
+  pickle.dump(defaultdict_to_dict(unibi_baseline_intensity_dict), f)
 with open('unibi_baseline_coherence_dict.pkl', 'wb') as f:
-  pickle.dump(defaultdict_to_dict(baseline_coherence_dict), f)
+  pickle.dump(defaultdict_to_dict(unibi_baseline_coherence_dict), f)
+#%%
+# keep SIGNED uni_bi directional edge distribution
+start_time = time.time()
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict = get_signed_intensity_coherence_baseline(G_ccg_dict, motif_types, algorithm='signed_uni_bi_swap', num_baseline=100)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+with open('sunibi_baseline_intensity_dict.pkl', 'wb') as f:
+  pickle.dump(defaultdict_to_dict(sunibi_baseline_intensity_dict), f)
+with open('sunibi_baseline_coherence_dict.pkl', 'wb') as f:
+  pickle.dump(defaultdict_to_dict(sunibi_baseline_coherence_dict), f)
 #%%
 with open('intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('coherence_dict.pkl', 'rb') as f:
   coherence_dict = pickle.load(f)
-#%%
-with open('baseline_intensity_dict.pkl', 'rb') as f:
-  baseline_intensity_dict = pickle.load(f)
-with open('baseline_coherence_dict.pkl', 'rb') as f:
-  baseline_coherence_dict = pickle.load(f)
+# with open('baseline_intensity_dict.pkl', 'rb') as f:
+#   baseline_intensity_dict = pickle.load(f)
+# with open('baseline_coherence_dict.pkl', 'rb') as f:
+#   baseline_coherence_dict = pickle.load(f)
+# with open('unibi_baseline_intensity_dict.pkl', 'rb') as f:
+#   unibi_baseline_intensity_dict = pickle.load(f)
+# with open('unibi_baseline_coherence_dict.pkl', 'rb') as f:
+#   unibi_baseline_coherence_dict = pickle.load(f)
+with open('sunibi_baseline_intensity_dict.pkl', 'rb') as f:
+  sunibi_baseline_intensity_dict = pickle.load(f)
+with open('sunibi_baseline_coherence_dict.pkl', 'rb') as f:
+  sunibi_baseline_coherence_dict = pickle.load(f)
 #%%
 ################## average intensity across session
 ################## first average, then Z score
@@ -3992,13 +4008,28 @@ significant_flash_df
 #%%
 ################## average intensity across session
 ################## first Z score, then average
-whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict)
+num_baseline = 200
+# whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict) # directed double edge swap
+# whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, unibi_baseline_intensity_dict, unibi_baseline_coherence_dict, num_baseline=num_baseline) # uni bi edge preserved
+whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict, num_baseline=num_baseline) # signed uni bi edge preserved
 #%%
 ################## remove outlier from mean_df (outside 2 std)
 mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
 #%%
 ############### make motif below threshold transparent
 plot_significant_motif(mean_df, threshold=10)
+#%%
+# G = G_ccg_dict['797828357']['drifting_gratings']
+# random_graphs = random_graph_generator(G, num_rewire=10, algorithm='uni_bi_swap', weight='confidence', cc=False, Q=100)
+# random_graphs = random_graph_generator(G, num_rewire=10, algorithm='signed_uni_bi_swap', weight='confidence', cc=False, Q=100)
+#%%
+# p0, p1, p2, p3, p4, p5 = count_signed_pair_connection_p(G, weight='confidence')
+#%%
+############### Z score distribution for all signed motifs
+plot_zscore_distribution(whole_df, measure, n)
+#%%
+################## box plot of z score for all signed motifs
+plot_zscore_all_motif(whole_df, measure, n)
 #%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
