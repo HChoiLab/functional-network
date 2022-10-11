@@ -4031,6 +4031,10 @@ plot_zscore_distribution(whole_df, measure, n)
 ################## box plot of z score for all signed motifs
 plot_zscore_all_motif(whole_df, measure, n)
 #%%
+################## number of significant motif VS threshold
+threshold_list = np.arange(0.1, 21, 0.1)
+plot_sig_motif_threshold(mean_df, threshold_list, measure, n)
+#%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
 triad_color = {'030T':'Green', '120D':'Blue', '120U':'Red', '300':'Grey'}
