@@ -3029,18 +3029,18 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
     # largest_cc = max(nx.connected_components(origin_G), key=len)
     # origin_G = nx.subgraph(origin_G, largest_cc)
   # weights = np.squeeze(np.array(nx.adjacency_matrix(origin_G)[nx.adjacency_matrix(origin_G).nonzero()]))
-  weights = list(nx.get_edge_attributes(origin_G, weight).values())
+  weight_dict = nx.get_edge_attributes(origin_G, weight)
+  weights = list(weight_dict.values())
   # if nx.is_directed(origin_G):
   #   algorithm = 'directed_configuration_model'
   random_graphs = []
-  nswap = Q*origin_G.number_of_edges()
-  max_tries = 1e75
-  keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
-  cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
-  discrete_sequence = nx.utils.discrete_sequence
+  if algorithm in ['directed_double_edge_swap', 'uni_bi_swap', 'signed_uni_bi_swap']:
+    nswap = Q*origin_G.number_of_edges()
+    max_tries = 1e75
+    keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
+    cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
+    discrete_sequence = nx.utils.discrete_sequence
   for num in tqdm(range(num_rewire)):
-    np.random.shuffle(weights)
-    # print(G.number_of_nodes(), G.number_of_edges())
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
       G = nx.gnm_random_graph(n, m, seed=None, directed=True)
@@ -3070,13 +3070,8 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
     elif algorithm == 'directed_double_edge_swap':
       # swap u->v, x->y to u->y, x->v
       G = origin_G.copy()
-      nswap = Q*G.number_of_edges()
-      max_tries = 1e75
       n_tries = 0
       swapcount = 0
-      keys, out_degrees = zip(*G.out_degree())  # keys, degree
-      cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
-      discrete_sequence = nx.utils.discrete_sequence
       while swapcount < nswap:
         #        if random.random() < 0.5: continue # trick to avoid periodicities?
         # pick two random edges without creating edge list
@@ -3132,22 +3127,75 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
           if (u not in G[y]) and (x not in G[v]):
             # unidirectional edges
             if (u not in G[v]) and (x not in G[y]):
-              G.add_edge(u, y)
-              G.add_edge(x, v)
-              G.remove_edge(u, v)
-              G.remove_edge(x, y)
+              edge2add = [(u, y), (x, v)]
+              edge2remove = [(u, v), (x, y)]
+              G.add_edges_from(edge2add)
+              G.remove_edges_from(edge2remove)
               swapcount += 1
               break
             # bidirectional edges
             elif (u in G[v]) and (x in G[y]):
-              G.add_edge(u, y)
-              G.add_edge(y, u)
-              G.add_edge(x, v)
-              G.add_edge(v, x)
-              G.remove_edge(u, v)
-              G.remove_edge(v, u)
-              G.remove_edge(x, y)
-              G.remove_edge(y, x)
+              edge2add = [(u, y), (y, u), (x, v), (v, x)]
+              edge2remove = [(u, v), (v, u), (x, y), (y, x)]
+              G.add_edges_from(edge2add)
+              G.remove_edges_from(edge2remove)
+              swapcount += 2
+              break
+            else:
+              continue
+          else:
+            continue
+        if n_tries >= max_tries:
+          e = (
+            f"Maximum number of swap attempts ({n_tries}) exceeded "
+            f"before desired swaps achieved ({nswap})."
+          )
+          raise nx.NetworkXAlgorithmError(e)
+        n_tries += 1
+    elif algorithm == 'signed_uni_bi_swap':
+      # swap u->v, x->y to u->y, x->v, u<->v, x<->y to u<->y, x<->v, with signed edge distri preserved
+      G = origin_G.copy()
+      n_tries = 0
+      swapcount = 0
+      while swapcount < nswap:
+        (ui, xi) = discrete_sequence(2, cdistribution=cdf, seed=None)
+        if ui == xi:
+          continue  # same source, skip
+        u = keys[ui]  # convert index to label
+        x = keys[xi]
+        # choose target uniformly from neighbors
+        u_neigh, x_neigh = list(G[u]), list(G[x])
+        if x in u_neigh:
+          u_neigh.remove(x) # avoid self loop
+        if u in x_neigh:
+          x_neigh.remove(u) # avoid self loop
+        u_neigh, x_neigh = remove_common(u_neigh, x_neigh) # avoid existed edge
+        if (not len(u_neigh)) or (not len(x_neigh)):
+          continue
+        ns = list(itertools.product(u_neigh, x_neigh))
+        np.random.shuffle(ns)
+        for v, y in ns:
+          # for uni edges, they do not form new bidirectional edges
+          # for bi edges, they can be switched
+          if (u not in G[y]) and (x not in G[v]):
+            # unidirectional edges
+            if (u not in G[v]) and (x not in G[y]):
+              edge2remove = [(u, v), (x, y)]
+              ews = [G.get_edge_data(*e)[weight] for e in edge2remove]
+              np.random.shuffle(ews)
+              edge2add = [(u, y, ews[0]), (x, v, ews[1])]
+              G.add_weighted_edges_from((edge2add), weight=weight)
+              G.remove_edges_from(edge2remove)
+              swapcount += 1
+              break
+            # bidirectional edges
+            elif (u in G[v]) and (x in G[y]):
+              edge2remove = [(u, v), (v, u), (x, y), (y, x)]
+              ews = [(G[u][v][weight],G[v][u][weight]), (G[x][y][weight], G[y][x][weight])]
+              np.random.shuffle(ews)
+              edge2add = [(u, y, ews[0][0]), (y, u, ews[0][1]), (x, v, ews[1][0]), (v, x, ews[1][1])]
+              G.add_weighted_edges_from((edge2add), weight=weight)
+              G.remove_edges_from(edge2remove)
               swapcount += 2
               break
             else:
@@ -3162,9 +3210,11 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
           raise nx.NetworkXAlgorithmError(e)
         n_tries += 1
     # add link weights
-    if len(weights):
-      for ind, e in enumerate(G.edges()):
-        G[e[0]][e[1]][weight] = weights[ind]
+    if algorithm != 'signed_uni_bi_swap':
+      np.random.shuffle(weights)
+      if len(weights):
+        for ind, e in enumerate(G.edges()):
+          G[e[0]][e[1]][weight] = weights[ind]
     random_graphs.append(G)
   # nodes = sorted(list(origin_G.nodes())) # test if degree distribution is the same
   # indegree_seq = [origin_G.in_degree(node) for node in nodes]
@@ -3172,9 +3222,11 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
   # for random_G in random_graphs:
   #   print(indegree_seq==[random_G.in_degree(node) for node in nodes], outdegree_seq==[random_G.out_degree(node) for node in nodes])
   # for random_G in random_graphs: # test if sum of weights is the same
-  #   print(np.isclose(random_G.size(weight='weight'), origin_G.size(weight='weight')))
+  #   print(np.isclose(random_G.size(weight='confidence'), origin_G.size(weight='confidence')))
   # for random_G in random_graphs: # test if pair distribution is the same
-  #   print(np.isclose(count_triplet_connection_p(random_G), count_triplet_connection_p(origin_G)).all())
+  #   print(np.isclose(count_pair_connection_p(random_G), count_pair_connection_p(origin_G)).all())
+  # for random_G in random_graphs: # test if signed pair distribution is the same
+  #   print(np.isclose(count_signed_pair_connection_p(random_G, weight='confidence'), count_signed_pair_connection_p(origin_G, weight='confidence')).all())
   return random_graphs
 
 def get_modularity(G, weight='weight', resolution=1, comms=None):
@@ -5332,7 +5384,7 @@ def triadic_census(G_dict):
       triad_count[row][col] = dict(sorted(triad_count[row][col].items(), key=lambda x:x[1], reverse=True))
   return triad_count
   
-def count_triplet_connection_p(G):
+def count_pair_connection_p(G): # 0, 1, 2 edges
   num0, num1, num2 = 0, 0, 0
   nodes = list(G.nodes())
   for node_i in range(len(nodes)):
@@ -5350,6 +5402,46 @@ def count_triplet_connection_p(G):
   p0, p1, p2 = safe_division(num0, num0 + num1 + num2), safe_division(num1, num0 + num1 + num2), safe_division(num2, num0 + num1 + num2)
   return p0, p1, p2
 
+def count_signed_pair_connection_p(G, weight): # 0, 1pos, 1neg, 2pos, 1pos+1neg, 2neg
+  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
+  nodes = list(G.nodes())
+  for node_i in range(len(nodes)):
+    for node_j in range(node_i+1, len(nodes)):
+      i2j, j2i = G.has_edge(nodes[node_i], nodes[node_j]), G.has_edge(nodes[node_j], nodes[node_i])
+      if i2j and (not j2i):
+        i2jw = G[nodes[node_i]][nodes[node_j]][weight]
+        if i2jw > 0:
+          num1 += 1
+        else:
+          num2 += 1
+      elif (not i2j) and j2i:
+        j2iw = G[nodes[node_j]][nodes[node_i]][weight]
+        if j2iw > 0:
+          num1 += 1
+        else:
+          num2 += 1
+      elif i2j and j2i:
+        i2jw, j2iw = G[nodes[node_i]][nodes[node_j]][weight], G[nodes[node_j]][nodes[node_i]][weight]
+        if (i2jw>0) and (j2iw>0):
+          num3 += 1
+        elif (i2jw<0) and (j2iw<0):
+          num5 += 1
+        else:
+          num4 += 1
+      else:
+        num0 += 1
+  assert num0 + num1 + num2 + num3 + num4 + num5 == len(nodes) * (len(nodes) - 1) / 2
+  assert (num1 + num2) + 2 * (num3 + num4 + num5) == G.number_of_edges()
+  pos = [e[2][weight] for e in G.edges(data=True) if e[2][weight]>0]
+  neg = [e[2][weight] for e in G.edges(data=True) if e[2][weight]<0]
+  assert (num1 + 2 * num3 + num4) == len(pos), f'{num1 + 2 * num3 + num4}, {len(pos)}'
+  assert (num2 + num4 + 2 * num5) == len(neg), f'{num2 + num4 + 2 * num5}, {len(neg)}'
+  summ = num0 + num1 + num2 + num3 + num4 + num5
+  p0, p1, p2, p3, p4, p5 = safe_division(num0, summ), safe_division(num1, summ), safe_division(num2, summ), safe_division(num3, summ), safe_division(num4, summ), safe_division(num5, summ)
+  return p0, p1, p2, p3, p4, p5
+
+p0, p1, p2, p3, p4, p5 = count_signed_pair_connection_p(G, weight='confidence')
+
 def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale = True):
   ind = 1
   rows, cols = get_rowcol(G_dict)
@@ -5363,7 +5455,7 @@ def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale =
     for row in rows:
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       ylim = max(ylim, p0 / p_pair_func['0'](p), p1 / p_pair_func['1'](p), p2 / p_pair_func['2'](p))
   for col in cols:
     print(col)
@@ -5375,7 +5467,7 @@ def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale =
     for row in rows:
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       all_pair_count['0'].append(p0 / p_pair_func['0'](p))
       all_pair_count['1'].append(p1 / p_pair_func['1'](p))
       all_pair_count['2'].append(p2 / p_pair_func['2'](p))
@@ -5422,7 +5514,7 @@ def plot_triad_relative_count(G_dict, p_triad_func, measure, n, log=True):
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       G_triad_count = nx.triads.triadic_census(G)
       num_triplet = sum(G_triad_count.values())
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       for triad_type in G_triad_count:
         relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
         all_triad_count[triad_type].append(relative_c)
@@ -5460,7 +5552,7 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
       area_nodes = [k  for k, v in area_dict[row].items() if v == area]
       G = nx.subgraph(G, area_nodes)
       p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       ylim = max(ylim, safe_division(p0, p_pair_func['0'](p)), safe_division(p1, p_pair_func['1'](p)), safe_division(p2, p_pair_func['2'](p)))
   for col in cols:
     print(col)
@@ -5474,7 +5566,7 @@ def plot_singleregion_pair_relative_count(G_dict, area_dict, area, p_pair_func, 
       area_nodes = [k  for k, v in area_dict[row].items() if v == area]
       G = nx.subgraph(G, area_nodes)
       p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       all_pair_count['0'].append(safe_division(p0, p_pair_func['0'](p)))
       all_pair_count['1'].append(safe_division(p1, p_pair_func['1'](p)))
       all_pair_count['2'].append(safe_division(p2, p_pair_func['2'](p)))
@@ -5520,7 +5612,7 @@ def plot_singleregion_triad_relative_count(G_dict, area_dict, area, p_triad_func
       G = nx.subgraph(G, area_nodes)
       G_triad_count = nx.triads.triadic_census(G)
       num_triplet = sum(G_triad_count.values())
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       for triad_type in G_triad_count:
         relative_c = safe_division(G_triad_count[triad_type], num_triplet * p_triad_func[triad_type](p0, p1, p2))
         all_triad_count[triad_type].append(relative_c)
