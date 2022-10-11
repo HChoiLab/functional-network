@@ -19,6 +19,7 @@ import sys
 import re
 # import random
 from mpl_toolkits.axes_grid1 import axes_grid
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -6200,6 +6201,43 @@ def plot_zscore_all_motif(df, measure, n):
   figname = './plots/zscore_all_motifs_{}_{}fold.jpg'.format(measure, n)
   # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname)
+
+def plot_sig_motif_threshold(df, threshold_list, measure, n):
+  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+  num_pos, num_neg = np.zeros((len(stimulus_order), len(threshold_list))), np.zeros((len(stimulus_order), len(threshold_list)))
+  fig, ax = plt.subplots(figsize=[14,12])
+  for s_ind, stimulus in enumerate(stimulus_order):
+    print(stimulus)
+    data = df[df.stimulus==stimulus]
+    for t_ind, threshold in enumerate(threshold_list):
+      num_pos[s_ind, t_ind] = len(data[data['intensity z score']>=threshold])
+      num_neg[s_ind, t_ind] = len(data[data['intensity z score']<=-threshold])
+    plt.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=1.)
+    plt.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=1.)
+  plt.legend(loc='lower left', frameon=False)
+  plt.xscale('log')
+  plt.yscale('log')
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xlabel('threshold', fontsize=25)
+  plt.ylabel('number of significant motifs', fontsize=25)
+  axins = inset_axes(ax, loc='upper right', width="32%", # width = 30% of parent_bbox
+                   height="35%") # height : 1 inch)
+  # mark_inset(ax, axins, loc1=1, loc2=1, fc="none", ec="0.5")
+  axins.set_xlim([3,18])
+  axins.set_ylim([1,16])
+  # # Plot zoom window
+  for s_ind, stimulus in enumerate(stimulus_order):
+    axins.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=1.)
+    axins.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=1.)
+  plt.yscale('log')
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  plt.tight_layout()
+  plt.savefig(f'./plots/sig_motif_threshold_{measure}_{n}fold.jpg')
+  # plt.show()
 
 def tran2ffl(edge_order, triad_type):
   triads = []
