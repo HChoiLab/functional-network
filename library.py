@@ -1,5 +1,4 @@
 #%%
-from unittest.mock import NonCallableMagicMock
 import numpy as np
 # import numpy.ma as ma
 import pandas as pd
@@ -5439,8 +5438,6 @@ def count_signed_pair_connection_p(G, weight): # 0, 1pos, 1neg, 2pos, 1pos+1neg,
   summ = num0 + num1 + num2 + num3 + num4 + num5
   p0, p1, p2, p3, p4, p5 = safe_division(num0, summ), safe_division(num1, summ), safe_division(num2, summ), safe_division(num3, summ), safe_division(num4, summ), safe_division(num5, summ)
   return p0, p1, p2, p3, p4, p5
-
-p0, p1, p2, p3, p4, p5 = count_signed_pair_connection_p(G, weight='confidence')
 
 def plot_pair_relative_count(G_dict, p_pair_func, measure, n, log=False, scale = True):
   ind = 1
