@@ -43,7 +43,7 @@ from scipy import sparse
 # from plfit import plfit
 import collections
 from collections import defaultdict
-# from sklearn.manifold import TSNE
+from sklearn.manifold import TSNE
 from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
 import gurobipy as gp
@@ -6012,6 +6012,31 @@ def get_motif_intensity_coherence(motif, weight='confidence'):
   coherence = I / np.mean(w_list)
   return intensity, coherence
 
+def plot_distri_weight_confidence(G_dict, measure, n, target='weight'):
+  rows,cols = get_rowcol(G_dict)
+  conf, p_conf, n_conf = [], [], []
+  for row in rows:
+    for col in cols:
+      G = G_dict[row][col]
+      conf += [e[2][target] for e in G.edges(data=True)]
+  p_conf = [c for c in conf if c > 0]
+  n_conf = [abs(c) for c in conf if c < 0]
+  plt.figure()
+  sns.histplot(data=p_conf, linewidth=0, stat='probability', color='tab:Orange', alpha=.3, label='excitatory link')
+  sns.histplot(data=n_conf, linewidth=0, stat='probability', color='tab:Blue', alpha=.3, label='inhibitory link')
+  plt.axvline(x=np.nanmean(p_conf), color='tab:Orange', linestyle='--', alpha=.3)
+  plt.axvline(x=np.nanmean(n_conf), color='tab:Blue', linestyle='--', alpha=.3)
+  plt.xscale('log')
+  plt.yscale('log')
+  xlabel = 'absolute CCG weight' if target == 'weight' else 'absolute CCG Z score'
+  plt.xlabel(xlabel)
+  m_p_conf, m_n_conf = np.nanmean(p_conf), np.nanmean(n_conf)
+  plt.text(max(m_p_conf, m_n_conf), .03, "percentage difference {:2.2f} %".format(100 * abs(m_p_conf-m_n_conf)/((m_p_conf+m_n_conf)/2)), verticalalignment='center')
+  plt.legend()
+  figname = f'./plots//distri_pos_neg_{target}_{measure}_{n}fold.jpg'
+  plt.savefig(figname)
+  # plt.show()
+
 def get_signed_intensity_coherence(G_dict, motif_types):
   rows, cols = get_rowcol(G_dict)
   intensity_dict, coherence_dict = {}, {}
@@ -6212,8 +6237,8 @@ def plot_sig_motif_threshold(df, threshold_list, measure, n):
     for t_ind, threshold in enumerate(threshold_list):
       num_pos[s_ind, t_ind] = len(data[data['intensity z score']>=threshold])
       num_neg[s_ind, t_ind] = len(data[data['intensity z score']<=-threshold])
-    plt.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=1.)
-    plt.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=1.)
+    plt.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=.9)
+    plt.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=.9)
   plt.legend(loc='lower left', frameon=False)
   plt.xscale('log')
   plt.yscale('log')
@@ -6227,11 +6252,11 @@ def plot_sig_motif_threshold(df, threshold_list, measure, n):
                    height="35%") # height : 1 inch)
   # mark_inset(ax, axins, loc1=1, loc2=1, fc="none", ec="0.5")
   axins.set_xlim([3,18])
-  axins.set_ylim([1,16])
+  axins.set_ylim([.8,16])
   # # Plot zoom window
   for s_ind, stimulus in enumerate(stimulus_order):
-    axins.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=1.)
-    axins.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=1.)
+    axins.plot(threshold_list, num_neg[s_ind, :], color=stimulus_colors[s_ind], linestyle=(5, (10, 3)), alpha=.9)
+    axins.plot(threshold_list, num_pos[s_ind, :], label=stimulus, color=stimulus_colors[s_ind], alpha=.9)
   plt.yscale('log')
   plt.xticks(fontsize=20)
   plt.yticks(fontsize=20)
