@@ -7934,6 +7934,7 @@ def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
   S_init = np.array(S_init)
   A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='sign')
   A[A<0] = 0 # only keep excitatory links
+  # A[A>0] = 1
   A[A.nonzero()] = 1
   offset_mat = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='offset')
   A[offset_mat==0] = 0 # remove 0 time lag edges (common input)
@@ -7950,23 +7951,97 @@ def message_propagation(G, epsilon, active_area, area_plot_order, timesteps):
   # A/=A.sum(0)
   # A += (1+epsilon)*np.eye(A.shape[0])
   # A/=A.sum(0)
-
   # neurons with more in neighbors are more vulnerable
   A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
   A = A.astype(float)
   A/=A.sum(0)
-
-  T = A.T
   S = S_init.copy()
   state_variation= np.zeros((A.shape[0], timesteps, 6))
   state_variation[:, 0] = reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order)
   for ts in range(1, timesteps):
-    # S = T @ S
-    S = softmax(inv_sigmoid((T @ T) @ S), axis=1)
+    S = softmax(inv_sigmoid((A @ A) @ S), axis=1)
     state_variation[:, ts] = reorder_area(S, uniq_areas, uniq_areas_num, area_plot_order)
   return text_pos, state_variation
 
-def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
+def propagation2convergence(G, epsilon, active_area, area_plot_order, step2confirm=5, maxsteps=1000):
+  areas = [active_area[node] for node in sorted(G.nodes())]
+  indexes = np.unique(areas, return_index=True)[1]
+  uniq_areas = [areas[index] for index in sorted(indexes)]
+  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
+  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
+  S_init = []
+  for a_ind, area in enumerate(uniq_areas):
+    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
+  S_init = np.array(S_init)
+  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='sign')
+  neg_inds = A<0
+  A[neg_inds] = 1
+  A[A>0] = 1
+  offset_mat = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='offset')
+  A[offset_mat==0] = 0 # remove 0 time lag edges (common input)
+  # disproportional to region out degree
+  area_count = []
+  for area in uniq_areas:
+    nodes = [node for node in active_area if active_area[node]==area]
+    area_count.append(max(1, sum([G.out_degree(node) for node in nodes]))) # for area with no out degree, set to 1
+  area_count = np.array(area_count) / sum(area_count)
+  area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  diag = np.zeros(A.shape[0])
+  for region_ind in range(len(uniq_areas)):
+    nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
+    A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = area_count[region_ind]
+    diag[area_inds[region_ind]:area_inds[region_ind+1]] = area_count[region_ind]
+  A += (1+epsilon)*np.diag(diag) # disproportional to region size
+  # disproportional to region size
+  # area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  # diag = np.zeros(A.shape[0])
+  # for region_ind in range(len(uniq_areas)):
+  #   nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
+  #   A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = 1 / uniq_areas_num[region_ind]
+  #   diag[area_inds[region_ind]:area_inds[region_ind+1]] = 1 / uniq_areas_num[region_ind]
+  # A += (1+epsilon)*np.diag(diag) # disproportional to region size
+  # A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
+  A = A.astype(float)
+  A/=A.sum(0)
+  P = A.T
+  # print(P.sum(1))
+  PP = P @ P
+  assert np.isclose(PP.sum(1), 1).all(), PP.sum(1)
+  old_S = S_init.copy()
+  state_variation= []
+  state_variation.append(reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order))
+  step2conv = np.zeros(len(area_plot_order))
+  step2conf = np.ones(len(area_plot_order)) * step2confirm
+  area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
+  for ts in range(1, maxsteps):
+    # S = T @ S
+    new_S = softmax(inv_sigmoid(PP @ old_S), axis=1)
+    assert np.isclose(old_S.sum(1), 1).all(), ts
+    assert np.isclose(new_S.sum(1), 1).all(), new_S.sum(1)
+    # new_S = softmax(inv_sigmoid((A @ A) @ old_S), axis=1)
+    state_variation.append(reorder_area(new_S, uniq_areas, uniq_areas_num, area_plot_order))
+    for area_ind, area in enumerate(uniq_areas):
+      if step2conv[area_plot_order.index(area)] <= 0: # else it's already found
+        if np.allclose(new_S[area_inds[area_ind]:area_inds[area_ind+1]], old_S[area_inds[area_ind]:area_inds[area_ind+1]]):
+          step2conf[area_plot_order.index(area)] -= 1
+        else:
+          step2conf[area_plot_order.index(area)] = step2confirm
+        if step2conf[area_plot_order.index(area)] <= 0:
+          step2conv[area_plot_order.index(area)] = ts - step2confirm
+    if (step2conv > 0).all():
+      break
+    else:
+      old_S = new_S.copy()
+  if (step2conv==0).sum() > 0:
+    regions = [area_plot_order[ind] for ind in np.where(step2conv==0)[0]]
+    print('Reach maximal step {} for region(s) {}'.format(maxsteps, regions))
+    step2conv[step2conv==0] = maxsteps
+  state_variation = np.stack(state_variation, axis=1)
+  return step2conv, state_variation
+
+def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, maxsteps=200):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
   area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
@@ -7980,10 +8055,7 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
       if row_ind != 1:
         G = G_dict[row][col]
         areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
-        # indexes = np.unique(areas, return_index=True)[1]
-        # uniq_areas = [areas[index] for index in sorted(indexes)]
-        # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-        _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
+        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], area_plot_order, step2confirm=5, maxsteps=maxsteps)
         plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
         area_inds = [0] + np.cumsum(plot_areas_num).tolist()
         for region_ind, region in enumerate(area_plot_order):
@@ -8009,7 +8081,7 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, measure, n, time
   plt.savefig('./plots/state_vector_steady_distribution_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
-def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timesteps=20):
+def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, maxsteps=20):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
   area_plot_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
@@ -8023,12 +8095,7 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
       if row_ind != 1:
         G = G_dict[row][col]
         areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
-        # indexes = np.unique(areas, return_index=True)[1]
-        # uniq_areas = [areas[index] for index in sorted(indexes)]
-        # uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-        _, state_variation = message_propagation(G, epsilon, active_area_dict[row], area_plot_order, timesteps)
-        # plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
-        # area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], area_plot_order, step2confirm=5, maxsteps=maxsteps)
         s_score.append(state_variation[:, -1, :].mean(0) / state_variation[:, 0, :].mean(0))
     dominance_score[:, 0] = np.vstack((s_score)).mean(0)
     dominance_score[:, 1] = np.vstack((s_score)).std(0)
@@ -8049,51 +8116,6 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, timestep
   plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
-def propagation2convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
-  areas = [active_area[node] for node in sorted(G.nodes())]
-  indexes = np.unique(areas, return_index=True)[1]
-  uniq_areas = [areas[index] for index in sorted(indexes)]
-  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
-  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
-  S_init = []
-  for a_ind, area in enumerate(uniq_areas):
-    S_init += [one_hot[a_ind, :]] * areas.count(area)
-  S_init = np.array(S_init)
-  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
-  A[A.nonzero()] = 1
-  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-  no_neighbor = np.where(A.sum(0)==0)[0]
-  A[no_neighbor, no_neighbor] = 1
-  A = A.astype(float)
-  A/=A.sum(0)
-  T = A.T
-  old_S = S_init.copy()
-  step2conv = np.zeros(len(area_plot_order))
-  step2conf = np.ones(len(area_plot_order)) * step2confirm
-  area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
-  for ts in range(1, maxsteps):
-    # S = T @ S
-    new_S = softmax(inv_sigmoid((T @ T) @ old_S), axis=1)
-    for area_ind, area in enumerate(uniq_areas):
-      if step2conv[area_plot_order.index(area)] <= 0: # else it's already found
-        if np.allclose(new_S[area_inds[area_ind]:area_inds[area_ind+1]], old_S[area_inds[area_ind]:area_inds[area_ind+1]]):
-          step2conf[area_plot_order.index(area)] -= 1
-        else:
-          step2conf[area_plot_order.index(area)] = step2confirm
-        if step2conf[area_plot_order.index(area)] <= 0:
-          step2conv[area_plot_order.index(area)] = ts - step2confirm
-    if (step2conv > 0).all():
-      break
-    else:
-      old_S = new_S.copy()
-  if (step2conv==0).sum() > 0:
-    regions = [area_plot_order[ind] for ind in np.where(step2conv==0)[0]]
-    print('Reach maximal step {} for region(s) {}'.format(maxsteps, regions))
-    step2conv[step2conv==0] = maxsteps
-  return step2conv
-
 def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=1000):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
@@ -8108,7 +8130,7 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
       if row_ind != 1:
         G = G_dict[row][col]
         for e_ind, epsilon in enumerate(epsilon_list):
-          step2convergence[:, row_ind, e_ind] = propagation2convergence(G, epsilon, area_plot_order, active_area_dict[row], step2confirm=step2confirm, maxsteps=maxsteps)
+          step2convergence[:, row_ind, e_ind], _ = propagation2convergence(G, epsilon, active_area_dict[row], area_plot_order, step2confirm=step2confirm, maxsteps=maxsteps)
           
     colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
     ax = plt.subplot(1, len(cols), col_ind+1)
@@ -8129,54 +8151,7 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
   plt.savefig('./plots/state_vector_step2convergence_{}_{}fold.jpg'.format(measure, n))
   # plt.show()
 
-def propagation_till_convergence(G, epsilon, area_plot_order, active_area, step2confirm=5, maxsteps=1000):
-  areas = [active_area[node] for node in sorted(G.nodes())]
-  indexes = np.unique(areas, return_index=True)[1]
-  uniq_areas = [areas[index] for index in sorted(indexes)]
-  uniq_areas_num = [(np.array(areas)==a).sum() for a in uniq_areas]
-  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  one_hot = np.zeros((len(uniq_areas), len(uniq_areas)))
-  one_hot[np.arange(len(uniq_areas)), np.arange(len(uniq_areas))] = 1
-  S_init = []
-  for a_ind, area in enumerate(uniq_areas):
-    S_init += [one_hot[area_plot_order.index(area), :]] * areas.count(area)
-  S_init = np.array(S_init)
-  A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
-  A[A.nonzero()] = 1
-  A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
-  no_neighbor = np.where(A.sum(0)==0)[0]
-  A[no_neighbor, no_neighbor] = 1
-  A = A.astype(float)
-  A/=A.sum(0)
-  T = A.T
-  old_S = S_init.copy()
-  state_variation= []
-  state_variation.append(reorder_area(S_init, uniq_areas, uniq_areas_num, area_plot_order))
-  step2conv = np.zeros(len(area_plot_order))
-  step2conf = np.ones(len(area_plot_order)) * step2confirm
-  area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
-  for ts in range(1, maxsteps):
-    # S = T @ S
-    new_S = softmax(inv_sigmoid((T @ T) @ old_S), axis=1)
-    state_variation.append(reorder_area(new_S, uniq_areas, uniq_areas_num, area_plot_order))
-    for area_ind, area in enumerate(uniq_areas):
-      if step2conv[area_plot_order.index(area)] <= 0: # else it's already found
-        if np.allclose(new_S[area_inds[area_ind]:area_inds[area_ind+1]], old_S[area_inds[area_ind]:area_inds[area_ind+1]]):
-          step2conf[area_plot_order.index(area)] -= 1
-        else:
-          step2conf[area_plot_order.index(area)] = step2confirm
-        if step2conf[area_plot_order.index(area)] <= 0:
-          step2conv[area_plot_order.index(area)] = ts - step2confirm
-    if (step2conv > 0).all():
-      break
-    else:
-      old_S = new_S.copy()
-  if (step2conv==0).sum() > 0:
-    regions = [area_plot_order[ind] for ind in np.where(step2conv==0)[0]]
-    print('Reach maximal step {} for region(s) {}'.format(maxsteps, regions))
-    step2conv[step2conv==0] = maxsteps
-  state_variation = np.stack(state_variation, axis=1)
-  return state_variation
+
 
 def plot_region_frac_epsilon(G_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=1000):
   rows, cols = get_rowcol(G_dict)
@@ -8193,7 +8168,7 @@ def plot_region_frac_epsilon(G_dict, epsilon_list, active_area_dict, measure, n,
         G = G_dict[row][col]
         areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
         for e_ind, epsilon in enumerate(epsilon_list):
-          state_variation = propagation_till_convergence(G, epsilon, area_plot_order, active_area_dict[row], step2confirm=step2confirm, maxsteps=maxsteps)
+          _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], area_plot_order, step2confirm=step2confirm, maxsteps=maxsteps)
           plot_areas_num = [(np.array(areas)==a).sum() for a in area_plot_order]
           area_inds = [0] + np.cumsum(plot_areas_num).tolist()
           for region_ind, region in enumerate(area_plot_order):
