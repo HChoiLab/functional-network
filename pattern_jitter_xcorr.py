@@ -3909,6 +3909,10 @@ signed_triad_count = signed_triad_census(all_triads)
 summice_signed_triad_count = summice_signed_triad_census(all_triads)
 meanmice_signed_triad_percent = meanmice_signed_triad_census(all_triads)
 #%%
+################## comparison of distributions of pos/neg CCG and confidence
+plot_distri_weight_confidence(G_ccg_dict, measure, n, 'weight')
+plot_distri_weight_confidence(G_ccg_dict, measure, n, 'confidence')
+#%%
 ################## motif intensity and coherence
 start_time = time.time()
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
@@ -4034,6 +4038,35 @@ plot_zscore_all_motif(whole_df, measure, n)
 ################## number of significant motif VS threshold
 threshold_list = np.arange(0.1, 21, 0.1)
 plot_sig_motif_threshold(mean_df, threshold_list, measure, n)
+#%%
+# def plot_zscore_TSNE(df, measure, n):
+#   stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+#   TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+#   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+#   sorted_types = [item for sublist in sorted_types for item in sublist]
+#   sessions = df.session.unique()
+#   X, y = np.zeros((len(sessions)*len(stimulus_order), len(sorted_types))), np.zeros(len(sessions)*len(stimulus_order))
+#   for s_ind, stimulus in enumerate(stimulus_order):
+#     print(stimulus)
+#     for se_ind, session in enumerate(sessions):
+#       data = df[(df.stimulus==stimulus) & (df.session==session)]
+#       data.set_index('signed motif type', inplace=True)
+#       X[s_ind*len(stimulus_order)+se_ind, :] = data.loc[sorted_types, 'intensity z score'].values
+#       y[s_ind*len(stimulus_order)+se_ind] = s_ind
+#   n_components = 2
+#   tsne = TSNE(n_components)
+#   tsne_result = tsne.fit_transform(X)
+#   tsne_result.shape
+#   tsne_result_df = pd.DataFrame({'tsne_1': tsne_result[:,0], 'tsne_2': tsne_result[:,1], 'label': y})
+#   fig, ax = plt.subplots(1)
+#   sns.scatterplot(x='tsne_1', y='tsne_2', hue=tsne_result_df.label.tolist(), data=tsne_result_df, ax=ax,s=120)
+#   lim = (tsne_result.min()-5, tsne_result.max()+5)
+#   plt.tight_layout()
+#   # figname = './plots/zscore_all_motifs_{}_{}fold.jpg'.format(measure, n)
+#   plt.show()
+#   # plt.savefig(figname)
+# 
+# plot_zscore_TSNE(whole_df, measure, n)
 #%%
 ################## num of transitive triads VS stimulus
 tran_triad_types = ['030T', '120D', '120U', '300']
