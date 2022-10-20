@@ -1,7 +1,19 @@
 # %%
+from turtle import ycor
 from library import *
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+
+session2keep = ['719161530','750749662','754312389','755434585','756029989','791319847','797828357']
+stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
+stimulus_types = ['resting state', 'flashes', 'gratings', 'natural stimuli']
+stimulus_type_color = ['tab:blue', 'darkorange', 'darkgreen', 'maroon']
+paper_label = ['resting\nstate', 'dark\nflash', 'light\nflash',
+          'drifting\ngrating', 'static\ngrating', 'natural\nscenes', 'natural\nmovie 1', 'natural\nmovie 3']
+
+def stimulus2stype(stimulus):
+  t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
+  return t_ind, stimulus_types[t_ind]
 
 def remove_outliers(data, m=2.):
   data = np.array(data)
@@ -464,7 +476,7 @@ def plot_example_graphs_offset(G_dict, max_reso, offset_dict, sign, area_dict, a
   return weights, comms
 
 def plot_example_graphs_each_region(G_dict, hamiltonian, comms, area_dict, active_area_dict, row, col, measure, n, cc=False):
-  com = CommunityLayout(20, 3)
+  com = CommunityLayout(30, 3)
   G_sample = G_dict[row][col]
   dire = True if nx.is_directed(G_sample) else False
   fig = plt.figure(figsize=(8, 7))
@@ -518,56 +530,7 @@ def plot_example_graphs_each_region(G_dict, hamiltonian, comms, area_dict, activ
   plt.savefig(image_name.format(row, col, measure, n))
   return weights, edge_colors
 
-def plot_example_graphs_largest_comms(G_dict, hamiltonian, comms, area_dict, active_area_dict, row, col, measure, n, cc=False):
-  com = CommunityLayout(30, 3)
-  G_sample = G_dict[row][col]
-  dire = True if nx.is_directed(G_sample) else False
-  fig = plt.figure(figsize=(8, 7))
-  print(row, col)
-  G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-  nx.set_node_attributes(G, area_dict[row], "area")
-  if cc:
-    G = get_lcc(G)
-  node_idx = sorted(active_area_dict[row].keys())
-  reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
-  G = nx.relabel_nodes(G, reverse_mapping)
-  comms = [[reverse_mapping[n] for n in comm] for comm in comms]
-  comms_tuple = [[[i for i in comm], len(comm)] for comm in comms]
-  ordered_comms = [e[0] for e in sorted(comms_tuple, key=lambda x:x[1], reverse=True)]
-  comms2plot = ordered_comms[:6]
-  nodes2plot = [j for i in comms2plot for j in i]
-  # nodes2plot = [j for i in comms if len(i) > 2 for j in i]
-  # comms2plot = [i for i in comms if len(i) > 2]
-  pos = com.get_community_layout(G.subgraph(nodes2plot), comm2partition(comms2plot))
-  # partition = community.best_partition(G, weight='weight')
-  # pos = com.get_community_layout(G, partition)
-  # metric = community.modularity(partition, G, weight='weight')
-  print('Hamiltonian: {}'.format(hamiltonian))
-  edges = nx.edges(G.subgraph(nodes2plot))
-  degrees = dict(G.degree(nodes2plot))
-  # use offset as edge weight (color)
-  weights = [w for i,j,w in nx.edges(G.subgraph(nodes2plot)).data('weight')]
-  # weights = [offset_mat[edge[0], edge[1]] for edge in edges]
-  norm = mpl.colors.Normalize(vmin=-0.03, vmax=0.03)
-  m= cm.ScalarMappable(norm=norm, cmap=cm.RdBu_r)
-  edge_colors = [m.to_rgba(w) for w in weights]
-  areas = [G.nodes[n]['area'] for n in nodes2plot]
-  areas_uniq = list(set(areas))
-  colors = [customPalette[areas_uniq.index(area)] for area in areas]
-  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
-  nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.9) # , edge_cmap=plt.cm.Greens
-  # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
-  # print(len(set(nodes2plot)), len(nodes2plot), len(areas), len(degrees), len(colors))
-  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[15 * v for v in degrees.values()], 
-  node_color=colors, alpha=0.6)
-  for index, a in enumerate(areas_uniq):
-    plt.scatter([],[], c=customPalette[index], label=a, s=30, alpha=0.6)
-  legend = plt.legend(fontsize=15) # loc='lower right', 
-  for handle in legend.legendHandles:
-    handle.set_sizes([60.0])
-  plt.tight_layout()
-  image_name = './plots/example_graphs_top_comms_color_cc_{}_{}_{}_{}fold.jpg' if cc else './plots/example_graphs_top_comms_color_{}_{}_{}_{}fold.jpg'
-  plt.savefig(image_name.format(row, col, measure, n))
+
 
 def plot_covering_comm_purity(G_dict, cover_p, area_dict, measure, n, sign, weight=False, max_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
@@ -660,57 +623,6 @@ def pos_neg_link_individual(G_dict, measure, n, density=False):
   figname = './plots/pos_neg_links_density_{}_{}_fold.jpg'.format(measure, n) if density else './plots/pos_neg_links_number_{}_{}_fold.jpg'.format(measure, n)
   plt.savefig(figname)
 
-def plot_pos_neg_box(G_dict, measure, n, density=False):
-  df = pd.DataFrame()
-  rows, cols = get_rowcol(G_dict)
-  for col_ind, col in enumerate(cols):
-    print(col)
-    ex_data, in_data = [], []
-    for row_ind, row in enumerate(rows):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
-      signs = list(nx.get_edge_attributes(G, "sign").values())
-      if density:
-        ex_data.append(signs.count(1) / len(signs))
-        in_data.append(signs.count(-1) / len(signs))
-      else:
-        ex_data.append(signs.count(1))
-        in_data.append(signs.count(-1))
-    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([col] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
-                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([col] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
-    df['number of connections'] = pd.to_numeric(df['number of connections'])
-  if density:
-    y = 'density'
-    df['density'] = df['number of connections']
-  else:
-    y = 'number of connections'
-  fig = plt.figure(figsize=(5, 5))
-  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
-  ax = sns.boxplot(x='stimulus', y=y, hue="type", data=df, palette="muted", showfliers = False)
-  plt.xticks(fontsize=10, rotation=90)
-  ax.set(xlabel=None)
-  plt.tight_layout()
-  figname = './plots/box_ex_in_num_{}_{}fold.jpg' if not density else './plots/box_ex_in_density_{}_{}fold.jpg'
-  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
-  plt.savefig(figname.format(measure, n))
-
-area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
-if not os.path.exists(path):
-  os.makedirs(path)
-G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
-measure = 'ccg'
-
-G_ccg_dict = remove_gabor(G_ccg_dict)
-G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
-offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
-duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regions)
-active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
-n = 4
-S_ccg_dict = add_sign(G_ccg_dict)
-S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
-# customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
-
 def down_sample(sequences, min_len, min_num):
   sequences = sequences[:, :min_len]
   i,j = np.nonzero(sequences)
@@ -768,7 +680,7 @@ def plot_triad_fraction_relative_count(G_dict, triad_count, triad_types, p_triad
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       G_triad_count = nx.triads.triadic_census(G)
       num_triplet = sum(G_triad_count.values())
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       for triad_type in triad_types:
         relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
         relative_count[triad_type][col].append(relative_c)
@@ -809,6 +721,31 @@ def unique(l):
 def flat(array):
   return array.reshape(array.size//array.shape[-1], array.shape[-1])
 
+from library import *
+import importlib
+import library
+importlib.reload(library)
+
+area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
+if not os.path.exists(path):
+  os.makedirs(path)
+G_ccg_dict, offset_dict, duration_dict = load_highland_xcorr(path, active_area_dict, weight=True)
+measure = 'ccg'
+G_ccg_dict = remove_gabor(G_ccg_dict)
+######### removed neurons from thalamic region
+G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+offset_dict = remove_thalamic_mat(offset_dict, active_area_dict, visual_regions)
+duration_dict = remove_thalamic_mat(duration_dict, active_area_dict, visual_regions)
+active_area_dict = remove_thalamic_area(active_area_dict, visual_regions)
+n = 4
+S_ccg_dict = add_sign(G_ccg_dict)
+S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
+S_ccg_dict = add_duration(S_ccg_dict, duration_dict)
+S_ccg_dict = add_delay(S_ccg_dict)
+######### split G_dict into pos and neg
+pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 # %%
 ########## raster plot
 mouse_id, stimulus_id = 1, 7
@@ -1029,55 +966,11 @@ for col in cols:
   density_dict[col] = []
   for row in rows:
     density_dict[col].append(nx.density(G_ccg_dict[row][col]))
-plot_kstest(density_dict, 'density', measure, n)
 # %%
 violin_data(density_dict, 'density', measure, n)
 # %%
 # box plot
 box_data(density_dict, 'density', measure, n)
-# %%
-################ violin/box plot of intra/inter region links
-df = pd.DataFrame()
-rows, cols = get_rowcol(G_ccg_dict)
-# metric = np.zeros((len(rows), len(cols), 3))
-region_connection = np.zeros((len(rows), len(cols), len(visual_regions), len(visual_regions)))
-for col_ind, col in enumerate(cols):
-  print(col)
-  intra_data, inter_data = [], []
-  for row_ind, row in enumerate(rows):
-    G = G_ccg_dict[row][col] if col in G_ccg_dict[row] else nx.Graph()
-    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
-      nodes = list(G.nodes())
-      node_area = {key: area_dict[row][key] for key in nodes}
-      areas = list(node_area.values())
-      area_size = [areas.count(r) for r in visual_regions]
-      A = nx.to_numpy_array(G)
-      A[A.nonzero()] = 1
-      for region_ind_i, region_i in enumerate(visual_regions):
-        for region_ind_j, region_j in enumerate(visual_regions):
-          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-          if len(region_indices_i) and len(region_indices_j):
-            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      diag_indx = np.eye(len(visual_regions),dtype=bool)
-      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
-      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
-      intra_data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]))
-      inter_data.append(np.sum(region_connection[row_ind, col_ind][~diag_indx]))
-  df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(['intra-region'] * len(intra_data))[:,None], np.array([col] * len(intra_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
-              pd.DataFrame(np.concatenate((np.array(inter_data)[:,None], np.array(['inter-region'] * len(inter_data))[:,None], np.array([col] * len(inter_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
-  df['number of connections'] = pd.to_numeric(df['number of connections'])
-fig = plt.figure(figsize=(5, 5))
-# ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
-ax = sns.boxplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted")
-plt.xticks(fontsize=10, rotation=90)
-ax.set(xlabel=None)
-plt.tight_layout()
-# plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
-plt.savefig('./plots/box_intra_inter_{}_{}fold.jpg'.format(measure, n))
 # %%
 ################ violin/box plot of intra-inter region links
 df = pd.DataFrame()
@@ -1122,50 +1015,6 @@ ax.set(xlabel=None)
 plt.tight_layout()
 # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
 plt.savefig('./plots/box_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
-#%%
-################ box plot of intra region links ratio
-df = pd.DataFrame()
-rows, cols = get_rowcol(G_ccg_dict)
-# metric = np.zeros((len(rows), len(cols), 3))
-region_connection = np.zeros((len(rows), len(cols), len(visual_regions), len(visual_regions)))
-for col_ind, col in enumerate(cols):
-  print(col)
-  data = []
-  for row_ind, row in enumerate(rows):
-    G = G_ccg_dict[row][col] if col in G_ccg_dict[row] else nx.Graph()
-    if G.number_of_nodes() >= 2 and G.number_of_edges() > 0:
-      nodes = list(G.nodes())
-      node_area = {key: area_dict[row][key] for key in nodes}
-      areas = list(node_area.values())
-      area_size = [areas.count(r) for r in visual_regions]
-      A = nx.to_numpy_array(G)
-      A[A.nonzero()] = 1
-      for region_ind_i, region_i in enumerate(visual_regions):
-        for region_ind_j, region_j in enumerate(visual_regions):
-          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
-          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
-          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
-          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
-          if len(region_indices_i) and len(region_indices_j):
-            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
-            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
-      diag_indx = np.eye(len(visual_regions),dtype=bool)
-      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
-      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
-      data.append(np.sum(region_connection[row_ind, col_ind][diag_indx]) / np.sum(region_connection[row_ind, col_ind]))
-  # data = remove_outliers(data, 3)
-  df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(data)[:,None], np.array([col] * len(data))[:,None]), 1), columns=['ratio', 'stimulus'])], ignore_index=True)
-  df['ratio'] = pd.to_numeric(df['ratio'])
-fig = plt.figure(figsize=(5, 5))
-# ax = sns.violinplot(x='stimulus', y='ratio', data=df, palette="muted", scale='count', cut=0)
-ax = sns.boxplot(x='stimulus', y='ratio', data=df, palette="muted")
-plt.xticks(fontsize=10, rotation=90)
-plt.title('intra-region link ratio')
-# plt.yscale('log')
-ax.set(xlabel=None)
-plt.tight_layout()
-# plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
-plt.savefig('./plots/box_intra_ratio_{}_{}fold.jpg'.format(measure, n))
 # %%
 ################## p-value of intra/inter link ratio across stimulus
 rows, cols = get_rowcol(G_ccg_dict)
@@ -1222,9 +1071,9 @@ plot_intra_inter_data_2D(offset_dict, duration_dict, G_ccg_dict, 'total', active
 # %%
 # intra/inter region offset/duration kde
 plot_intra_inter_kde(offset_dict, G_ccg_dict, 'total', 'offset', True, active_area_dict, measure, n)
-plot_intra_inter_kde(offset_dict, G_ccg_dict, 'total', 'offset', False, active_area_dict, measure, n)
+# plot_intra_inter_kde(offset_dict, G_ccg_dict, 'total', 'offset', False, active_area_dict, measure, n)
 plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', True, active_area_dict, measure, n)
-plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
+# plot_intra_inter_kde(duration_dict, G_ccg_dict, 'total', 'duration', False, active_area_dict, measure, n)
 #%%
 plot_intra_inter_kde_G(S_ccg_dict, 'delay', True, active_area_dict, measure, n)
 #%%
@@ -1432,6 +1281,7 @@ plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=ma
 plot_scatter_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 #################### scatter of average purity VS community size
+from scipy.optimize import curve_fit
 def plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none'):
   ind = 1
   rows, cols = get_rowcol(comms_dict)
@@ -1466,56 +1316,44 @@ def plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_ne
     purity_col = [np.mean(v) for k,v in data.items() if k>=4]
     size_dict[col] = size_col
     purity_dict[col] = purity_col
-  color_list = ['tab:blue', 'tab:orange', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
   for col_ind, col in enumerate(size_dict):
-    plt.scatter(size_dict[col], purity_dict[col], color=color_list[col_ind], label=col, alpha=0.8)
+    plt.scatter(size_dict[col], purity_dict[col], color=stimulus_colors[col_ind], label=col, alpha=0.6)
+    popt, pcov = curve_fit(func_powerlaw, size_dict[col], purity_dict[col], p0=[1, 1]) #, bounds=[[1e-3, 1e-3], [1e20, 50]]
+    plt.plot(size_dict[col], func_powerlaw(size_dict[col], *popt), '--', color=stimulus_colors[col_ind], alpha=.4)
+    
+    # coef = np.polyfit(size_dict[col], purity_dict[col], 1)
+    # poly1d_fn = np.poly1d(coef) 
+    # plt.plot(size_dict[col], poly1d_fn(size_dict[col]), '--', color=stimulus_colors[col_ind], alpha=.4) #'--k'=black dashed line
   plt.legend()
   plt.xscale('log')
   plt.xlabel('community size')
   plt.ylabel('purity')
   plt.title('{} average purity VS community size'.format(max_method), size=18)
   plt.tight_layout()
-  image_name = './plots/Hcomm_mean_purity_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
-  # plt.show()
-  plt.savefig(image_name)
+  # image_name = './plots/Hcomm_mean_purity_size_{}_{}_{}fold.jpg'.format(max_method, measure, n)
+  # plt.savefig(image_name)
+  plt.show()
 
-plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+# plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
+plot_scatter_mean_purity_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
 #################### distribution of community size
 plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm')
 plot_dist_Hcommsize(comms_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
 #%%
-#################### 2D distribution of purity and community size
-plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='scatter')
-plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
-# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_gnm, max_method='gnm', kind='kde')
-# plot_2Ddist_Hcommsize(comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config')
-#%%
+
 #################### example topology of graphs, select one largest community for each region
 rows, cols = get_rowcol(G_ccg_dict)
 # for row_ind, row in enumerate(rows):
 #   for col_ind, col in enumerate(cols):
 #     print(row, col)
 #     break
-row_ind, col_ind = 2, 3
+row_ind, col_ind = 4, 7
 row, col = rows[row_ind], cols[col_ind]
 max_reso = max_reso_gnm[row_ind][col_ind]
 hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
 comms_list = comms_dict[row][col][max_reso]
 weights, edge_colors = plot_example_graphs_each_region(G_ccg_dict, hamiltonian, comms_list[0], area_dict, active_area_dict, row, col, measure, n, False)
-#%%
-#################### example topology of graphs, select the top 6 communities
-rows, cols = get_rowcol(G_ccg_dict)
-# for row_ind, row in enumerate(rows):
-#   for col_ind, col in enumerate(cols):
-#     print(row, col)
-#     break
-row_ind, col_ind = 3, 6
-row, col = rows[row_ind], cols[col_ind]
-max_reso = max_reso_gnm[row_ind][col_ind]
-hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
-comms_list = comms_dict[row][col][max_reso]
-plot_example_graphs_largest_comms(G_ccg_dict, hamiltonian, comms_list[2], area_dict, active_area_dict, row, col, measure, n, False)
 #%%
 purity_dict = {col:top_purity_gnm[cols.index(col)] for col in cols}
 plot_corrected_p_value(purity_dict, 'top_purity_1', measure, n, 'ks_test', True)
@@ -1641,10 +1479,6 @@ plot_modularity_num_comms_(G_ccg_dict, max_reso=max_reso_gnm)
 # pos_neg_link_individual(S_ccg_dict, measure, n, density=False)
 pos_neg_link_individual(S_ccg_dict, measure, n, density=True)
 #%%
-######################## excitaroty link VS inhibitory link box
-plot_pos_neg_box(S_ccg_dict, measure, n, density=False)
-# plot_pos_neg_box(S_ccg_dict, measure, n, density=True)
-#%%
 ######################## excitatory link VS inhibitoray link with intra/inter region
 def plot_bar_pos_neg_intra_inter(G_dict, active_area_dict, measure, n):
   df = pd.DataFrame(columns=['fraction of connections', 'type', 'region'])
@@ -1689,7 +1523,7 @@ def plot_bar_pos_neg_intra_inter(G_dict, active_area_dict, measure, n):
                 pd.DataFrame([[inter_inhi, 'inhibitory', 'inter']], columns=['fraction of connections', 'type', 'region'])], ignore_index=True)
     df['fraction of connections'] = pd.to_numeric(df['fraction of connections'])
 
-    palette ={"excitatory": "firebrick", "inhibitory": "darkblue"}
+    palette ={"excitatory": "lightcoral", "inhibitory": "lightsteelblue"}
     ax = sns.barplot(x='region', y='fraction of connections', hue='type', data=df, palette=palette)
     ax.set(xlabel=None)
   plt.tight_layout()
@@ -1788,7 +1622,7 @@ def plot_singlepair_relative_count(G_dict, p_pair_func, pair_type, measure, n, l
     for row in rows:
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       p = nx.density(G)
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       all_pair_count['0'].append(p0 / p_pair_func['0'](p))
       all_pair_count['1'].append(p1 / p_pair_func['1'](p))
       all_pair_count['2'].append(p2 / p_pair_func['2'](p))
@@ -1836,7 +1670,7 @@ def plot_singletriad_relative_count(G_dict, p_triad_func, ftriad_type, measure, 
       G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
       G_triad_count = nx.triads.triadic_census(G)
       num_triplet = sum(G_triad_count.values())
-      p0, p1, p2 = count_triplet_connection_p(G)
+      p0, p1, p2 = count_pair_connection_p(G)
       for triad_type in G_triad_count:
         relative_c = G_triad_count[triad_type] / (num_triplet * p_triad_func[triad_type](p0, p1, p2)) if num_triplet * p_triad_func[triad_type](p0, p1, p2) else 0
         all_triad_count[triad_type].append(relative_c)
@@ -1905,4 +1739,1310 @@ intra_offset, inter_offset = plot_existed_edge_offset_stimulus(offset_dict, G_cc
 # %%
 ######################## compare time lag pairwise for stimuli for edges that exist in both
 intra_df, inter_df = plot_pairwise_existed_edge_offset_stimulus(offset_dict, G_ccg_dict, active_area_dict, measure, n)
+# %%
+############################## figure for publication ##############################
+##############################                        ##############################
+
+#%%
+def alt_bands(ax=None):
+  ax = ax or plt.gca()
+  x_left, x_right = ax.get_xlim()
+  locs = ax.get_xticks().astype(float)
+  locs -= .5
+  locs = np.concatenate((locs, [x_right]))
+  
+  type_loc1, type_loc2 = locs[[0, 1, 3, 5]], locs[[1, 3, 5, 8]]
+  for loc1, loc2 in zip(type_loc1, type_loc2):
+    ax.axvspan(loc1, loc2, facecolor=stimulus_type_color[type_loc1.tolist().index(loc1)], alpha=0.2)
+  ax.set_xlim(x_left, x_right)
+
+def plot_ex_in_bar(G_dict, measure, n, density=False):
+  df = pd.DataFrame()
+  rows, cols = get_rowcol(G_dict)
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ex_data, in_data = [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      if density:
+        ex_data.append(signs.count(1) / len(signs))
+        in_data.append(signs.count(-1) / len(signs))
+      else:
+        ex_data.append(signs.count(1))
+        in_data.append(signs.count(-1))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([col] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([col] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+  df['number of connections'] = pd.to_numeric(df['number of connections'])
+  if density:
+    y = 'density'
+    df['density'] = df['number of connections']
+  else:
+    y = 'number of connections'
+  fig = plt.figure(figsize=(10, 5))
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  # ax = sns.barplot(x='stimulus', y=y, hue="type", data=df, palette=['white', 'grey'], edgecolor=".5")
+  barcolors = ['0', '.6']
+  ax = sns.barplot(
+      x="stimulus", 
+      y=y, 
+      hue="type",  
+      data=df,
+      palette=barcolors,
+      ci="sd", 
+      edgecolor="black",
+      errcolor="black",
+      errwidth=1.5,
+      capsize = 0.1,
+      alpha=0.7)
+  sns.stripplot(
+      x="stimulus", 
+      y=y, 
+      hue="type",
+      palette=barcolors,
+      data=df, dodge=True, alpha=0.6, ax=ax
+  )
+  # remove extra legend handles
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=14)
+  plt.setp(ax.get_legend().get_texts(), weight='bold')
+  plt.xticks(ticks=range(len(cols)), labels=paper_label, fontsize=14, weight='bold')
+  plt.yticks(fontsize=14,  weight='bold')
+  plt.ylabel(y)
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14, weight='bold',color='0.2')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.5)
+
+  # plt.yscale('log')
+  ax.set(xlabel=None)
+  alt_bands(ax)
+  mean_links = df.groupby(['stimulus', 'type']).mean().reset_index().groupby('stimulus').sum()
+  for i, col in enumerate(cols):
+    plt.hlines(y=mean_links.loc[col], xmin=(i - .18), xmax=(i + .18), color='white', linewidth=3) # , linestyles=(0, (1,1))
+  plt.tight_layout()
+  figname = './plots/box_ex_in_num_{}_{}fold.pdf' if not density else './plots/box_ex_in_density_{}_{}fold.pdf'
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig(figname.format(measure, n), transparent=True)
+######################## excitaroty link VS inhibitory link box
+plot_ex_in_bar(S_ccg_dict, measure, n, density=False)
+#%%
+def scatter_dataVSdensity(G_dict, area_dict, regions, name='intra'):
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots(figsize=(5, 5))
+  X, Y = [], []
+  df = pd.DataFrame()
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for col_ind, col in enumerate(cols):
+    # print(col)
+    intra_data, inter_data, density_data, ex_data, in_data = [], [], [], [], []
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[row][key] for key in nodes}
+      areas = list(node_area.values())
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(regions),dtype=bool)
+      # metric[row_ind, col_ind, 0] =  np.sum(region_connection[row_ind, col_ind][diag_indx])
+      # metric[row_ind, col_ind, 1] =  np.sum(region_connection[row_ind, col_ind][~diag_indx])
+      intra_data.append(np.sum(region_connection[row_ind, col_ind][diag_indx])/np.sum(region_connection[row_ind, col_ind]))
+      inter_data.append(np.sum(region_connection[row_ind, col_ind][~diag_indx])/np.sum(region_connection[row_ind, col_ind]))
+      density_data.append(nx.density(G))
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      ex_data.append(signs.count(1) / len(signs))
+      in_data.append(signs.count(-1) / len(signs))
+    X += density_data
+    if name == 'intra':
+      Y += intra_data
+    elif name == 'ex':
+      Y += ex_data
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(inter_data)[:,None], np.array(ex_data)[:,None], np.array(density_data)[:,None], np.array([col] * len(intra_data))[:,None]), 1), columns=['ratio of intra-region connections', 'ratio of inter-region connections', 'ratio of excitatory connections', 'density', 'stimulus'])], ignore_index=True)
+  df['ratio of intra-region connections'] = pd.to_numeric(df['ratio of intra-region connections'])
+  df['ratio of inter-region connections'] = pd.to_numeric(df['ratio of inter-region connections'])
+  df['ratio of excitatory connections'] = pd.to_numeric(df['ratio of excitatory connections'])
+  df['density'] = pd.to_numeric(df['density'])
+  stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
+  labels = ['resting state', 'flashes', 'gratings', 'natural stimuli']
+  for st_ind, stype in enumerate(stimulus_by_type):
+    x = df[df['stimulus'].isin(stype)]['density'].values
+    if name == 'intra':
+      y = df[df['stimulus'].isin(stype)]['ratio of intra-region connections'].values
+    elif name == 'ex':
+      y = df[df['stimulus'].isin(stype)]['ratio of excitatory connections'].values
+    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=labels[st_ind], alpha=.6)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  if name == 'intra':
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+    line = slope*X+intercept
+    locx, locy = .8, .8
+    text = 'r={:.2f}, p={:.2f}'.format(r_value, p_value)
+  elif name == 'ex':
+    slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+    line = slope*np.log10(X)+intercept
+    locx, locy = .8, .3
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=16)
+  if name == 'intra':
+    plt.legend(loc='lower right', fontsize=14, frameon=False)
+  plt.xticks(fontsize=14) #, weight='bold'
+  plt.yticks(fontsize=14) # , weight='bold'
+  plt.xlabel('density')
+  if name == 'intra':
+    ylabel = 'ratio of intra-region connections'
+  elif name == 'ex':
+    ylabel = 'ratio of excitatory connections'
+    plt.xscale('log')
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/{name}_density.pdf', transparent=True)
+
+scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='intra')
+scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='ex')
+#%%
+# def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
+#   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+#   if not os.path.isdir(directory):
+#     os.mkdir(directory)
+#   FR = np.zeros((len(regions), len(stimulus_names), len(session_ids)))
+#   for se_ind, session_id in enumerate(session_ids):
+#     active_area = active_area_dict[session_id]
+#     node_idx = sorted(active_area.keys())
+#     for st_ind, stimulus_name in enumerate(stimulus_names):
+#       file = str(session_id) + '_' + stimulus_name + '.npz'
+#       print(file)
+#       sequences = load_npz_3d(os.path.join(directory, file))
+#       for r_ind, region in enumerate(regions):
+#         active_nodes = [node for node in node_idx if active_area[node]==region]
+#         if len(active_nodes):
+#           FR[r_ind, st_ind, se_ind] = 1000 * sequences[active_nodes].mean(1).sum(1).mean(0) / sequences.shape[2] # firing rate in Hz
+#   return FR
+
+def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  if not os.path.isdir(directory):
+    os.mkdir(directory)
+  FR = {}
+  for se_ind, session_id in enumerate(session_ids):
+    FR[session_id] = {}
+    active_area = active_area_dict[session_id]
+    node_idx = sorted(active_area.keys())
+    for st_ind, stimulus_name in enumerate(stimulus_names):
+      FR[session_id][stimulus_name] = {}
+      file = str(session_id) + '_' + stimulus_name + '.npz'
+      print(file)
+      sequences = load_npz_3d(os.path.join(directory, file))
+      for region in regions:
+        active_nodes = [node for node in node_idx if active_area[node]==region]
+        if len(active_nodes):
+          FR[session_id][stimulus_name][region] = FR[session_id][stimulus_name].get(region, []) + (1000 * sequences[active_nodes].mean(1).sum(1) / sequences.shape[2]).tolist() # firing rate in Hz
+  return FR
+
+FR = get_region_FR(session_ids, stimulus_names, visual_regions, active_area_dict)
+#%%
+# def get_region_links(G_dict, regions, area_dict):
+  # rows, cols = get_rowcol(G_dict)
+  # links = np.zeros((len(regions), len(cols), len(rows)))
+  # for col_ind, col in enumerate(cols):
+  #   print(col)
+  #   for row_ind, row in enumerate(rows):
+  #     G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+  #     nodes = sorted(G.nodes())
+  #     node_area = {key: area_dict[row][key] for key in nodes}
+  #     areas = list(node_area.values())
+  #     A = nx.to_numpy_array(G, nodelist=nodes)
+  #     A[A.nonzero()] = 1
+  #     for region_ind_i, region_i in enumerate(regions):
+  #       region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+  #       region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed
+  #       if len(region_indices_i):
+  #         links[region_ind_i, col_ind, row_ind] = np.sum(A[region_indices_i[:, None], :]) + np.sum(A[:, region_indices_i]) # both out and in links
+  # return links
+
+def get_region_links(G_dict, regions, active_area_dict):
+  rows, cols = get_rowcol(G_dict)
+  links = {}
+  for row_ind, row in enumerate(rows):
+    links[row] = {}
+    print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      links[row][col] = {}
+      G = G_dict[row][col]
+      # nodes = sorted(G.nodes())
+      node_idx = sorted(active_area.keys())
+      A = nx.to_numpy_array(G, nodelist=node_idx)
+      A[A.nonzero()] = 1
+      for region in regions:
+        active_nodes = [node for node in node_idx if active_area[node]==region]
+        region_indices = np.array([node_idx.index(i) for i in active_nodes])
+        if len(region_indices):
+          links[row][col][region] = links[row][col].get(region, []) + (np.sum(A[region_indices, :], 1) + np.sum(A[:, region_indices], 0)).tolist() # both out and in links
+  return links
+
+links = get_region_links(G_ccg_dict, visual_regions, active_area_dict)
+#%%
+# def plot_FR_links_region(data, regions, dataname):
+#   for se_ind in range(data.shape[2]):
+#     if np.any(data[:,:,se_ind] == 0):
+#       se_ind2remove = se_ind
+#       break
+#   s_inds = list(range(data.shape[2]))
+#   s_inds.remove(se_ind2remove)
+#   if dataname == 'FR':
+#     name = 'firing rate (Hz)'
+#   elif dataname == 'link':
+#     name = 'number of connections'
+#   df = pd.DataFrame()
+#   for r_ind, region in enumerate(regions):
+#     for se_ind in s_inds:
+#       df = pd.concat([df, pd.DataFrame(np.concatenate((data[r_ind, :, se_ind][:,None], np.array(stimulus_names)[:,None], np.array([region] * len(stimulus_names))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
+#   df[name] = pd.to_numeric(df[name])
+#   plt.figure(figsize=(10, 7))
+#   # hue_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
+#   colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for color in region_colors]
+#   ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=regions, data=df, palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
+#   ax.set(xlabel=None)
+
+#   handles, labels = ax.get_legend_handles_labels()
+#   ax.legend(handles, labels, title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=12)
+#   # plt.setp(ax.get_legend().get_texts())
+#   plt.xticks(ticks=range(len(cols)), labels=paper_label, fontsize=14)
+#   plt.yticks(fontsize=14)
+#   # plt.ylabel(y)
+#   ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='0.2')
+#   for axis in ['bottom', 'left']:
+#     ax.spines[axis].set_linewidth(1.5)
+#     ax.spines[axis].set_color('0.2')
+#   ax.spines['top'].set_visible(False)
+#   ax.spines['right'].set_visible(False)
+#   ax.tick_params(width=2.5)
+
+#   box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+#   if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax2.artists
+#     box_patches = ax.artists
+#   num_patches = len(box_patches)
+#   lines_per_boxplot = len(ax.lines) // num_patches
+#   for i, patch in enumerate(box_patches):
+#     # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+#     col = patch.get_facecolor()
+#     patch.set_edgecolor(col)
+#     patch.set_facecolor('None')
+#     # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+#     # Loop over them here, and use the same color as above
+#     for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+#       line.set_color(col)
+#       line.set_mfc(col)  # facecolor of fliers
+#       line.set_mec(col)  # edgecolor of fliers
+#   # Also fix the legend
+#   for legpatch in ax.legend_.get_patches():
+#     col = legpatch.get_facecolor()
+#     legpatch.set_edgecolor(col)
+#     legpatch.set_facecolor('None')
+#   # plt.show()
+#   plt.savefig(f'./plots/{dataname}_region_stimulus.pdf', transparent=True)
+
+def plot_FR_links_region(data, regions, dataname):
+  if dataname == 'FR':
+    name = 'firing rate (Hz)'
+  elif dataname == 'link':
+    name = 'degree'
+  df = pd.DataFrame()
+  for region in regions:
+    for stimulus_name in stimulus_names:
+      for se_ind in session2keep:
+        sub_data = np.array(data[se_ind][stimulus_name][region])
+        df = pd.concat([df, pd.DataFrame(np.concatenate((sub_data[:,None], np.array([stimulus_name] * len(sub_data))[:,None], np.array([region] * len(sub_data))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
+  df[name] = pd.to_numeric(df[name])
+  # return df
+  plt.figure(figsize=(10, 14))
+  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for color in region_colors]
+  ax = sns.boxplot(y="stimulus", x=name, hue="region", hue_order=regions, data=df[(np.abs(stats.zscore(df[name])) < 2)], orient='h', palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
+  # ax = sns.violinplot(x="stimulus", y=name, inner='box', cut=0, hue="region", scale="count", hue_order=regions, data=df[(np.abs(stats.zscore(df[name])) < 2)], palette=colors_transparency) # , boxprops=dict(alpha=.6)
+  
+  sns.stripplot(
+      y="stimulus", 
+      x=name, 
+      hue="region",
+      palette=colors_transparency,
+      data=df[(np.abs(stats.zscore(df[name])) < 2)], dodge=True, alpha=0.1
+  )
+  ax.set(ylabel=None)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles[:6], labels[:6], title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12)
+  # plt.setp(ax.get_legend().get_texts())
+  plt.yticks(ticks=range(len(cols)), labels=paper_label, fontsize=14)
+  plt.xticks(fontsize=14)
+  # plt.ylabel(y)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='0.2')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.5)
+
+  box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+  if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax2.artists
+    box_patches = ax.artists
+  num_patches = len(box_patches)
+  lines_per_boxplot = len(ax.lines) // num_patches
+  for i, patch in enumerate(box_patches):
+    # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+    col = patch.get_facecolor()
+    patch.set_edgecolor(col)
+    patch.set_facecolor('None')
+    # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+    # Loop over them here, and use the same color as above
+    for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      line.set_color(col)
+      line.set_mfc(col)  # facecolor of fliers
+      line.set_mec(col)  # edgecolor of fliers
+  # Also fix the legend
+  for legpatch in ax.legend_.get_patches():
+    col = legpatch.get_facecolor()
+    legpatch.set_edgecolor(col)
+    legpatch.set_facecolor('None')
+  # plt.show()
+  plt.tight_layout()
+  plt.savefig(f'./plots/{dataname}_region_stimulus.pdf', transparent=True)
+
+plot_FR_links_region(FR, visual_regions, 'FR')
+# plot_FR_links_region(links, visual_regions, 'link')
+#%%
+def get_all_FR_link(G_dict, session_ids, stimulus_names, active_area_dict):
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  all_FR, all_links = [], []
+  for se_ind, session_id in enumerate(session_ids):
+    active_area = active_area_dict[session_id]
+    node_idx = sorted(active_area.keys())
+    for st_ind, stimulus_name in enumerate(stimulus_names):
+      file = str(session_id) + '_' + stimulus_name + '.npz'
+      print(file)
+      sequences = load_npz_3d(os.path.join(directory, file))
+      G = G_dict[session_id][stimulus_name]
+      for node_ind in node_idx:
+        all_FR.append(1000 * sequences[node_ind].mean(0).sum() / sequences.shape[2])
+        all_links.append(G.degree(node_ind)) # total degree, not in or out alone
+  return all_FR, all_links
+
+all_FR, all_links = get_all_FR_link(G_ccg_dict, session_ids, stimulus_names, active_area_dict)
+#%%
+def scatter_linkVSFR(all_FR, all_links):
+  X, Y = all_FR, all_links
+  fig, ax = plt.subplots(figsize=(5, 5))
+  ax.scatter(X, Y, facecolors='none', edgecolors='.1', alpha=.5)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+  line = slope*X+intercept
+  locx, locy = .8, .8
+  text = 'r={:.2f}, p={:.0e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=16)
+  # plt.legend(loc='lower right', fontsize=14, frameon=False)
+  plt.xticks(fontsize=14) #, weight='bold'
+  plt.yticks(fontsize=14) # , weight='bold'
+  plt.xlabel('firing rate (Hz)')
+  ylabel = 'degree'
+  plt.ylabel(ylabel)
+  plt.xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/link_FR.pdf', transparent=True)
+
+scatter_linkVSFR(all_FR, all_links)
+#%%
+################### scatter for each region
+def scatter_linkVSFR_region(FR, links, regions):
+
+  fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    r_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    X, Y = [], []
+    for row in session2keep:
+      for col in cols:
+        X += FR[row][col][regions[r_ind]]
+        Y += links[row][col][regions[r_ind]]
+    ax.scatter(X, Y, facecolors='none', edgecolors='.1', alpha=.5)
+    X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+    X, Y = np.array(X), np.array(Y)
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+    line = slope*X+intercept
+    locx, locy = .8, .8
+    text = 'r={:.2f}, p={:.0e}'.format(r_value, p_value)
+    ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+    ax.text(locx, locy, text, horizontalalignment='center',
+      verticalalignment='center', transform=ax.transAxes, fontsize=16)
+    # plt.legend(loc='lower right', fontsize=14, frameon=False)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ax.set_xlabel('firing rate (Hz)')
+    ax.set_title(regions[r_ind])
+    ylabel = 'degree'
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/degree_FR_region.pdf', transparent=True)
+
+scatter_linkVSFR_region(FR, links, visual_regions)
+#%%
+################### scatter for each stimulus
+def scatter_linkVSFR_stimulus(FR, links, regions):
+
+  fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    s_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    X, Y = [], []
+    for r_ind, region in enumerate(regions):
+      for row in session2keep:
+        X += FR[row][cols[s_ind]][region]
+        Y += links[row][cols[s_ind]][region]
+      # ax.scatter(X, Y, facecolors='none', edgecolors=region_colors[r_ind], alpha=.5, label=region)
+
+    ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.5, label=region)
+    X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+    X, Y = np.array(X), np.array(Y)
+
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+    line = slope*X+intercept
+    locx, locy = .8, .8
+    text = 'r={:.2f}, p={:.0e}'.format(r_value, p_value)
+    ax.plot(X, line, alpha=.5, linewidth=4, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]]) #, linestyle=(5,(10,3))
+    # # with confidence interval
+    # lin = IntervalRegressor(LinearRegression())
+    # lin.fit(X_train, y_train)
+    # sorted_X = np.array(list(sorted(X[:,None])))
+    # pred = lin.predict(sorted_X)
+    # bootstrapped_pred = lin.predict_sorted(sorted_X)
+    # min_pred = bootstrapped_pred[:, 0]
+    # max_pred = bootstrapped_pred[:, bootstrapped_pred.shape[1]-1]
+    # ax.plot(sorted_X, pred, alpha=.5, linewidth=4, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]]) #, linestyle=(5,(10,3))
+    # ax.fill_between(sorted_X.flatten(), min_pred, max_pred, alpha=.2, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]])
+
+    ax.text(locx, locy, text, horizontalalignment='center',
+      verticalalignment='center', transform=ax.transAxes, fontsize=16)
+    # plt.legend(loc='lower right', fontsize=14, frameon=False)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ax.set_xlabel('firing rate (Hz)')
+    ax.set_title(paper_label[s_ind].replace('\n', ' '), fontsize=16, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]])
+    ylabel = 'degree'
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/degree_FR_stimulus.pdf', transparent=True)
+
+scatter_linkVSFR_stimulus(FR, links, visual_regions)
+#%%
+################### scatter for each region
+
+def scatter_linkVSFR_stimulus_region(FR, links, regions, stimulus_type='natural stimuli'):
+
+  fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    r_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    X, Y = [], []
+    for s_ind, stimulus in enumerate(stimulus_names):
+      # if stimulus == 'natural_scenes':
+      if stimulus2stype(stimulus)[1] == stimulus_type:
+        for row in session2keep:
+          X += FR[row][stimulus][regions[r_ind]]
+          Y += links[row][stimulus][regions[r_ind]]
+
+    ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.5)
+    X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+    X, Y = np.array(X), np.array(Y)
+
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+    line = slope*X+intercept
+    locx, locy = .8, .8
+    text = 'r={:.2f}, p={:.0e}'.format(r_value, p_value)
+    ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+    ax.text(locx, locy, text, horizontalalignment='center',
+      verticalalignment='center', transform=ax.transAxes, fontsize=16)
+    # plt.legend(loc='lower right', fontsize=14, frameon=False)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ax.set_xlabel('firing rate (Hz)')
+    ax.set_title(regions[r_ind])
+    ylabel = 'degree'
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.suptitle(stimulus_type, fontsize=25)
+  plt.tight_layout()
+  plt.show()
+  # plt.savefig(f'./plots/degree_FR_stimulus.pdf', transparent=True)
+
+stimulus_types = ['resting state', 'flashes', 'gratings', 'natural stimuli']
+for stimulus_type in stimulus_types:
+  scatter_linkVSFR_stimulus_region(FR, links, visual_regions, stimulus_type=stimulus_type)
+#%%
+def calculate_directed_metric(G, metric_name):
+  if metric_name == 'in_degree':
+    metric = G.in_degree()
+  elif metric_name == 'out_degree':
+    metric = G.out_degree()
+  elif metric_name == 'diameter':
+    metric = nx.diameter(G)
+  elif metric_name == 'radius':
+    metric = nx.radius(G)
+  elif metric_name == 'efficiency':
+    metric = nx.global_efficiency(G)
+  elif metric_name == 'clustering':
+    metric = nx.average_clustering(G, weight=None)
+  elif metric_name == 'transitivity':
+    metric = nx.transitivity(G)
+  elif metric_name == 'betweenness':
+    metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
+  elif metric_name == 'closeness':
+    metric = np.mean(list(nx.closeness_centrality(G).values()))
+  elif metric_name == 'modularity':
+    try:
+      part = community.best_partition(G, weight='weight')
+      metric = community.modularity(part, G, weight='weight') 
+    except:
+      metric = 0
+  elif metric_name == 'assortativity_oi':
+    metric = nx.degree_assortativity_coefficient(G, x='out', y='in', weight=None)
+  elif metric_name == 'assortativity_io':
+    metric = nx.degree_assortativity_coefficient(G, x='in', y='out', weight=None)
+  elif metric_name == 'assortativity_ii':
+    metric = nx.degree_assortativity_coefficient(G, x='in', y='in', weight=None)
+  elif metric_name == 'assortativity_oo':
+    metric = nx.degree_assortativity_coefficient(G, x='out', y='out', weight=None)
+  elif metric_name == 'num_cycles':
+    metric = len(list(nx.simple_cycles(G)))
+  elif metric_name == 'flow_hierarchy':
+    metric = nx.flow_hierarchy(G)
+  elif metric_name == 'overall_reciprocity':
+    metric = nx.overall_reciprocity(G)
+  elif metric_name == 'average_shortest_path_length':
+    metric = nx.average_shortest_path_length(get_lcc(G))
+  elif metric_name == 'global_reaching_centrality':
+    metric = nx.global_reaching_centrality(G)
+  elif metric_name == 'wiener_index':
+    metric = nx.wiener_index(G)
+  elif metric_name == 'small-worldness':
+    if not nx.is_connected(G):
+      largest_cc = max(nx.connected_components(G), key=len)
+      G = nx.subgraph(G, largest_cc)
+    if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+      metric = nx.sigma(G)
+    else:
+      metric = 0
+  return metric
+
+def plot_metrics(G_dict):
+  rows, cols = get_rowcol(G_dict)
+  metric_names = ['clustering', 'overall_reciprocity', 'flow_hierarchy', 'global_reaching_centrality']
+  # metric_names = ['wiener_index']
+  plots_shape = (2, 2)
+  metric = np.empty((len(rows), len(cols), len(metric_names)))
+  metric[:] = np.nan
+  # fig = plt.figure(figsize=(5*plots_shape[1], 8))
+  # fig = plt.figure(figsize=(20, 10))
+  df = pd.DataFrame()
+  for metric_ind, metric_name in enumerate(metric_names):
+    print(metric_name)
+    for col_ind, col in enumerate(cols):
+      print(col)
+      for row_ind, row in enumerate(rows):
+        G = G_dict[row][col]
+        m = calculate_directed_metric(G, metric_name)
+        metric[row_ind, col_ind, metric_ind] = m
+      df = pd.concat([df, pd.DataFrame(np.concatenate((metric[:,col_ind,metric_ind][:,None], np.array([col] * len(rows))[:,None], np.array([metric_name] * len(rows))[:,None]), 1), columns=['metric', 'stimulus', 'metric name'])], ignore_index=True)
+  #   plt.subplot(*plots_shape, metric_ind + 1)
+  #   for row_ind, row in enumerate(rows):
+  #     plt.plot(cols, metric[row_ind, :, metric_ind], label=row, alpha=1)
+  #   plt.gca().set_title(metric_name, fontsize=30, rotation=0)
+  #   plt.xticks(rotation=90)
+  # plt.legend()
+  # plt.tight_layout()
+  # figname = './plots/metric_stimulus_individual_weighted_{}_{}_{}_fold.jpg'.format(sign, measure, n) if weight else './plots/metric_stimulus_individual_{}_{}_{}_fold.jpg'.format(sign, measure, n)
+  # plt.savefig(figname)
+  df.metric = pd.to_numeric(df.metric)
+  fig = plt.figure(figsize=(14, 10))
+  for metric_ind, metric_name in enumerate(metric_names):
+    plt.subplot(2,2, metric_ind + 1)
+    ax = sns.boxplot(x="stimulus", y='metric', color='white', hue_order=metric_names, data=df[df['metric name']==metric_name], showfliers=True) # , boxprops=dict(alpha=.6)
+    plt.xticks(rotation=90)
+    plt.title(metric_name)
+    plt.xlabel(None)
+    if metric_ind < 2:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False)
+  plt.savefig('./plots/metrics.jpg')
+  return df
+
+metric_names = ['clustering', 'overall_reciprocity', 'flow_hierarchy', 'global_reaching_centrality']
+df = plot_metrics(G_ccg_dict)
+#%%
+def chord_diagram_region_connection(G_dict, area_dict, regions):
+  hv.extension('matplotlib')
+  hv.output(size=200)
+  region_connection = np.zeros((len(rows), len(cols), len(regions), len(regions)))
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+      nodes = sorted(G.nodes())
+      active_areas = np.unique(list({key: area_dict[row][key] for key in nodes}.values()))
+      # active_areas = [i for i in regions if i in active_areas]
+      A = nx.to_numpy_array(G, nodelist=nodes,weight='weight')
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        if region_i in active_areas:
+          for region_ind_j, region_j in enumerate(regions):
+            if region_j in active_areas:
+              region_indices_i = np.array([k for k, v in area_dict[row].items() if v==region_i])
+              region_indices_j = np.array([k for k, v in area_dict[row].items() if v==region_j])
+              region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+              region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+              region_connection[row_ind, col_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+              assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      region_connection[row_ind, col_ind, :, :] = region_connection[row_ind, col_ind, :, :]
+  mean_region_connection = region_connection.mean(0)
+  hv_li = []
+  for col_ind in range(len(cols)):
+    print(col_ind)
+    # row_ind, col_ind = 7, 3
+    # A = nx.to_numpy_array(G_lcc, nodelist=sorted(G_lcc.nodes()),weight='weight')
+    # links = pd.DataFrame([(i, j, region_connection[row_ind, col_ind,i,j]) for i,j in zip(*region_connection[row_ind, col_ind].nonzero())], columns=['source', 'target', 'value'])
+    links = pd.DataFrame([(i, j, mean_region_connection[col_ind,i,j]) for i,j in zip(*mean_region_connection[col_ind].nonzero())], columns=['source', 'target', 'value'])
+    links.value = links.value.abs()
+    # nodes = pd.DataFrame([[node, area_dict[row][node]] for node in sorted(G.nodes())], columns=['index', 'region'])
+    nodes = hv.Dataset(pd.DataFrame([[i, regions[i]] for i in range(len(regions))], columns=['index', 'region']), 'index')
+    # links = pd.DataFrame(data['links'])
+    # nodes = hv.Dataset(pd.DataFrame(data['nodes']).sort_values('group'), 'index')
+    # nodes.data.head()
+    chord = hv.Chord((links, nodes), group=cols[col_ind])
+    ch = chord.opts(cmap=region_colors, edge_cmap=region_colors, edge_color=dim('source').str(), 
+                  labels='region', node_color=dim('index').str()) # , hooks=[rotate_label]
+    hv_li.append(ch)
+  hv.save(hv.Layout(hv_li), f'./plots/chord_diagram.pdf', fmt='pdf')
+
+chord_diagram_region_connection(G_ccg_dict, area_dict, visual_regions)
+#%%
+#%%
+################# get optimal resolution that maximizes delta H
+rows, cols = get_rowcol(G_ccg_dict)
+with open('comms_dict.pkl', 'rb') as f:
+  comms_dict = pickle.load(f)
+with open('metrics.pkl', 'rb') as f:
+  metrics = pickle.load(f)
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
+################# community with Hamiltonian
+max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
+max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
+#%%
+def plot_example_graphs_largest_comms(G_dict, hamiltonian, comms, area_dict, active_area_dict, regions, row, col, measure, n, cc=False):
+  np.random.seed(1111)
+  com = CommunityLayout(comm_scale=50, node_scale=6, k=.2)
+  G_sample = G_dict[row][col]
+  dire = True if nx.is_directed(G_sample) else False
+  fig = plt.figure(figsize=(8, 7))
+  print(row, col)
+  G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+  nx.set_node_attributes(G, area_dict[row], "area")
+  if cc:
+    G = get_lcc(G)
+  node_idx = sorted(active_area_dict[row].keys())
+  reverse_mapping = {node_idx[i]:i for i in range(len(node_idx))}
+  G = nx.relabel_nodes(G, reverse_mapping)
+  comms = [[reverse_mapping[n] for n in comm] for comm in comms]
+  comms_tuple = [[[i for i in comm], len(comm)] for comm in comms]
+  ordered_comms = [e[0] for e in sorted(comms_tuple, key=lambda x:x[1], reverse=True)]
+  comms2plot = ordered_comms[:6]
+  nodes2plot = [j for i in comms2plot for j in i]
+  # nodes2plot = [j for i in comms if len(i) > 2 for j in i]
+  # comms2plot = [i for i in comms if len(i) > 2]
+  pos = com.get_community_layout(G.subgraph(nodes2plot), comm2partition(comms2plot))
+  # partition = community.best_partition(G, weight='weight')
+  # pos = com.get_community_layout(G, partition)
+  # metric = community.modularity(partition, G, weight='weight')
+  print('Hamiltonian: {}'.format(hamiltonian))
+  edges = nx.edges(G.subgraph(nodes2plot))
+  degrees = dict(G.degree(nodes2plot))
+  # use offset as edge weight (color)
+  weights = [w for i,j,w in nx.edges(G.subgraph(nodes2plot)).data('weight')]
+  # weights = [offset_mat[edge[0], edge[1]] for edge in edges]
+  norm = mpl.colors.Normalize(vmin=-1, vmax=1)
+  m= cm.ScalarMappable(norm=norm, cmap=cm.RdBu_r)
+  edge_colors = [m.to_rgba(1) if w > 0 else m.to_rgba(-1) for w in weights]
+  # edge_colors = [m.to_rgba(w) for w in weights]
+  areas = [G.nodes[n]['area'] for n in nodes2plot]
+  colors = [region_colors[regions.index(area)] for area in areas]
+  # pos = nx.spring_layout(G, k=0.8, iterations=50) # make nodes as seperate as possible
+  nx.draw_networkx_edges(G, pos, arrows=dire, edgelist=edges, edge_color=edge_colors, width=3.0, alpha=0.2) # , edge_cmap=plt.cm.Greens
+  # nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[np.log(v + 2) * 20 for v in degrees.values()], 
+  # print(len(set(nodes2plot)), len(nodes2plot), len(areas), len(degrees), len(colors))
+  nx.draw_networkx_nodes(G, pos, nodelist=degrees.keys(), node_size=[15 * v for v in degrees.values()], 
+  node_color=colors, alpha=0.6)
+  for index, a in enumerate(regions):
+    plt.scatter([],[], c=region_colors[index], label=a, s=30, alpha=0.6)
+  legend = plt.legend(fontsize=15) # loc='lower right', 
+  for handle in legend.legendHandles:
+    handle.set_sizes([60.0])
+  plt.tight_layout()
+  image_name = './plots/example_graphs_top_comms_color_cc_{}_{}_{}_{}fold.pdf' if cc else './plots/example_graphs_top_comms_color_{}_{}_{}_{}fold.pdf'
+  plt.savefig(image_name.format(row, col, measure, n), transparent=True)
+#################### example topology of graphs, select the top 6 communities
+rows, cols = get_rowcol(G_ccg_dict)
+# for row_ind, row in enumerate(rows):
+#   for col_ind, col in enumerate(cols):
+#     print(row, col)
+#     break
+row_ind, col_ind = 3, 7
+row, col = rows[row_ind], cols[col_ind]
+max_reso = max_reso_gnm[row_ind][col_ind]
+hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
+comms_list = comms_dict[row][col][max_reso]
+plot_example_graphs_largest_comms(G_ccg_dict, hamiltonian, comms_list[2], area_dict, active_area_dict, visual_regions, row, col, measure, n, False)
+#%%
+def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig, ax = plt.subplots(figsize=(6, 4))
+  weighted_purity = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    w_purity_col = []
+    for row_ind, row in enumerate(rows):
+      data = {}
+      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
+      sizes = [len(comm) for comm in comms]
+      for comm, size in zip(comms, sizes):
+        c_regions = [area_dict[row][node] for node in comm]
+        _, counts = np.unique(c_regions, return_counts=True)
+        assert len(c_regions) == size == counts.sum()
+        purity = counts.max() / size
+        if size in data:
+          data[size].append(purity)
+        else:
+          data[size] = [purity]
+      c_size, c_purity = [k for k,v in data.items() if k >= 4], [v for k,v in data.items() if k >= 4]
+      c_size = np.array(c_size) / sum(c_size)
+      w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
+    weighted_purity.append(w_purity_col)
+  boxprops = dict(facecolor='white', edgecolor='.2')
+  medianprops = dict(linestyle='-', linewidth=1.5, color='k')
+  ax.boxplot(weighted_purity, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+  plt.xticks(list(range(1, len(weighted_purity)+1)), paper_label)
+  ax.xaxis.set_tick_params(labelsize=14)
+  ax.yaxis.set_tick_params(labelsize=14)
+  ylabel = 'weighted purity'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  image_name = './plots/weighted_Hcomm_purity_{}.pdf'.format(max_method)
+  # plt.show()
+  plt.savefig(image_name)
+  return weighted_purity
+
+weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
+# %%
+def plot_2Ddist_Hcommsize(G_dict, comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none', kind='scatter'):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  fig, ax = plt.subplots(figsize=(3, 3))
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col = []
+    purity_col = []
+    for row_ind, row in enumerate(rows):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      G = G_dict[row][col]
+      all_regions = [area_dict[row][node] for node in G.nodes()]
+      _, counts = np.unique(all_regions, return_counts=True)
+      lr_size = counts.max()
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        data = []
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          # purity = counts.max() / size
+          purity = counts.max() / min(lr_size, size)
+          data.append((size, purity))
+        size_col += [s/lr_size for s,p in data if s>=4]
+        purity_col += [p for s,p in data if s>=4]
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array([stimulus2stype(col)[1]] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'stimulus type'])], ignore_index=True)
+  df['community size'] = pd.to_numeric(df['community size'])
+  df['purity'] = pd.to_numeric(df['purity'])
+  return df
+  
+  palette = {st:sc for st, sc in zip(stimulus_types, stimulus_type_color)}
+  kws = {"facecolor": "0", "linewidth": 1.5}
+  if kind == 'scatter':
+    plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='scatter', edgecolor=df["stimulus type"].map(palette), alpha=0.7, **kws)
+  elif kind == 'kde':
+    plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='kde', ylim=(0.13, 1.0), log_scale=[True, False], alpha=0.7)
+  plot.ax_marg_x.set_xlim(-5, 250)
+  plot.ax_marg_y.set_ylim(0.1, 1.05)
+  ax.xaxis.set_tick_params(labelsize=14)
+  ax.yaxis.set_tick_params(labelsize=14)
+  ylabel = 'purity'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  # ax.spines['top'].set_visible(False)
+  # ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+
+  plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
+  plt.tight_layout()
+  image_name = './plots/dist2D_Hcomm_size_{}_{}.pdf'.format(kind, max_method)
+  # plt.show()
+  plt.savefig(image_name)
+
+df = plot_2Ddist_Hcommsize(G_ccg_dict, comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
+# %%
+# fig, ax = plt.subplots(figsize=(3, 3))
+palette = {st:sc for st, sc in zip(stimulus_types, stimulus_type_color)}
+joint_kws = {"linewidth": 1., 'fc':'none',
+      'edgecolor':df["stimulus type"].map(palette),
+      'alpha':0.3,
+      'height':10}
+plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='scatter', legend = False, **joint_kws)
+
+scatter_kws = {"fc": "none", "linewidth": 1.}
+handles, labels = zip(*[
+    (plt.scatter([], [], ec=color, **scatter_kws), key) for key, color in palette.items()
+])
+# ax = plt.gca()
+# ax.legend(handles, labels, title="", loc='upper left', frameon=False)
+# plot.ax_marg_x.set_xlim(-5, 250)
+plot.ax_marg_y.set_ylim(0.1, 1.05)
+
+plt.xlabel('relative community size', fontsize=18)
+plt.ylabel('purity', fontsize=18)
+plt.tick_params(axis="both", labelsize=18)
+plt.legend(handles, labels, title="", loc='upper left', frameon=False, fontsize=20)
+
+# ax.xaxis.set_tick_params(labelsize=14)
+# ax.yaxis.set_tick_params(labelsize=14)
+# ylabel = 'purity'
+# ax.set_ylabel(ylabel)
+# # ax.set_xscale('log')
+# ax.set_xlabel(ax.get_xlabel(), fontsize=20,color='k') #, weight='bold'
+# ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
+# for axis in ['bottom', 'left']:
+#   ax.spines[axis].set_linewidth(1.5)
+#   ax.spines[axis].set_color('0.2')
+# # ax.spines['top'].set_visible(False)
+# # ax.spines['right'].set_visible(False)
+# ax.tick_params(width=1.5)
+
+# plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
+plt.tight_layout()
+# image_name = './plots/dist2D_Hcomm_size_{}_{}.pdf'.format(kind, max_method)
+plt.show()
+# plt.savefig(image_name)
+# %%
+def rand_index_community_region_allnodes(comms_dict, area_dict, max_neg_reso=None):
+  fig, ax = plt.subplots(figsize=(6, 4))
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  all_ri_list = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ri_list = []
+    for row_ind, row in enumerate(rows):
+      # print(row)
+      G = G_ccg_dict[row][col]
+      node_area = area_dict[row]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      regions = [node_area[node] for node in sorted(G.nodes())]   
+      for comms in comms_list: # 100 repeats
+        assert len(regions) == len(comm2label(comms)), '{}, {}'.format(len(regions), len(comm2label(comms)))
+        # print(len(regions), len(comm2label(comms)))
+        ri_list.append(adjusted_rand_score(regions, comm2label(comms)))
+    all_ri_list.append(ri_list)
+  boxprops = dict(facecolor='white', edgecolor='.2')
+  medianprops = dict(linestyle='-', linewidth=1.5, color='k')
+  ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  ax.xaxis.set_tick_params(labelsize=14)
+  ax.yaxis.set_tick_params(labelsize=14)
+  ylabel = 'Rand index'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/rand_index_allnodes.pdf', transparent=True)
+  # plt.show()
+      
+rand_index_community_region_allnodes(comms_dict, area_dict, max_neg_reso=max_reso_config)
+# %%
+def rand_index_community_region_activenodes(comms_dict, area_dict, max_neg_reso=None):
+  fig, ax = plt.subplots(figsize=(6, 4))
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  all_ri_list = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ri_list = []
+    for row_ind, row in enumerate(rows):
+      # print(row)
+      G = G_ccg_dict[row][col]
+      nodes = sorted(G.nodes())
+      active_nodes = [node for node in nodes if G.degree(node) > 0]
+      active_node_indx = [nodes.index(node) for node in nodes if G.degree(node) > 0]
+      node_area = area_dict[row]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      regions = [node_area[node] for node in active_nodes]   
+      for comms in comms_list: # 100 repeats
+        comms_par = comm2label(comms)
+        comms_par = [comms_par[i] for i in active_node_indx]
+        assert len(regions) == len(comms_par), '{}, {}'.format(len(regions), len(comms_par))
+        # print(len(regions), len(comm2label(comms)))
+        ri_list.append(adjusted_rand_score(regions, comms_par))
+    all_ri_list.append(ri_list)
+  boxprops = dict(facecolor='white', edgecolor='.2')
+  medianprops = dict(linestyle='-', linewidth=1.5, color='k')
+  ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  ax.xaxis.set_tick_params(labelsize=14)
+  ax.yaxis.set_tick_params(labelsize=14)
+  ylabel = 'Rand index'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/rand_index_activenodes.pdf', transparent=True)
+  # plt.show()
+      
+rand_index_community_region_activenodes(comms_dict, area_dict, max_neg_reso=max_reso_config)
+# %%
+def rand_index_community_region_lscc(comms_dict, area_dict, max_neg_reso=None):
+  fig, ax = plt.subplots(figsize=(6, 4))
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  all_ri_list = []
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ri_list = []
+    for row_ind, row in enumerate(rows):
+      # print(row)
+      G = G_ccg_dict[row][col]
+      Gcc = sorted(nx.strongly_connected_components(G), key=len, reverse=True)
+      lscc = G.subgraph(Gcc[0])
+      nodes = sorted(lscc.nodes())
+      lscc_node_indx = [sorted(G.nodes()).index(node) for node in nodes]
+      node_area = area_dict[row]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      regions = [node_area[node] for node in nodes]   
+      for comms in comms_list: # 100 repeats
+        comms_par = comm2label(comms)
+        comms_par = [comms_par[i] for i in lscc_node_indx]
+        assert len(regions) == len(comms_par), '{}, {}'.format(len(regions), len(comms_par))
+        # print(len(regions), len(comm2label(comms)))
+        ri_list.append(adjusted_rand_score(regions, comms_par))
+    all_ri_list.append(ri_list)
+  boxprops = dict(facecolor='white', edgecolor='.2')
+  medianprops = dict(linestyle='-', linewidth=1.5, color='k')
+  ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  ax.xaxis.set_tick_params(labelsize=14)
+  ax.yaxis.set_tick_params(labelsize=14)
+  ylabel = 'Rand index'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/rand_index_lscc.pdf', transparent=True)
+  # plt.show()
+      
+rand_index_community_region_lscc(comms_dict, area_dict, max_neg_reso=max_reso_config)
+# %%
+################# weighted average of community metrics
+def occupancy_community_perregion(comms_dict, area_dict, regions, max_neg_reso=None):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    for row_ind, row in enumerate(session2keep):
+      G = G_ccg_dict[row][col]
+      nodes = sorted(G.nodes())
+      node_area = area_dict[row]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for region in regions:
+        region_nodes = [node for node in nodes if node_area[node]==region]
+        num_comm_list, comm_size_list, occupancy_list, leadership_list, purity_list, entropy_list = [], [], [], [], [], []
+        for comms in comms_list: # 50 repeats
+          purities, comm_size, occupancy, num_regions, region_distri = [], [], [], [], []
+          for comm in comms:
+            c_regions = [node_area[node] for node in comm]
+            _, counts = np.unique(c_regions, return_counts=True)
+            assert len(c_regions) == counts.sum()
+            purities.append(counts.max() / counts.sum())
+            comm_size.append(len(comm))
+            occupancy.append(len(comm & set(region_nodes)) / len(comm))
+            num_regions.append(len(counts))
+            region_distri.append(len(comm & set(region_nodes)))
+          # comm_size = [len(comm) for comm in comms]
+          # occupancy = [len(comm & set(region_nodes)) / len(comm) for comm in comms]
+          large_comm_indx = [i for i in range(len(comm_size)) if comm_size[i] >= 4]
+          region_comm_indx = [i for i in large_comm_indx if (occupancy[i] > 0)] # large communities
+          # assert len(region_comm_indx) > 0, (row, col, region)
+          if len(region_comm_indx):
+            # num_comm_list.append(len(region_comm_indx)) # relative num of comms
+            num_comm_list.append(len(region_comm_indx) / len(large_comm_indx)) # relative num of comms
+            comm_size_list.append(np.mean([comm_size[i] for i in region_comm_indx]))
+            # max_comm_size = max(comm_size)
+            # comm_size_list.append(np.mean([comm_size[i] for i in region_comm_indx]) / max_comm_size) # relative comm size
+            total_comm_size = np.sum([comm_size[i] for i in region_comm_indx])
+            occupancy_list.append(np.sum([occupancy[i] * comm_size[i] / total_comm_size for i in region_comm_indx])) # weighted
+            purity_list.append(np.sum([purities[i] * comm_size[i] / total_comm_size for i in region_comm_indx])) # weighted
+            # leadership_list.append(np.sum([num_regions[i] * occupancy[i] * comm_size[i] / total_comm_size for i in region_comm_indx]))
+            # leadership_list.append(purity_list[-1]-occupancy_list[-1])
+            leadership_list.append(safe_division(occupancy_list[-1], purity_list[-1]))
+            region_distri = [region_distri[i] for i in large_comm_indx if region_distri[i] > 0]
+            entropy_list.append(safe_division(entropy(region_distri, base=2), entropy([1] * len(region_distri), base=2))) # normalized entropy
+        if len(num_comm_list):
+          df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(num_comm_list))[:,None], np.array([region] * len(num_comm_list))[:,None], np.array(num_comm_list)[:,None], np.array(comm_size_list)[:,None], np.array(occupancy_list)[:,None], np.array(leadership_list)[:,None], np.array(purity_list)[:,None], np.array(entropy_list)[:,None]), 1), columns=['stimulus', 'region', 'number of communities', 'community size', 'occupancy', 'leadership', 'purity', 'entropy'])], ignore_index=True)
+
+        # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(num_comm_list))[:,None], np.array([region] * len(num_comm_list))[:,None], np.array(['number of communities'] * len(num_comm_list))[:,None], np.array(num_comm_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
+        # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(comm_size_list))[:,None], np.array([region] * len(comm_size_list))[:,None], np.array(['community size'] * len(comm_size_list))[:,None], np.array(comm_size_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
+        # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(comm_size_list))[:,None], np.array([region] * len(comm_size_list))[:,None], np.array(['occupancy'] * len(comm_size_list))[:,None], np.array(occupancy_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
+        # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(comm_size_list))[:,None], np.array([region] * len(comm_size_list))[:,None], np.array(['purity'] * len(comm_size_list))[:,None], np.array(purity_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
+  # df['metric'] = pd.to_numeric(df['metric'])
+
+  df['number of communities'] = pd.to_numeric(df['number of communities'])
+  df['community size'] = pd.to_numeric(df['community size'])
+  df['occupancy'] = pd.to_numeric(df['occupancy'])
+  df['leadership'] = pd.to_numeric(df['leadership'])
+  df['purity'] = pd.to_numeric(df['purity'])
+  df['entropy'] = pd.to_numeric(df['entropy'])
+  return df
+
+df = occupancy_community_perregion(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
+# %%
+def plot_data_per_region(df, regions):
+  names = ['community size', 'occupancy', 'leadership', 'purity', 'entropy']
+  for name1, name2 in itertools.combinations(names, 2):
+    fig, axes = plt.subplots(2, 4, figsize=(15, 7))
+    for s_ind, stimulus_name in enumerate(stimulus_names):
+      i, j = s_ind // 4, s_ind % 4
+      ax = axes[i, j]
+      for r_ind, region in enumerate(regions):
+        mat = df[(df['stimulus']==stimulus_name) & (df['region']==region)][[name1, name2]].values
+        if mat.size:
+          x, y = mat[:,0], mat[:,1]
+          ax.scatter(x, y, facecolors='none', linewidth=.2, edgecolors=region_colors[r_ind], alpha=.5)
+          ax.scatter(np.mean(x), np.mean(y), facecolors='none', linewidth=3., marker='^', s=200, edgecolors=region_colors[r_ind])
+      ax.set_title(stimulus_name)
+      ax.set_xlabel(name1)
+      ax.set_ylabel(name2)
+      ax.xaxis.set_tick_params(labelsize=14)
+      ax.yaxis.set_tick_params(labelsize=14)
+      ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+      ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(1.5)
+        ax.spines[axis].set_color('0.2')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=1.5)
+    for r_ind, region in enumerate(regions):
+      ax.scatter([], [], facecolors='none', linewidth=2, edgecolors=region_colors[r_ind], label=region)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12, frameon=False)
+    plt.tight_layout()
+    plt.savefig('./plots/{}_{}.pdf'.format(name1.replace(' ', '_'), name2.replace(' ', '_')), transparent=True)
+    plt.show()
+
+plot_data_per_region(df, visual_regions)
+# %%
+def plot_data_per_region_by_type(df, regions):
+  names = ['community size', 'occupancy', 'leadership', 'purity', 'entropy']
+  for name1, name2 in itertools.combinations(names, 2):
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    for s_ind, stimulus_type in enumerate(stimulus_types):
+      ax = axes[s_ind]
+      for r_ind, region in enumerate(regions):
+        mat = df[(df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type) & (df['region']==region)][[name1, name2]].values
+        if mat.size:
+          x, y = mat[:,0], mat[:,1]
+          ax.scatter(x, y, facecolors='none', linewidth=.2, edgecolors=region_colors[r_ind], alpha=.5)
+          ax.scatter(np.mean(x), np.mean(y), facecolors='none', linewidth=3., marker='^', s=200, edgecolors=region_colors[r_ind])
+      ax.set_title(stimulus_type)
+      ax.set_xlabel(name1)
+      ax.set_ylabel(name2)
+      ax.xaxis.set_tick_params(labelsize=14)
+      ax.yaxis.set_tick_params(labelsize=14)
+      ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+      ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(1.5)
+        ax.spines[axis].set_color('0.2')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=1.5)
+    for r_ind, region in enumerate(regions):
+      ax.scatter([], [], facecolors='none', linewidth=2, edgecolors=region_colors[r_ind], label=region)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12, frameon=False)
+    plt.tight_layout()
+    plt.savefig('./plots/{}_{}_type.pdf'.format(name1.replace(' ', '_'), name2.replace(' ', '_')), transparent=True)
+    # plt.show()
+
+plot_data_per_region_by_type(df, visual_regions)
+# %%
+def plot_heatmap_region_community(comms_dict, area_dict, regions, max_neg_reso):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  all_region_counts = {}
+  fig, axes = plt.subplots(1, 8, figsize=(30, 6))
+  cbar_ax = fig.add_axes([.91, .3, .01, .6]) # (locx, locy, width, height)
+  scolors = [stimulus_type_color[stimulus2stype(col)[0]] for col in cols]
+  cmap_list = cycle([colors.LinearSegmentedColormap.from_list("", ["white",c]) for c in scolors])
+  for col_ind, col in enumerate(cols):
+    print(col)
+    ax = axes[col_ind]
+    region_counts = []
+    for row_ind, row in enumerate(session2keep):
+      node_area = area_dict[row]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 50 repeats
+        for comm in comms:
+          if len(comm) >= 4:
+            c_regions = [node_area[node] for node in comm]
+            region_counts.append([c_regions.count(region)/len(c_regions) for region in regions])
+    region_counts = np.array(region_counts)
+    all_region_counts[col] = region_counts[np.lexsort((region_counts[:,0],region_counts[:,1],region_counts[:,2],region_counts[:,3],region_counts[:,4],region_counts[:,5]))]
+    hm = sns.heatmap(all_region_counts[col], ax=ax, cmap=cmap_list.__next__(), cbar=col_ind == 0, cbar_ax=None if col_ind else cbar_ax)
+    ax.set_xticks(0.5 + np.arange(len(regions)))
+    ax.set_xticklabels(labels=regions)
+    hm.set(yticklabels=[])  
+    hm.set(ylabel=None)
+    hm.tick_params(left=False)  # remove the ticks
+    hm.tick_params(bottom=False)
+    ax.set_title(paper_label[col_ind].replace('\n', ' '))
+  fig.tight_layout(rect=[0, 0, .9, 1])
+  plt.savefig('./plots/heatmap_region_community.pdf', transparent=True)
+  plt.show()
+
+plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
