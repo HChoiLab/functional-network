@@ -1986,87 +1986,33 @@ FR = get_region_FR(session_ids, stimulus_names, visual_regions, active_area_dict
 
 def get_region_links(G_dict, regions, active_area_dict):
   rows, cols = get_rowcol(G_dict)
-  links = {}
+  intra_links, inter_links = {}, {}
   for row_ind, row in enumerate(rows):
-    links[row] = {}
+    intra_links[row], inter_links[row] = {}, {}
     print(row)
     active_area = active_area_dict[row]
     for col_ind, col in enumerate(cols):
-      links[row][col] = {}
+      intra_links[row][col], inter_links[row][col] = {}, {}
       G = G_dict[row][col]
       # nodes = sorted(G.nodes())
       node_idx = sorted(active_area.keys())
       A = nx.to_numpy_array(G, nodelist=node_idx)
+      # A[A < 0] = 0 # only excitatory links!!!
       A[A.nonzero()] = 1
       for region in regions:
         active_nodes = [node for node in node_idx if active_area[node]==region]
         region_indices = np.array([node_idx.index(i) for i in active_nodes])
         if len(region_indices):
-          links[row][col][region] = links[row][col].get(region, []) + (np.sum(A[region_indices, :], 1) + np.sum(A[:, region_indices], 0)).tolist() # both out and in links
-  return links
+          # intra_links[row][col][region] = intra_links[row][col].get(region, []) + (np.sum(A[region_indices[:,None], region_indices], 1)).tolist() # only out links, within region links
+          # inter_links[row][col][region] = inter_links[row][col].get(region, []) + (np.sum(A[region_indices, :], 1) - np.sum(A[region_indices[:,None], region_indices], 1)).tolist() # only out links, cross region links
+          # intra_links[row][col][region] = intra_links[row][col].get(region, []) + (np.sum(A[region_indices[:,None], region_indices], 0)).tolist() # only in links, within region links
+          # inter_links[row][col][region] = inter_links[row][col].get(region, []) + (np.sum(A[:, region_indices], 0) - np.sum(A[region_indices[:,None], region_indices], 0)).tolist() # only in links, cross region links
+          intra_links[row][col][region] = intra_links[row][col].get(region, []) + (np.sum(A[region_indices[:,None], region_indices], 1) + np.sum(A[region_indices[:,None], region_indices], 0)).tolist() # both out and in links, within region links
+          inter_links[row][col][region] = inter_links[row][col].get(region, []) + (np.sum(A[region_indices, :], 1) - np.sum(A[region_indices[:,None], region_indices], 1) + np.sum(A[:, region_indices], 0) - np.sum(A[region_indices[:,None], region_indices], 0)).tolist() # both out and in links, cross region links
+  return intra_links, inter_links
 
-links = get_region_links(G_ccg_dict, visual_regions, active_area_dict)
+intra_links, inter_links = get_region_links(G_ccg_dict, visual_regions, active_area_dict)
 #%%
-# def plot_FR_links_region(data, regions, dataname):
-#   for se_ind in range(data.shape[2]):
-#     if np.any(data[:,:,se_ind] == 0):
-#       se_ind2remove = se_ind
-#       break
-#   s_inds = list(range(data.shape[2]))
-#   s_inds.remove(se_ind2remove)
-#   if dataname == 'FR':
-#     name = 'firing rate (Hz)'
-#   elif dataname == 'link':
-#     name = 'number of connections'
-#   df = pd.DataFrame()
-#   for r_ind, region in enumerate(regions):
-#     for se_ind in s_inds:
-#       df = pd.concat([df, pd.DataFrame(np.concatenate((data[r_ind, :, se_ind][:,None], np.array(stimulus_names)[:,None], np.array([region] * len(stimulus_names))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
-#   df[name] = pd.to_numeric(df[name])
-#   plt.figure(figsize=(10, 7))
-#   # hue_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
-#   colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for color in region_colors]
-#   ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=regions, data=df, palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
-#   ax.set(xlabel=None)
-
-#   handles, labels = ax.get_legend_handles_labels()
-#   ax.legend(handles, labels, title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=12)
-#   # plt.setp(ax.get_legend().get_texts())
-#   plt.xticks(ticks=range(len(cols)), labels=paper_label, fontsize=14)
-#   plt.yticks(fontsize=14)
-#   # plt.ylabel(y)
-#   ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='0.2')
-#   for axis in ['bottom', 'left']:
-#     ax.spines[axis].set_linewidth(1.5)
-#     ax.spines[axis].set_color('0.2')
-#   ax.spines['top'].set_visible(False)
-#   ax.spines['right'].set_visible(False)
-#   ax.tick_params(width=2.5)
-
-#   box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
-#   if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax2.artists
-#     box_patches = ax.artists
-#   num_patches = len(box_patches)
-#   lines_per_boxplot = len(ax.lines) // num_patches
-#   for i, patch in enumerate(box_patches):
-#     # Set the linecolor on the patch to the facecolor, and set the facecolor to None
-#     col = patch.get_facecolor()
-#     patch.set_edgecolor(col)
-#     patch.set_facecolor('None')
-#     # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
-#     # Loop over them here, and use the same color as above
-#     for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
-#       line.set_color(col)
-#       line.set_mfc(col)  # facecolor of fliers
-#       line.set_mec(col)  # edgecolor of fliers
-#   # Also fix the legend
-#   for legpatch in ax.legend_.get_patches():
-#     col = legpatch.get_facecolor()
-#     legpatch.set_edgecolor(col)
-#     legpatch.set_facecolor('None')
-#   # plt.show()
-#   plt.savefig(f'./plots/{dataname}_region_stimulus.pdf', transparent=True)
-
 def plot_FR_links_region(data, regions, dataname):
   if dataname == 'FR':
     name = 'firing rate (Hz)'
@@ -2135,9 +2081,9 @@ def plot_FR_links_region(data, regions, dataname):
 plot_FR_links_region(FR, visual_regions, 'FR')
 # plot_FR_links_region(links, visual_regions, 'link')
 #%%
-def get_all_FR_link(G_dict, session_ids, stimulus_names, active_area_dict):
+def get_all_FR(session_ids, stimulus_names, active_area_dict):
   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-  all_FR, all_links = [], []
+  all_FR = []
   for se_ind, session_id in enumerate(session_ids):
     active_area = active_area_dict[session_id]
     node_idx = sorted(active_area.keys())
@@ -2145,13 +2091,31 @@ def get_all_FR_link(G_dict, session_ids, stimulus_names, active_area_dict):
       file = str(session_id) + '_' + stimulus_name + '.npz'
       print(file)
       sequences = load_npz_3d(os.path.join(directory, file))
-      G = G_dict[session_id][stimulus_name]
       for node_ind in node_idx:
         all_FR.append(1000 * sequences[node_ind].mean(0).sum() / sequences.shape[2])
-        all_links.append(G.degree(node_ind)) # total degree, not in or out alone
-  return all_FR, all_links
+  return all_FR
 
-all_FR, all_links = get_all_FR_link(G_ccg_dict, session_ids, stimulus_names, active_area_dict)
+all_FR = get_all_FR(session_ids, stimulus_names, active_area_dict)
+#%%
+def get_all_links(G_dict, regions, active_area_dict):
+  rows, cols = get_rowcol(G_dict)
+  all_links = []
+  for row in rows:
+    active_area = active_area_dict[row]
+    for col in cols:
+      G = G_dict[row][col]
+      node_idx = sorted(active_area.keys())
+      A = nx.to_numpy_array(G, nodelist=node_idx)
+      A[A.nonzero()] = 1
+      region_links = np.zeros(len(node_idx))
+      for region in regions:
+        active_nodes = [node for node in node_idx if active_area[node]==region]
+        region_indices = np.array([node_idx.index(i) for i in active_nodes])
+        if len(region_indices):
+          region_links[region_indices] = np.sum(A[region_indices[:,None], region_indices], 1) + np.sum(A[region_indices[:,None], region_indices], 0) # within region links
+      all_links += region_links.tolist() # total degree, not in or out alone
+  return all_links
+all_links = get_all_links(G_ccg_dict, visual_regions, active_area_dict)
 #%%
 def scatter_linkVSFR(all_FR, all_links):
   X, Y = all_FR, all_links
@@ -2182,8 +2146,8 @@ def scatter_linkVSFR(all_FR, all_links):
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
   plt.tight_layout()
-  # plt.show()
-  plt.savefig(f'./plots/link_FR.pdf', transparent=True)
+  plt.show()
+  # plt.savefig(f'./plots/link_FR.pdf', transparent=True)
 
 scatter_linkVSFR(all_FR, all_links)
 #%%
@@ -2232,8 +2196,8 @@ def scatter_linkVSFR_region(FR, links, regions):
 scatter_linkVSFR_region(FR, links, visual_regions)
 #%%
 ################### scatter for each stimulus
-def scatter_linkVSFR_stimulus(FR, links, regions):
-
+def scatter_linkVSFR_stimulus(FR, links, regions, degree_type='intra'):
+  rows, cols = get_rowcol(FR)
   fig, axes = plt.subplots(2, 4, figsize=(20, 10))
   for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
     s_ind = i * axes.shape[1] + j
@@ -2283,15 +2247,319 @@ def scatter_linkVSFR_stimulus(FR, links, regions):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
+  plt.suptitle(f'{degree_type} region', fontsize=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  plt.savefig(f'./plots/{degree_type}_degree_FR_stimulus.pdf', transparent=True)
+
+scatter_linkVSFR_stimulus(FR, intra_links, visual_regions, degree_type='intra')
+scatter_linkVSFR_stimulus(FR, inter_links, visual_regions, degree_type='inter')
+#%%
+################### scatter for each stimulus
+def difference_intra_inter_r_stimulus_type(FR, intra_links, inter_links, regions, alpha):
+  rows, cols = get_rowcol(FR)
+  df = pd.DataFrame()
+  # fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+  # for i in range(len(axes)):
+  #   ax = axes[i]
+  for s_type in stimulus_types:
+    for r_ind, region in enumerate(regions):
+      X, Y1, Y2 = [], [], []
+      for row in session2keep:
+        for col in cols:
+          if stimulus2stype(col)[1] == s_type:
+            X += FR[row][col][region]
+            Y1 += intra_links[row][col][region]
+            Y2 += inter_links[row][col][region]
+      # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.5, label=region)
+      X, Y1, Y2 = (list(t) for t in zip(*sorted(zip(X, Y1, Y2))))
+      X, Y1, Y2 = np.array(X), np.array(Y1), np.array(Y2)
+      _, _, r1, _, _ = stats.linregress(X,Y1)
+      _, _, r2, _, _ = stats.linregress(X,Y2)
+      _, _, r3, _, _ = stats.linregress(Y1,Y2)
+      if r1 > r2:
+        rh, rl = r1, r2
+      else:
+        rh, rl = r2, r1
+      # L, U = MA_method(rh, rl, r3, len(X), alpha)
+      # sig = 'True' if L > 0 else 'False'
+      # p = confidence_interval2pvalue(L, U, alpha)
+      # l1, u1 = r_confidence_interval(r1, len(X), alpha)
+      # l2, u2 = r_confidence_interval(r2, len(X), alpha)
+      # p1 = confidence_interval2pvalue(l1, u1, alpha)
+      # p2 = confidence_interval2pvalue(l2, u2, alpha)
+      # intra_sig = 'True' if (l1 > 0) or (u1 < 0) else 'False'
+      # inter_sig = 'True' if (l2 > 0) or (u2 < 0) else 'False'
+      # df = pd.concat([df, pd.DataFrame([[s_type, region, r1, r2, sig, intra_sig, inter_sig, p, p1, p2]], columns=['stimulus type', 'region', 'intra r', 'inter r', f'{alpha} significance', f'{alpha} intra significance', f'{alpha} inter significance', 'p value', 'p value1', 'p value2'])], ignore_index=True)
+      Ls, l1s, l2s, u1s, u2s = [], [], [], [], []
+      alpha_list = [.0001, .001, .01, .05]
+      for alpha in alpha_list:
+        L, _ = MA_method(rh, rl, r3, len(X), alpha)
+        l1, u1 = r_confidence_interval(r1, len(X), alpha)
+        l2, u2 = r_confidence_interval(r2, len(X), alpha)
+        Ls.append(L)
+        l1s.append(l1)
+        l2s.append(l2)
+        u1s.append(u1)
+        u2s.append(u2)
+      Ls, l1s, l2s, u1s, u2s = np.array(Ls), np.array(l1s), np.array(l2s), np.array(u1s), np.array(u2s)
+      loc = np.where(Ls > 0)[0]
+      asterisk = '*' * (len(alpha_list) - loc[0]) if len(loc) else 'ns'
+      locl1, locu1 = np.where(l1s > 0)[0], np.where(u1s < 0)[0]
+      asterisk1 = '*' * (len(alpha_list) - (locl1 if len(locl1) else locu1)[0]) if len(locl1) or len(locu1) else 'ns'
+      locl2, locu2 = np.where(l2s > 0)[0], np.where(u2s < 0)[0]
+      asterisk2 = '*' * (len(alpha_list) - (locl2 if len(locl2) else locu2)[0]) if len(locl2) or len(locu2) else 'ns'
+      df = pd.concat([df, pd.DataFrame([[s_type, region, r1, r2, asterisk, asterisk1, asterisk2]], columns=['stimulus type', 'region', 'intra r', 'inter r', 'significance', 'intra significance', 'inter significance'])], ignore_index=True)
+        # intra_sig = 'True' if (l1 > 0) or (u1 < 0) else 'False'
+        # inter_sig = 'True' if (l2 > 0) or (u2 < 0) else 'False'
+        # df = pd.concat([df, pd.DataFrame([[s_type, region, r1, r2, sig, intra_sig, inter_sig, p, p1, p2]], columns=['stimulus type', 'region', 'intra r', 'inter r', f'{alpha} significance', f'{alpha} intra significance', f'{alpha} inter significance', 'p value', 'p value1', 'p value2'])], ignore_index=True)
+  return df
+
+df = difference_intra_inter_r_stimulus_type(FR, intra_links, inter_links, visual_regions, alpha=.01)
+df
+# df[(df['significance'].isin(['*', '**', '***', '****'])) & (df['intra significance'].isin(['*', '**', '***', '****']))]
+#%%
+def annot_significance(star, x1, x2, y, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.text((x1+x2)*.5, y, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def annot_difference(star, x1, x2, y, h, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_intra_inter_r_bar_significance(df, regions):
+  fig, axes = plt.subplots(2, 2, figsize=(15, 8), sharey=True)
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    s_ind = i * axes.shape[1] + j
+    stimulus_type = stimulus_types[s_ind]
+    ax = axes[i, j]
+  # for s_ind, stimulus_type in enumerate(stimulus_types):
+  #   ax = axes[s_ind]
+    data = df[df['stimulus type']==stimulus_type]
+    new_df = pd.DataFrame()
+    for region in regions:
+      new_df = pd.concat([new_df, pd.DataFrame([[region, 'intra-region'] + data[data['region']==region][['intra r', 'significance', 'intra significance']].values[0].tolist()], columns=['region', 'type', 'r', 'significance', 'own significance'])], ignore_index=True)
+      new_df = pd.concat([new_df, pd.DataFrame([[region, 'inter-region'] + data[data['region']==region][['inter r', 'significance', 'inter significance']].values[0].tolist()], columns=['region', 'type', 'r', 'significance', 'own significance'])], ignore_index=True)
+    new_df['r'] = pd.to_numeric(new_df['r'])
+    bar_plot = sns.barplot(data=new_df, x='region', y='r', hue='type', palette=palette, ax=ax) #, facecolor='white'
+    # for patch0, patch1 in zip(ax.patches[:6], ax.patches[6:]):
+    #   patch0.set_edgecolor('.2')
+    #   patch1.set_edgecolor('.8')
+    handles, labels = ax.get_legend_handles_labels()
+    if s_ind == 0:
+      ax.legend(handles, labels, title='', bbox_to_anchor=(.7, 1.1), loc='upper left', fontsize=14, frameon=False)
+    else:
+      ax.legend().set_visible(False)
+    ax.xaxis.set_tick_params(labelsize=16)
+    ax.yaxis.set_tick_params(labelsize=16)
+    ax.set_xlabel('')
+    ax.set_title(stimulus_type, fontsize=20, color=stimulus_type_color[s_ind])
+    ylabel = r'$r$'
+    ax.set_ylabel(ylabel, rotation=90)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=16,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=16, color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    for r_ind, region in enumerate(regions):
+      intra_r, intra_star  = new_df[(new_df['region']==region) & (new_df['type']=='intra-region')][['r', 'own significance']].values[0]
+      inter_r, inter_star = new_df[(new_df['region']==region) & (new_df['type']=='inter-region')][['r', 'own significance']].values[0]
+      diff_star = new_df[(new_df['region']==region) & (new_df['type']=='intra-region')].significance.values[0]
+      intra_r = intra_r + .01 if intra_r > 0 else intra_r - .01
+      inter_r = inter_r + .01 if inter_r > 0 else inter_r - .08
+      annot_significance(intra_star, -.45 + r_ind, 0.05 + r_ind, intra_r, ax=ax)
+      annot_significance(inter_star, -.05 + r_ind, .45 + r_ind, inter_r, ax=ax)
+      annot_difference(diff_star, -.2 + r_ind, .2 + r_ind, max(intra_r, inter_r) + .1, .03, ax=ax)
+    liml, limu = ax.get_ylim()
+    ax.set_ylim([liml - .02, limu + .05])
+  # plt.show()
+  plt.tight_layout()
+  plt.savefig('./plots/intra_inter_r_bar_significance.pdf', transparent=True)
+
+plot_intra_inter_r_bar_significance(df, visual_regions)
+#%%
+################### confidence level for two correlations
+def r_confidence_interval(r, n, alpha):
+  z = np.log((1 + r) / (1 - r)) / 2.0
+  se = 1.0 / np.sqrt(n - 3)
+  z_crit = stats.norm.ppf(1 - alpha/2)  # 2-tailed z critical value
+  lo = z - z_crit * se
+  hi = z + z_crit * se
+  l = ((np.exp(2 * lo) - 1) / (np.exp(2 * lo) + 1))
+  u = ((np.exp(2 * hi) - 1) / (np.exp(2 * hi) + 1))
+  # Return a sequence
+  return l, u
+
+def confidence_interval2pvalue(l, u, alpha):
+  se = (u - l) / (2 * stats.norm.ppf(1 - alpha/2))
+  z = (l + u) / (2 * se)
+  return np.exp(-.717 * z - .416 * z ** 2)
+
+def MA_method(r1, r2, r3, n, alpha):
+  l1, u1 = r_confidence_interval(r1, n, alpha)
+  l2, u2 = r_confidence_interval(r2, n, alpha)
+  cov = ((r3 - r1 * r2 / 2) * (1 - r1 ** 2 - r2 ** 2 - r3 ** 2) + r3 ** 3) / n
+  var1, var2 = (1 - r1 ** 2) ** 2 / n, (1 - r2 ** 2) ** 2 / n
+  corr = cov / np.sqrt(var1 * var2)
+  L = r1 - r2 - np.sqrt((r1 - l1) ** 2 + (u2 - r2) ** 2 - 2 * corr * (r1 - l1) * (u2 - r2))
+  U = r1 - r2 + np.sqrt((u1 - r1) ** 2 + (r2 - l2) ** 2 - 2 * corr * (u1 - r1) * (r2 - l2))
+  return L, U
+
+r1, r2, r3, n, alpha = .48, .08, .15, 1000, .05
+MA_method(r1, r2, r3, n, alpha)
+#%%
+r_confidence_interval(.5, 10, .99)
+#%%
+def get_certain_region_links(G_dict, regions, active_area_dict, certain_regions=['VISp']):
+  rows, cols = get_rowcol(G_dict)
+  certain_links, other_links = {}, {}
+  for row_ind, row in enumerate(rows):
+    certain_links[row], other_links[row] = {}, {}
+    # print(row)
+    active_area = active_area_dict[row]
+    for col_ind, col in enumerate(cols):
+      certain_links[row][col], other_links[row][col] = {}, {}
+      G = G_dict[row][col]
+      # nodes = sorted(G.nodes())
+      node_idx = sorted(active_area.keys())
+      A = nx.to_numpy_array(G, nodelist=node_idx)
+      A[A.nonzero()] = 1
+      certain_nodes = [node for node in node_idx if active_area[node] in certain_regions]
+      certain_indices = np.array([node_idx.index(i) for i in certain_nodes])
+      if len(certain_indices):
+        for region in regions:
+          active_nodes = [node for node in node_idx if active_area[node]==region]
+          region_indices = np.array([node_idx.index(i) for i in active_nodes])
+          if len(region_indices):
+            # certain_links[row][col][region] = certain_links[row][col].get(region, []) + (np.sum(A[:, region_indices], 0)).tolist() # out certain_links np.sum(A[region_indices, :], 1)
+            # certain_links[row][col][region] = certain_links[row][col].get(region, []) + (np.sum(A[region_indices[:,None], region_indices], 1) + np.sum(A[region_indices[:,None], region_indices], 0)).tolist() # both out and in links, within region links
+            certain_links[row][col][region] = certain_links[row][col].get(region, []) + (np.sum(A[region_indices[:,None], certain_indices], 1) + np.sum(A[certain_indices[:,None], region_indices], 0)).tolist() # both out and in links, within region links
+            other_links[row][col][region] = other_links[row][col].get(region, []) + (np.sum(A[region_indices, :], 1) - np.sum(A[region_indices[:,None], certain_indices], 1) + np.sum(A[:, region_indices], 0) - np.sum(A[certain_indices[:,None], region_indices], 0)).tolist() # both out and in links, cross region links
+  return certain_links, other_links
+
+all_region_combs = []
+for L in range(1, 4):
+    for subset in itertools.combinations(visual_regions, L):
+        if (set(visual_regions) - set(subset)) not in all_region_combs:
+          all_region_combs.append(set(subset))
+for certain_regions in all_region_combs:
+  print(certain_regions)
+  certain_links, other_links = get_certain_region_links(G_ccg_dict, visual_regions, active_area_dict, certain_regions=certain_regions)
+  scatter_certain_linkVSFR_region(FR, certain_links, other_links, visual_regions, certain_regions=certain_regions)
+#%%
+################### scatter for each stimulus
+def scatter_certain_linkVSFR_region(FR, certain_links, other_links, regions, certain_regions):
+  rows, cols = get_rowcol(FR)
+  fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    r_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    for col_ind, col in enumerate(cols):
+      r1, r2 = [], []
+      for row in session2keep:
+        X = FR[row][col][regions[r_ind]]
+        Y1 = certain_links[row][col][regions[r_ind]]
+        Y2 = other_links[row][col][regions[r_ind]]
+      # ax.scatter(X, Y, facecolors='none', edgecolors=region_colors[r_ind], alpha=.5, label=region)
+        X, Y1, Y2 = (list(t) for t in zip(*sorted(zip(X, Y1, Y2))))
+        X, Y1, Y2 = np.array(X), np.array(Y1), np.array(Y2)
+        _, _, r_value1, _, _ = stats.linregress(X,Y1)
+        _, _, r_value2, _, _ = stats.linregress(X,Y2)
+        r1.append(r_value1)
+        r2.append(r_value2)
+
+      ax.scatter(r1, r2, facecolors='none', edgecolors=stimulus_type_color[stimulus2stype(col)[0]], alpha=.5, label=stimulus2stype(col)[1])
+      # ax.plot(X, line, alpha=.5, linewidth=4, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]]) #, linestyle=(5,(10,3))
+    
+    lims = [
+        np.min([ax.get_xlim(), ax.get_ylim()]),  # min of both axes
+        np.max([ax.get_xlim(), ax.get_ylim()]),  # max of both axes
+    ]
+    # now plot both limits against eachother
+    ax.plot(lims, lims, 'k-', alpha=0.75, zorder=0)
+    ax.plot(lims, [0, 0], 'k--', alpha=0.75, zorder=0)
+    ax.set_aspect('equal')
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ax.set_xlabel('r of {}'.format("_".join(certain_regions)))
+    ax.set_title(regions[r_ind], fontsize=16, color=region_colors[r_ind])
+    ylabel = 'r of the rest'
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
   plt.tight_layout()
   # plt.show()
-  plt.savefig(f'./plots/degree_FR_stimulus.pdf', transparent=True)
+  plt.savefig('./plots/{}_links_FR_region.jpg'.format("_".join(certain_regions)))
 
-scatter_linkVSFR_stimulus(FR, links, visual_regions)
+# scatter_intra_inter_linkVSFR_region(FR, intra_links, inter_links, visual_regions)
+# scatter_intra_inter_linkVSFR_region(FR, certain_links, other_links, visual_regions)
 #%%
 ################### scatter for each region
+def scatter_linkVSFR_stimulus_region(FR, links, regions, stimulus_name='natural_movie_three'):
 
-def scatter_linkVSFR_stimulus_region(FR, links, regions, stimulus_type='natural stimuli'):
+  fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    r_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    locx = .8
+    locys = np.arange(.1, .9, .1)
+    for row in session2keep:
+      X, Y = [], []
+      X += FR[row][stimulus_name][regions[r_ind]]
+      Y += links[row][stimulus_name][regions[r_ind]]
+      X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+      X, Y = np.array(X), np.array(Y)
+
+      slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+      line = slope*X+intercept
+      text = 'r={:.2f}, p={:.0e}'.format(r_value, p_value)
+      ax.plot(X, line, linestyle=(5,(10,3)), alpha=.5)
+      ax.text(locx, locys[session2keep.index(row)], text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=16)
+
+      ax.scatter(X, Y, label=text, alpha=.5) # , label=row, facecolors='none', edgecolors='.2'
+    
+    # plt.legend(loc='lower right', fontsize=14, frameon=False)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ax.set_xlabel('firing rate (Hz)')
+    ax.set_title(regions[r_ind])
+    ylabel = 'degree'
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.suptitle(stimulus_name, fontsize=25)
+  plt.tight_layout()
+  plt.show()
+  # plt.savefig(f'./plots/degree_FR_stimulus.pdf', transparent=True)
+
+stimulus_types = ['resting state', 'flashes', 'gratings', 'natural stimuli']
+for stimulus_name in stimulus_names:
+  scatter_linkVSFR_stimulus_region(FR, links, visual_regions, stimulus_name=stimulus_name)
+#%%
+def scatter_linkVSFR_stimulus_type_region(FR, links, regions, stimulus_type='natural stimuli'):
 
   fig, axes = plt.subplots(2, 3, figsize=(15, 10))
   for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
@@ -2339,7 +2607,7 @@ def scatter_linkVSFR_stimulus_region(FR, links, regions, stimulus_type='natural 
 
 stimulus_types = ['resting state', 'flashes', 'gratings', 'natural stimuli']
 for stimulus_type in stimulus_types:
-  scatter_linkVSFR_stimulus_region(FR, links, visual_regions, stimulus_type=stimulus_type)
+  scatter_linkVSFR_stimulus_type_region(FR, links, visual_regions, stimulus_type=stimulus_type)
 #%%
 def calculate_directed_metric(G, metric_name):
   if metric_name == 'in_degree':
