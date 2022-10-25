@@ -10,7 +10,7 @@ session2keep = ['719161530','750749662','754312389','755434585','756029989','791
 stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
 stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
 # stimulus_type_color = ['tab:blue', 'darkorange', 'darkgreen', 'maroon']
-stimulus_type_color = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072']
+stimulus_type_color = ['#8dd3c7', '#fee391', '#bebada', '#fb8072']
 region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']
 paper_label = ['Resting\nstate', 'Dark\nflash', 'Light\nflash',
           'Drifting\ngrating', 'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
@@ -1773,9 +1773,9 @@ plot_sig_motif_threshold(mean_df, threshold_list, measure, n)
 ################## regional distribution of significant motifs 030T+,120D+,120U+,120C+,210+,300+
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
 region_count_dict = get_motif_region_rensus(G_ccg_dict, area_dict, sig_motif_types)
-#%%
-################## plot regional distribution of significant motifs
-plot_sig_motif_region(region_count_dict, sig_motif_types)
+# #%%
+# ################## plot regional distribution of significant motifs
+# plot_sig_motif_region(region_count_dict, sig_motif_types)
 #%%
 def plot_motif_region_bar(region_count_dict, signed_motif_types):
   rows, cols = get_rowcol(region_count_dict)
@@ -1909,4 +1909,78 @@ def plot_motif_region_box(region_count_dict, signed_motif_types):
   # plt.show()
 
 plot_motif_region_box(region_count_dict, sig_motif_types)
+# %%
+def scatter_ZscoreVSdensity(origin_df, G_dict):
+  df = origin_df.copy()
+  df['density'] = 0
+  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  # palette = [plt.cm.tab20(i) for i in range(13)]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots(figsize=(5, 5))
+  for col_ind, col in enumerate(cols):
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col]
+      df.loc[(df['session']==row) & (df['stimulus']==col), 'density'] = nx.density(G)
+  df['density'] = pd.to_numeric(df['density'])
+  df['intensity z score'] = df['intensity z score'].abs()
+  X, Y = [], []
+  for st_ind, stype in enumerate(stimulus_by_type):
+    x, y = [], []
+    for s_ind, stimulus in enumerate(stimulus_order):
+      if stimulus in stype:
+        print(stimulus)
+        data = df[df.stimulus==stimulus]
+        data = data.groupby(['stimulus', 'session']).mean()
+        # print(data['density'].values)
+        x += data['density'].values.tolist()
+        y += data['intensity z score'].values.tolist()
+    X += x
+    Y += y
+    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=1.)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+  line = slope*np.log10(X)+intercept
+  locx, locy = .8, .2
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=16)
+  plt.legend(loc='upper left', fontsize=14, frameon=False)
+  ax.xaxis.set_tick_params(labelsize=20)
+  ax.yaxis.set_tick_params(labelsize=20)
+  plt.xlabel('Density')
+  ylabel = 'Average Z score'
+  plt.xscale('log')
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=22,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=22,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/mean_Zscore_density.pdf', transparent=True)
+
+scatter_ZscoreVSdensity(whole_df, G_ccg_dict)
+# %%
+###################### test colors in scatter
+stimulus_type_color[1] = '#fee391'
+colors = stimulus_type_color + region_colors
+labels = stimulus_types + visual_regions
+plt.figure()
+for i in range(10):
+  plt.scatter(np.arange(i, i+2), i * np.arange(i, i+2), facecolors='none', edgecolors=colors[i], label=labels[i])
+plt.legend()
+plt.show()
 # %%
