@@ -1,6 +1,7 @@
 # %%
 ############################## figure for publication ##############################
 ##############################                        ##############################
+from stringprep import map_table_b3
 from library import *
 
 plt.rcParams['font.family'] = 'serif'
@@ -14,6 +15,7 @@ stimulus_type_color = ['#8dd3c7', '#fee391', '#bebada', '#fb8072']
 region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']
 paper_label = ['Resting\nstate', 'Dark\nflash', 'Light\nflash',
           'Drifting\ngrating', 'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
+TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
 
 def stimulus2stype(stimulus):
   t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
@@ -1650,18 +1652,23 @@ def plot_heatmap_region_community(comms_dict, area_dict, regions, max_neg_reso):
 plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
 ######################## signed motif detection
+model_names = ['Erdos Renyi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
 with open('intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('coherence_dict.pkl', 'rb') as f:
   coherence_dict = pickle.load(f)
-# with open('baseline_intensity_dict.pkl', 'rb') as f:
-#   baseline_intensity_dict = pickle.load(f)
-# with open('baseline_coherence_dict.pkl', 'rb') as f:
-#   baseline_coherence_dict = pickle.load(f)
-# with open('unibi_baseline_intensity_dict.pkl', 'rb') as f:
-#   unibi_baseline_intensity_dict = pickle.load(f)
-# with open('unibi_baseline_coherence_dict.pkl', 'rb') as f:
-#   unibi_baseline_coherence_dict = pickle.load(f)
+with open('gnm_baseline_intensity_dict.pkl', 'rb') as f:
+  gnm_baseline_intensity_dict = pickle.load(f)
+with open('gnm_baseline_coherence_dict.pkl', 'rb') as f:
+  gnm_baseline_coherence_dict = pickle.load(f)
+with open('baseline_intensity_dict.pkl', 'rb') as f:
+  baseline_intensity_dict = pickle.load(f)
+with open('baseline_coherence_dict.pkl', 'rb') as f:
+  baseline_coherence_dict = pickle.load(f)
+with open('unibi_baseline_intensity_dict.pkl', 'rb') as f:
+  unibi_baseline_intensity_dict = pickle.load(f)
+with open('unibi_baseline_coherence_dict.pkl', 'rb') as f:
+  unibi_baseline_coherence_dict = pickle.load(f)
 with open('sunibi_baseline_intensity_dict.pkl', 'rb') as f:
   sunibi_baseline_intensity_dict = pickle.load(f)
 with open('sunibi_baseline_coherence_dict.pkl', 'rb') as f:
@@ -1670,10 +1677,18 @@ with open('sunibi_baseline_coherence_dict.pkl', 'rb') as f:
 ################## average intensity across session
 ################## first Z score, then average
 num_baseline = 200
-# whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict) # directed double edge swap
-# whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, unibi_baseline_intensity_dict, unibi_baseline_coherence_dict, num_baseline=num_baseline) # uni bi edge preserved
-whole_df, mean_df, signed_motif_types = get_intensity_zscore(intensity_dict, coherence_dict, sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict, num_baseline=num_baseline) # signed uni bi edge preserved
-whole_df['signed motif type'] = whole_df['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df1, mean_df1, signed_motif_types1 = get_intensity_zscore(intensity_dict, coherence_dict, gnm_baseline_intensity_dict, gnm_baseline_coherence_dict, num_baseline=num_baseline) # Gnm
+whole_df2, mean_df2, signed_motif_types2 = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100) # directed double edge swap
+whole_df3, mean_df3, signed_motif_types3 = get_intensity_zscore(intensity_dict, coherence_dict, unibi_baseline_intensity_dict, unibi_baseline_coherence_dict, num_baseline=num_baseline) # uni bi edge preserved
+whole_df4, mean_df4, signed_motif_types4 = get_intensity_zscore(intensity_dict, coherence_dict, sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict, num_baseline=num_baseline) # signed uni bi edge preserved
+whole_df1['signed motif type'] = whole_df1['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df2['signed motif type'] = whole_df2['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df3['signed motif type'] = whole_df3['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df4['signed motif type'] = whole_df4['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+signed_motif_types1 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types1]
+signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types2]
+signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
+signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
 #%%
 ################## remove outlier from mean_df (outside 2 std)
 mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
@@ -1681,7 +1696,7 @@ mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
 ############### Z score distribution for all signed motifs
 plot_zscore_distribution(whole_df, measure, n)
 #%%
-def plot_zscore_all_motif(df):
+def plot_zscore_all_motif(df, model_name):
   stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
   fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(100, 6*len(stimulus_order)))
   TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
@@ -1707,16 +1722,17 @@ def plot_zscore_all_motif(df):
     barplot.set(xlabel=None)
     ax.set_ylim(-10, 20)
   plt.tight_layout()
-  figname = './plots/zscore_all_motifs.pdf'
+  figname = './plots/zscore_all_motifs_{}.pdf'.format(model_name.replace(' ', '_'))
   # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname, transparent=True)
 ################## box plot of z score for all signed motifs
-plot_zscore_all_motif(whole_df)
+dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
+for df_ind, df in enumerate(dfs):
+  plot_zscore_all_motif(df, model_names[df_ind])
 #%%
-def plot_zscore_allmotif_lollipop(df):
+def plot_zscore_allmotif_lollipop(df, model_name):
   stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
   fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(30, 3*len(stimulus_order)))
-  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
   motif_types = TRIAD_NAMES[3:]
@@ -1744,9 +1760,10 @@ def plot_zscore_allmotif_lollipop(df):
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
     ax.set_ylabel('Z score', fontsize=40)
-    ax.set_ylim(-10, 20)
+    plt.yscale('symlog')
+    # ax.set_ylim(-10, 20)
   plt.tight_layout()
-  figname = './plots/zscore_all_motifs_lollipop.pdf'
+  figname = './plots/zscore_all_motifs_lollipop_{}.pdf'.format(model_name.replace(' ', '_'))
   # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname, transparent=True)
   # plt.show()
@@ -1761,10 +1778,14 @@ def plot_zscore_allmotif_lollipop(df):
   # ax.set_xlim(-.5,len(sorted_types)+.5)
   # # plt.setp(ax.get_xticklabels(), rotation=90)
   # plt.xticks(motif_loc, motif_types)
-  # fig.tight_layout()    
+  # fig.tight_layout()
   # plt.show()
 
-plot_zscore_allmotif_lollipop(whole_df)
+# plot_zscore_allmotif_lollipop(whole_df)
+dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
+dfs = [whole_df1, whole_df2]
+for df_ind, df in enumerate(dfs):
+  plot_zscore_allmotif_lollipop(df, model_names[df_ind])
 #%%
 ################## number of significant motif VS threshold
 threshold_list = np.arange(0.1, 21, 0.1)
@@ -1972,7 +1993,7 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   # plt.show()
   plt.savefig(f'./plots/mean_Zscore_density.pdf', transparent=True)
 
-scatter_ZscoreVSdensity(whole_df, G_ccg_dict)
+scatter_ZscoreVSdensity(whole_df4, G_ccg_dict)
 # %%
 ###################### test colors in scatter
 stimulus_type_color[1] = '#fee391'
@@ -1983,4 +2004,200 @@ for i in range(10):
   plt.scatter(np.arange(i, i+2), i * np.arange(i, i+2), facecolors='none', edgecolors=colors[i], label=labels[i])
 plt.legend()
 plt.show()
+# %%
+# Different sades of grey used in the plot
+
+
+
+# Create a data frame with the information for the four passwords that are going to be labeled
+# LABELS_DF = df_pw[df_pw["value"] > 90].reset_index()
+# # Create labels
+# LABELS_DF["label"] = [
+#     f"{pswrd}\nRank: {int(rank)}" 
+#     for pswrd, rank in zip(LABELS_DF["password"], LABELS_DF["rank"])
+# ]
+
+# # Set positions for the labels
+# LABELS_DF["x"] = [40, 332, 401, 496]
+# LABELS_DF["y"] = [160000000, 90000000, 45000000, 48498112]
+#%%
+def scatter_logpolar(ax, theta, r_, bullseye=0.3, **kwargs):
+    min10 = np.log10(np.min(r_))
+    max10 = np.log10(np.max(r_))
+    r = np.log10(r_) - min10 + bullseye
+    ax.scatter(theta, r, **kwargs)
+    l = np.arange(np.floor(min10), max10)
+    ax.set_rticks(l - min10 + bullseye) 
+    ax.set_yticklabels(["1e%d" % x for x in l])
+    ax.set_rlim(0, max10 - min10 + bullseye)
+    ax.set_title('log-polar manual')
+    return ax
+
+def circular_lollipop(df):
+  zscores = []
+  stimulus_name = 'natural_movie_three'
+  data = df[df.stimulus==stimulus_name]
+  data = data.groupby('signed motif type').mean()
+  zscores += data['intensity z score'].values.tolist()
+  # zscores = []
+  # for stimulus_name in stimulus_names:
+  #   data = df[df.stimulus==stimulus_name]
+  #   data = data.groupby('signed motif type').mean()
+  #   zscores += data['intensity z score'].values.tolist()
+
+  # Values for the x axis
+  ANGLES = np.linspace(0, 2 * np.pi, len(zscores), endpoint=False)
+  # Heights of the lines and y-position of the dot are given by the times.
+  HEIGHTS = np.array(zscores)
+
+  # Category values for the colors
+  # CATEGORY_CODES = pd.Categorical(df_pw["category"]).codes
+  PLUS = 16
+  # Initialize layout in polar coordinates
+  fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
+
+  # Set background color to white, both axis and figure.
+  fig.patch.set_facecolor("white")
+  ax.set_facecolor("white")
+  # Use logarithmic scale for the radial axis
+  # ax.set_rlim(0)
+  ax.set_rscale('symlog')
+  # ax.set_rscale('symlog')
+  # Angular axis starts at 90 degrees, not at 0
+  ax.set_theta_offset(np.pi / 2)
+
+  # Reverse the direction to go counter-clockwise.
+  ax.set_theta_direction(-1)
+
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  COLORS = []
+  for t in sorted_types:
+    COLORS.append(motif_palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))])
+
+  # Add lines
+  ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=0.9)
+  # Add dots
+  ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS)) #
+  # Start by removing spines for both axes
+  ax.spines["start"].set_color("none")
+  ax.spines["polar"].set_color("none")
+
+  # Remove grid lines, ticks, and tick labels.
+  ax.grid(False)
+  ax.set_xticks([])
+  ax.set_yticklabels([])
+  # Add our custom grid lines for the radial axis.
+  # These lines indicate one day, one week, one month and one year.
+  HANGLES = np.linspace(0, 2 * np.pi, 200)
+  ax.plot(HANGLES, np.repeat(-10 + PLUS, 200), color= GREY88, lw=0.7)
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY85, lw=0.7)
+  ax.plot(HANGLES, np.repeat(20 + PLUS, 200), color= GREY82, lw=0.7)
+
+  # Add labels for the four selected passwords, which are the most complicated
+  # passwords to crack.
+  # for idx, row in LABELS_DF.iterrows():
+  #     color = COLORS[row["index"]]
+  #     ax.text(
+  #         x=ANGLES[row["x"]], y=row["y"], s=row["label"], color=color,
+  #         ha="right", va="center", ma="center", size=8,
+  #         family="Roboto Mono", weight="bold"
+  #     )
+  plt.show()
+
+GREY88 = "#e0e0e0"
+GREY85 = "#d9d9d9"
+GREY82 = "#d1d1d1"
+GREY79 = "#c9c9c9"
+GREY97 = "#f7f7f7"
+GREY60 = "#999999"
+circular_lollipop(whole_df2)
+# %%
+GREY85 = "#d9d9d9"
+motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+
+def scale_to_interval(origin_x, low=1, high=100):
+  x = np.abs(origin_x.copy())
+  return ((x - x.min()) / (x.max() - x.min())) * (high - low) + low
+
+def single_circular_lollipop(data, COLORS, ax, lwv=.9, lw0=.7, neggrid=-5, posgrid=10, logscale=False):
+  ANGLES = np.linspace(0, 2 * np.pi, len(data), endpoint=False)
+  HEIGHTS = np.array(data)
+  PLUS = 0
+  # fig.patch.set_facecolor("white")
+  if logscale:
+    ax.set_yscale('symlog') #, linthresh=0.01
+  ax.set_facecolor("white")
+  ax.set_theta_offset(np.pi / 2)
+  ax.set_theta_direction(-1)
+  ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=lwv)
+  ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS)) #
+  ax.spines["start"].set_color("none")
+  ax.spines["polar"].set_color("none")
+  ax.grid(False)
+  ax.set_xticks([])
+  ax.set_yticklabels([])
+  HANGLES = np.linspace(0, 2 * np.pi, 200)
+  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY88, lw=lw0)
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY85, lw=lw0)
+  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY82, lw=lw0)
+  
+
+def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_three'):
+  fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "polar"})
+  fig.patch.set_facecolor("white")
+  sorted_types = [sorted([smotif for smotif in df1['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  COLORS = []
+  for t in sorted_types:
+    # if t.replace('+', '').replace('\N{MINUS SIGN}', '') not in motif_types:
+    #   print(t)
+    #   print(t.replace('+', '').replace('\N{MINUS SIGN}', ''))
+    COLORS.append(motif_palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', '').replace('-', ''))])
+  dfs = [df1, df2, df3, df4]
+  for df_ind, df in enumerate(dfs):
+    print(df_ind)
+    i, j = df_ind // 2, df_ind % 2
+    ax = axes[i, j]
+    data = df[df.stimulus==stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    zscores = data.loc[sorted_types, "intensity z score"].values.tolist()
+    # if df_ind >=2:
+    #   PLUS, neggrid, posgrid, logscale = 0, -5, 10, False
+    # elif df_ind == 0:
+    #   PLUS, neggrid, posgrid, logscale = 10, -10, 50, True
+    # elif df_ind == 1:
+    #   PLUS, neggrid, posgrid, logscale = 12, -10, 20, True
+
+    neggrid, posgrid, logscale = -5, 10, False
+    if df_ind in [0, 1]:
+      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
+      zscores = np.log2(np.abs(zscores)) * signs
+      neggrid = - np.log2(abs(neggrid))
+      posgrid = np.log2(100)
+    single_circular_lollipop(zscores, COLORS, ax, lwv=.9, lw0=.7, neggrid=neggrid, posgrid=posgrid, logscale=logscale)
+    ax.set_title(model_names[df_ind])
+  plt.show()
+  # plt.savefig('./plots/circular_lollipop_multimodel.pdf', transparent=True)
+
+multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
+# %%
+def add_missing_motif_type(df, mtype, signed_motif_types):
+  if len(mtype) < len(signed_motif_types):
+    mtype2add = [t for t in signed_motif_types if t not in mtype]
+    for mt in mtype2add:
+      mtype.append(mt)
+      for session_id in session_ids:
+        for stimulus_name in stimulus_names:
+          df = pd.concat([df, pd.DataFrame([[mt, session_id, stimulus_name] + [0] * (df.shape[1]-3)], columns=df.columns)], ignore_index=True)
+    df['intensity z score'] = pd.to_numeric(df['intensity z score'])
+  return df, mtype
+
+signed_motif_types = np.unique(signed_motif_types1+signed_motif_types2+signed_motif_types3+signed_motif_types4).tolist()
+whole_df1, signed_motif_types1 = add_missing_motif_type(whole_df1, signed_motif_types1, signed_motif_types)
+whole_df2, signed_motif_types2 = add_missing_motif_type(whole_df2, signed_motif_types2, signed_motif_types)
+whole_df3, signed_motif_types3 = add_missing_motif_type(whole_df3, signed_motif_types3, signed_motif_types)
+whole_df4, signed_motif_types4 = add_missing_motif_type(whole_df4, signed_motif_types4, signed_motif_types)
 # %%
