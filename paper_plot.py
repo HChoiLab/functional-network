@@ -16,6 +16,7 @@ region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd
 paper_label = ['Resting\nstate', 'Dark\nflash', 'Light\nflash',
           'Drifting\ngrating', 'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
 
 def stimulus2stype(stimulus):
   t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
@@ -1652,7 +1653,7 @@ def plot_heatmap_region_community(comms_dict, area_dict, regions, max_neg_reso):
 plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
 ######################## signed motif detection
-model_names = ['Erdos Renyi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
+
 with open('intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('coherence_dict.pkl', 'rb') as f:
@@ -2033,12 +2034,14 @@ def scatter_logpolar(ax, theta, r_, bullseye=0.3, **kwargs):
     ax.set_title('log-polar manual')
     return ax
 
-def circular_lollipop(df):
+def circular_lollipop(df, signed_motif_types):
+  sorted_types = [sorted([smotif for smotif in signed_motif_types if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
   zscores = []
   stimulus_name = 'natural_movie_three'
   data = df[df.stimulus==stimulus_name]
   data = data.groupby('signed motif type').mean()
-  zscores += data['intensity z score'].values.tolist()
+  zscores += data.loc[sorted_types, 'intensity z score'].values.tolist()
   # zscores = []
   # for stimulus_name in stimulus_names:
   #   data = df[df.stimulus==stimulus_name]
@@ -2052,7 +2055,7 @@ def circular_lollipop(df):
 
   # Category values for the colors
   # CATEGORY_CODES = pd.Categorical(df_pw["category"]).codes
-  PLUS = 16
+  PLUS = 0
   # Initialize layout in polar coordinates
   fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
 
@@ -2060,8 +2063,6 @@ def circular_lollipop(df):
   fig.patch.set_facecolor("white")
   ax.set_facecolor("white")
   # Use logarithmic scale for the radial axis
-  # ax.set_rlim(0)
-  ax.set_rscale('symlog')
   # ax.set_rscale('symlog')
   # Angular axis starts at 90 degrees, not at 0
   ax.set_theta_offset(np.pi / 2)
@@ -2069,8 +2070,6 @@ def circular_lollipop(df):
   # Reverse the direction to go counter-clockwise.
   ax.set_theta_direction(-1)
 
-  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
-  sorted_types = [item for sublist in sorted_types for item in sublist]
   motif_types = TRIAD_NAMES[3:]
   COLORS = []
   for t in sorted_types:
@@ -2091,99 +2090,31 @@ def circular_lollipop(df):
   # Add our custom grid lines for the radial axis.
   # These lines indicate one day, one week, one month and one year.
   HANGLES = np.linspace(0, 2 * np.pi, 200)
-  ax.plot(HANGLES, np.repeat(-10 + PLUS, 200), color= GREY88, lw=0.7)
-  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY85, lw=0.7)
-  ax.plot(HANGLES, np.repeat(20 + PLUS, 200), color= GREY82, lw=0.7)
-
-  # Add labels for the four selected passwords, which are the most complicated
-  # passwords to crack.
-  # for idx, row in LABELS_DF.iterrows():
-  #     color = COLORS[row["index"]]
-  #     ax.text(
-  #         x=ANGLES[row["x"]], y=row["y"], s=row["label"], color=color,
-  #         ha="right", va="center", ma="center", size=8,
-  #         family="Roboto Mono", weight="bold"
-  #     )
-  plt.show()
-
-GREY88 = "#e0e0e0"
-GREY85 = "#d9d9d9"
-GREY82 = "#d1d1d1"
-GREY79 = "#c9c9c9"
-GREY97 = "#f7f7f7"
-GREY60 = "#999999"
-circular_lollipop(whole_df2)
-# %%
-GREY85 = "#d9d9d9"
-motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
-
-def scale_to_interval(origin_x, low=1, high=100):
-  x = np.abs(origin_x.copy())
-  return ((x - x.min()) / (x.max() - x.min())) * (high - low) + low
-
-def single_circular_lollipop(data, COLORS, ax, lwv=.9, lw0=.7, neggrid=-5, posgrid=10, logscale=False):
-  ANGLES = np.linspace(0, 2 * np.pi, len(data), endpoint=False)
-  HEIGHTS = np.array(data)
-  PLUS = 0
-  # fig.patch.set_facecolor("white")
-  if logscale:
-    ax.set_yscale('symlog') #, linthresh=0.01
-  ax.set_facecolor("white")
-  ax.set_theta_offset(np.pi / 2)
-  ax.set_theta_direction(-1)
-  ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=lwv)
-  ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS)) #
-  ax.spines["start"].set_color("none")
-  ax.spines["polar"].set_color("none")
-  ax.grid(False)
-  ax.set_xticks([])
-  ax.set_yticklabels([])
-  HANGLES = np.linspace(0, 2 * np.pi, 200)
-  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY88, lw=lw0)
-  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY85, lw=lw0)
-  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY82, lw=lw0)
+  ax.plot(HANGLES, np.repeat(-10 + PLUS, 200), color= GREY, lw=0.7)
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY, lw=0.7)
+  ax.plot(HANGLES, np.repeat(10 + PLUS, 200), color= GREY, lw=0.7)
+  ax.text(np.pi/2, 1 + PLUS, '0', color= GREY, verticalalignment='center', fontsize=20)
+  ax.text(np.pi/2, 11 + PLUS, '10', color= GREY, verticalalignment='center', fontsize=20)
+  ax.text(np.pi/2, -9 + PLUS, '-10', color= GREY, verticalalignment='center', fontsize=20)
   
-
-def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_three'):
-  fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "polar"})
-  fig.patch.set_facecolor("white")
-  sorted_types = [sorted([smotif for smotif in df1['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
-  sorted_types = [item for sublist in sorted_types for item in sublist]
-  motif_types = TRIAD_NAMES[3:]
-  COLORS = []
-  for t in sorted_types:
-    # if t.replace('+', '').replace('\N{MINUS SIGN}', '') not in motif_types:
-    #   print(t)
-    #   print(t.replace('+', '').replace('\N{MINUS SIGN}', ''))
-    COLORS.append(motif_palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', '').replace('-', ''))])
-  dfs = [df1, df2, df3, df4]
-  for df_ind, df in enumerate(dfs):
-    print(df_ind)
-    i, j = df_ind // 2, df_ind % 2
-    ax = axes[i, j]
-    data = df[df.stimulus==stimulus_name]
-    data = data.groupby('signed motif type').mean()
-    zscores = data.loc[sorted_types, "intensity z score"].values.tolist()
-    # if df_ind >=2:
-    #   PLUS, neggrid, posgrid, logscale = 0, -5, 10, False
-    # elif df_ind == 0:
-    #   PLUS, neggrid, posgrid, logscale = 10, -10, 50, True
-    # elif df_ind == 1:
-    #   PLUS, neggrid, posgrid, logscale = 12, -10, 20, True
-
-    neggrid, posgrid, logscale = -5, 10, False
-    if df_ind in [0, 1]:
-      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
-      zscores = np.log2(np.abs(zscores)) * signs
-      neggrid = - np.log2(abs(neggrid))
-      posgrid = np.log2(100)
-    single_circular_lollipop(zscores, COLORS, ax, lwv=.9, lw0=.7, neggrid=neggrid, posgrid=posgrid, logscale=logscale)
-    ax.set_title(model_names[df_ind])
+  # Highlight above threshold motifs
+  hl_idx = HEIGHTS >= 10
+  hl_label = np.array(sorted_types)[hl_idx]
+  hl_x = ANGLES[hl_idx]
+  hl_y = HEIGHTS[hl_idx] + 4
+  hl_colors = np.array(COLORS)[hl_idx]
+  for i in range(len(hl_label)):
+    ax.text(
+        x=hl_x[i], y=hl_y[i], s=hl_label[i], color=hl_colors[i],
+        ha="center", va="center", ma="center", size=10,
+        weight="bold"
+    )
   plt.show()
-  # plt.savefig('./plots/circular_lollipop_multimodel.pdf', transparent=True)
 
-multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
-# %%
+GREY = 'silver'
+circular_lollipop(whole_df4, signed_motif_types4)
+#%%
+####################### make sure all dfs have same signed motif types
 def add_missing_motif_type(df, mtype, signed_motif_types):
   if len(mtype) < len(signed_motif_types):
     mtype2add = [t for t in signed_motif_types if t not in mtype]
@@ -2200,4 +2131,106 @@ whole_df1, signed_motif_types1 = add_missing_motif_type(whole_df1, signed_motif_
 whole_df2, signed_motif_types2 = add_missing_motif_type(whole_df2, signed_motif_types2, signed_motif_types)
 whole_df3, signed_motif_types3 = add_missing_motif_type(whole_df3, signed_motif_types3, signed_motif_types)
 whole_df4, signed_motif_types4 = add_missing_motif_type(whole_df4, signed_motif_types4, signed_motif_types)
+# %%
+GREY = 'silver'
+motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+
+def scale_to_interval(origin_x, low=1, high=100, logscale=False):
+  if not logscale:
+    x = np.abs(origin_x.copy())
+  else:
+    x = np.power(2, np.abs(origin_x.copy()))
+    x = np.nan_to_num(x, neginf=0, posinf=0)
+  y = ((x - x.min()) / (x.max() - x.min())) * (high - low) + low
+  return y
+
+def single_circular_lollipop(data, ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7, neggrid=-5, posgrid=10, low=1, high=100, logscale=False):
+  ANGLES = np.linspace(0, 2 * np.pi, len(data), endpoint=False)
+  HEIGHTS = np.array(data)
+  PLUS = 0
+  ax.set_facecolor("white")
+  ax.set_theta_offset(np.pi / 2)
+  ax.set_theta_direction(-1)
+  ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=lwv)
+  ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS, low=low, high=high, logscale=logscale)) #
+  ax.spines["start"].set_color("none")
+  ax.spines["polar"].set_color("none")
+  ax.grid(False)
+  ax.set_xticks([])
+  ax.set_yticklabels([])
+  HANGLES = np.linspace(0, 2 * np.pi, 200)
+  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY, lw=lw0)
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY, lw=lw0)
+  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY, lw=lw0)
+  linoffset, logoffset = 2, 1.5
+  if not logscale:
+    ax.text(np.pi, linoffset + 1 + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+    ax.text(np.pi, posgrid + linoffset + PLUS, str(posgrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+    ax.text(np.pi, neggrid + linoffset + PLUS, str(neggrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+  else:
+    ax.text(np.pi/2, logoffset + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+    ax.text(np.pi/2, posgrid + logoffset + PLUS, str(round(np.power(2, posgrid))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+    if ind == 0:
+      theta = np.pi
+    else:
+      theta = np.pi/2
+    ax.text(theta, neggrid + logoffset - .5 + PLUS, str(round(-np.power(2, abs(neggrid)))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+  # Highlight above threshold motifs
+  hl_idx = HEIGHTS >= posgrid
+  hl_label = np.array(sorted_types)[hl_idx]
+  hl_x = ANGLES[hl_idx]
+  if not logscale:
+    hl_y = HEIGHTS[hl_idx] + 4
+  else:
+    hl_y = HEIGHTS[hl_idx] + 2
+  hl_colors = np.array(COLORS)[hl_idx]
+  for i in range(len(hl_label)):
+    ax.text(
+        x=hl_x[i], y=hl_y[i], s=hl_label[i], color=hl_colors[i],
+        ha="center", va="center", ma="center", size=10,
+        weight="bold"
+    )
+
+def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_three'):
+  fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "polar"})
+  fig.patch.set_facecolor("white")
+  sorted_types = [sorted([smotif for smotif in df1['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  COLORS = []
+  for t in sorted_types:
+    COLORS.append(motif_palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', '').replace('-', ''))])
+  dfs = [df1, df2, df3, df4]
+  for df_ind, df in enumerate(dfs):
+    print(df_ind)
+    i, j = df_ind // 2, df_ind % 2
+    ax = axes[i, j]
+    data = df[df.stimulus==stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    zscores = data.loc[sorted_types, "intensity z score"].values.tolist()
+    neggrid, posgrid, low, high, logscale = -5, 10, 1, 100, False
+    if df_ind == 0: # manual logscale
+      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
+      zscores = np.log2(np.abs(zscores)) * signs
+      neggrid = - np.log2(10)
+      posgrid = np.log2(100)
+      low=0
+      high=210
+      logscale = True
+    elif df_ind == 1:
+      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
+      zscores = np.log2(np.abs(zscores)) * signs
+      neggrid = - np.log2(10)
+      posgrid = np.log2(20)
+      low=0
+      high=160
+      logscale = True
+    # print(zscores)
+    single_circular_lollipop(zscores, df_ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7, neggrid=neggrid, posgrid=posgrid, low=low, high=high, logscale=logscale)
+    ax.set_title(model_names[df_ind], fontsize=20)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/circular_lollipop_multimodel.pdf', transparent=True)
+
+multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
 # %%
