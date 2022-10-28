@@ -1,7 +1,6 @@
 # %%
 ############################## figure for publication ##############################
 ##############################                        ##############################
-from stringprep import map_table_b3
 from library import *
 
 plt.rcParams['font.family'] = 'serif'
@@ -13,8 +12,9 @@ stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
 # stimulus_type_color = ['tab:blue', 'darkorange', 'darkgreen', 'maroon']
 stimulus_type_color = ['#8dd3c7', '#fee391', '#bebada', '#fb8072']
 region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']
-paper_label = ['Resting\nstate', 'Dark\nflash', 'Light\nflash',
-          'Drifting\ngrating', 'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
+stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ngrating', 
+              'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
+region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
 model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
 
@@ -43,8 +43,8 @@ S_ccg_dict = add_delay(S_ccg_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 #%%
-####################### Figure 1
-#######################
+####################### Figure 1 #######################
+########################################################
 #%%
 ####################### raster plot
 ########## raster plot
@@ -104,12 +104,202 @@ colors3 = ['.2', '.8']
 s_locs = [0] + np.cumsum(s_lengths).tolist()
 stext_pos = [(s_locs[i] + s_locs[i+1])/2000 for i in range(len(s_locs)-1)]
 for ind, t_pos in enumerate(stext_pos):
-  plt.text(t_pos, -2.5, paper_label[ind], size=20, color='k')
+  plt.text(t_pos, -2.5, stimulus_labels[ind], size=20, color='k')
 # for ind, (i, j) in enumerate(zip(s_locs[:-1], s_locs[1:])):
 #   plt.axvspan((i+5)/1000, (j-5)/1000, facecolor=colors3[ind%2], alpha=0.3)
 plt.tight_layout()
 # plt.show()
 plt.savefig('./plots/raster.pdf', transparent=True)
+#%%
+##################### plot best CCG sequence
+################ plot example significant ccg for highland
+# def plot_example_ccg(directory, n=7, window=100):
+window=100
+files = os.listdir(directory)
+files.sort(key=lambda x:int(x[:9]))
+file2plot, inds_2plot, duration2plot, conf2plot = [], [], [], []
+for file in files:
+  if ('_bl' not in file) and ('gabors' not in file) and ('flashes' not in file): #   and ('drifting_gratings' in file) and ('719161530' in file) and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+    print(file)
+    mouseID = file.split('_')[0]
+    stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+    try:
+      ccg = load_npz_3d(os.path.join(directory, file))
+    except:
+      ccg = load_sparse_npz(os.path.join(directory, file))
+    try:
+      ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    except:
+      ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    ccg_corrected = ccg - ccg_jittered
+    sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+    significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+    confidence_level = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_confidence.npz')))
+    significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+    significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+    significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+    np.random.shuffle(significant_inds)
+    
+    for duration in np.arange(0,12,1):
+      duration_inds = np.where((significant_duration==duration) & (significant_offset>0))
+      if len(duration_inds[0]):
+        # best = np.max(confidence_level[duration_inds])
+        # if best >= 4:
+        #   ind = np.argmax(confidence_level[duration_inds])
+
+        best = np.min(confidence_level[duration_inds])
+        if best <= -4:
+          ind = np.argmin(confidence_level[duration_inds])
+
+          file2plot.append(file)
+          inds_2plot.append([duration_inds[0][ind], duration_inds[1][ind]])
+          duration2plot.append(significant_duration[(duration_inds[0][ind], duration_inds[1][ind])])
+          conf2plot.append(best)
+          # inds_2plot.append([duration_inds[0][indx[1]], duration_inds[1][indx[1]]])
+    
+#%%
+############### find highest confidence for each duration
+file2plot, inds_2plot, duration2plot, conf2plot = np.array(file2plot), np.array(inds_2plot), np.array(duration2plot), np.array(conf2plot)
+uniq_durations = np.unique(duration2plot)
+h_indx, h_duration, h_file, h_confidence = [], [], [], []
+for duration in sorted(uniq_durations):
+  locs = np.where(np.array(duration2plot)==duration)[0]
+  # ind = np.argmax(conf2plot[locs])
+  ind = np.argmin(conf2plot[locs])
+  h_indx.append(inds_2plot[locs[ind]])
+  h_duration.append(duration)
+  h_file.append(file2plot[locs[ind]])
+  h_confidence.append(conf2plot[locs[ind]])
+#%%
+length = 100
+fig = plt.figure(figsize=(8*4, 5*3))
+for ind, (row_a, row_b) in enumerate(h_indx):
+  ax = plt.subplot(3, 4, ind+1)
+  file = h_file[ind]
+  try: 
+    ccg = load_npz_3d(os.path.join(directory, file))
+  except:
+    ccg = load_sparse_npz(os.path.join(directory, file))
+  try:
+    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  except:
+    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  ccg_corrected = ccg - ccg_jittered
+  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+  highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+  plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], color='k')
+  plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.--', markersize=12, alpha=0.6)
+  if ind % 4 == 0:
+    plt.ylabel('signigicant CCG corrected', size=20)
+  if ind // 4 == 3 - 1:
+    plt.xlabel('time lag (ms)', size=20)
+  plt.title(significant_duration[row_a,row_b], fontsize=25)
+# plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+# plt.savefig('./plots/best_ccg_pos.jpg')
+plt.savefig('./plots/best_ccg_neg.jpg')
+# plt.show()
+#%%
+length = 100
+fig = plt.figure(figsize=(8*4, 5*3))
+for ind, (row_a, row_b) in enumerate(h_indx):
+  ax = plt.subplot(3, 4, ind+1)
+  file = h_file[ind]
+  try: 
+    ccg = load_npz_3d(os.path.join(directory, file))
+  except:
+    ccg = load_sparse_npz(os.path.join(directory, file))
+  try:
+    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  except:
+    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  ccg_corrected = ccg - ccg_jittered
+  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+  
+  filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+  ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+  highland_lag = np.array([int(significant_offset[row_a,row_b])])
+  plt.plot(np.arange(len(ccg_plot)), ccg_plot, color='k')
+  plt.plot(highland_lag, ccg_plot[highland_lag], 'r.--', markersize=12, alpha=0.6)
+  
+  # highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+  # plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], color='k')
+  # plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.-=-', markersize=12, alpha=0.6)
+  if ind % 4 == 0:
+    plt.ylabel('signigicant CCG corrected', size=20)
+  if ind // 4 == 3 - 1:
+    plt.xlabel('time lag (ms)', size=20)
+  plt.title(significant_duration[row_a,row_b], fontsize=25)
+# plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
+# plt.savefig('./plots/best_ccg_smoothed_pos.jpg')
+plt.savefig('./plots/best_ccg_smoothed_neg.jpg')
+# plt.show()
+#%%
+def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
+  rows, cols = get_rowcol(G_dict)
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5, 5))
+  df = pd.DataFrame(columns=['data', 'type', 'col'])
+  for col_ind, col in enumerate(cols):
+    print(col)
+    for row_ind, row in enumerate(rows):
+      intra_data, inter_data = [], []
+      active_area = active_area_dict[row]
+      G = G_dict[row][col].copy()
+      for edge in G.edges():
+        if active_area[edge[0]] == active_area[edge[1]]:
+          intra_data.append(G[edge[0]][edge[1]][name])
+        else:
+          inter_data.append(G[edge[0]][edge[1]][name])
+      if remove_0 is True:
+        intra_data = [i for i in intra_data if i > 0]
+        inter_data = [i for i in inter_data if i > 0]
+      df = pd.concat([df, pd.DataFrame([[np.mean(intra_data), np.mean(inter_data), stimulus2stype(col)[1]]],
+                    columns=['intra-region', 'inter-region', 'stimulus type'])])
+      # df = pd.concat([df, pd.DataFrame([[np.mean(intra_data), np.mean(inter_data), col]],
+      #               columns=['intra-region', 'inter-region', 'col'])])
+  df['intra-region'] = pd.to_numeric(df['intra-region'])
+  df['inter-region'] = pd.to_numeric(df['inter-region'])
+  # ax = sns.scatterplot(data=df, x='intra-region', y='inter-region', hue='stimulus type', palette=stimulus_type_color, s=100, alpha=.5)
+  ax = plt.gca()
+  for st_ind, stimulus_type in enumerate(stimulus_types):
+    x = df[df['stimulus type']==stimulus_type]['intra-region']
+    y = df[df['stimulus type']==stimulus_type]['inter-region']
+    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_type, alpha=.8)
+  xliml, xlimu = ax.get_xlim()
+  plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
+  plt.xticks(fontsize=14) #, weight='bold'
+  plt.yticks(fontsize=14) # , weight='bold'
+  plt.xlabel('intra-region {} (ms)'.format(name))
+  ylabel = 'inter-region {} (ms)'.format(name)
+  plt.ylabel(ylabel)
+  # plt.title(name, fontsize=25)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  # plt.xlim(0, 12)
+  plt.legend()
+  # plt.xticks(rotation=90)
+  plt.tight_layout()
+  # plt.show()
+  figname = './plots/intra_inter_scatter_{}.pdf' if not remove_0 else './plots/intra_inter_no0_scatter_{}.pdf'
+  plt.savefig(figname.format(name), transparent=True)
+
+plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, False)
+plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, True)
+#%%
+plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, False)
+plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, True)
 #%%
 def alt_bands(ax=None):
   ax = ax or plt.gca()
@@ -173,7 +363,7 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
   handles, labels = ax.get_legend_handles_labels()
   ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=14)
   plt.setp(ax.get_legend().get_texts(), weight='bold')
-  plt.xticks(ticks=range(len(cols)), labels=paper_label, fontsize=14, weight='bold')
+  plt.xticks(ticks=range(len(cols)), labels=stimulus_labels, fontsize=14, weight='bold')
   plt.yticks(fontsize=14,  weight='bold')
   plt.ylabel(y)
   ax.set_ylabel(ax.get_ylabel(), fontsize=14, weight='bold',color='0.2')
@@ -390,7 +580,7 @@ def plot_FR_links_region(data, regions, dataname):
   handles, labels = ax.get_legend_handles_labels()
   ax.legend(handles[:6], labels[:6], title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12)
   # plt.setp(ax.get_legend().get_texts())
-  plt.yticks(ticks=range(len(cols)), labels=paper_label, fontsize=14)
+  plt.yticks(ticks=range(len(cols)), labels=stimulus_labels, fontsize=14)
   plt.xticks(fontsize=14)
   # plt.ylabel(y)
   ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='0.2')
@@ -583,7 +773,7 @@ def scatter_linkVSFR_stimulus(FR, links, regions, degree_type='intra'):
     ax.xaxis.set_tick_params(labelsize=14)
     ax.yaxis.set_tick_params(labelsize=14)
     ax.set_xlabel('firing rate (Hz)')
-    ax.set_title(paper_label[s_ind].replace('\n', ' '), fontsize=16, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]])
+    ax.set_title(stimulus_labels[s_ind].replace('\n', ' '), fontsize=16, color=stimulus_type_color[stimulus2stype(stimulus_names[s_ind])[0]])
     ylabel = 'degree'
     ax.set_ylabel(ylabel)
     # ax.set_xscale('log')
@@ -1097,7 +1287,8 @@ def chord_diagram_region_connection(G_dict, area_dict, regions):
 
 chord_diagram_region_connection(G_ccg_dict, area_dict, visual_regions)
 #%%
-#%%
+####################### Figure 2 #######################
+########################################################
 ################# get optimal resolution that maximizes delta H
 rows, cols = get_rowcol(G_ccg_dict)
 with open('comms_dict.pkl', 'rb') as f:
@@ -1109,6 +1300,59 @@ max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_lis
 ################# community with Hamiltonian
 max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
 max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
+#%%
+############ find nodes and comms with at least one between community edge
+def get_unique_elements(nested_list):
+    return list(set(flatten_list(nested_list)))
+
+def flatten_list(nested_list):
+    return [item for sublist in nested_list for item in sublist]
+
+def _find_between_community_edges(edges, node_to_community):
+  """Convert the graph into a weighted network of communities."""
+  between_community_edges = dict()
+  for (ni, nj) in edges:
+      if (ni in node_to_community) and (nj in node_to_community):
+          ci = node_to_community[ni]
+          cj = node_to_community[nj]
+          if ci != cj:
+              if (ci, cj) in between_community_edges:
+                  between_community_edges[(ci, cj)] += 1
+              elif (cj, ci) in between_community_edges:
+                  # only compute the undirected graph
+                  between_community_edges[(cj, ci)] += 1
+              else:
+                  between_community_edges[(ci, cj)] = 1
+
+  return between_community_edges
+
+def plot_graph_community(G_dict, row_ind, col_ind, comms_dict, max_reso):
+  rows, cols = get_rowcol(G_dict)
+  row, col = rows[row_ind], cols[col_ind]
+  G = G_dict[row][col]
+  nx.set_node_attributes(G, active_area_dict[row], "area")
+  max_reso = max_reso[row_ind][col_ind]
+  comms_list = comms_dict[row][col][max_reso]
+  comms = comms_list[0]
+  node_to_community = comm2partition([comm for comm in comms if len(comm)>=6])
+  between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+  comms2plot = get_unique_elements(between_community_edges.keys())
+  nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
+  node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
+  print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
+  fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+  Graph(G.subgraph(nodes2plot), nodes=nodes2plot,
+        node_color=node_color, node_edge_width=0, edge_alpha=0.3,
+        node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+        edge_layout='bundled', edge_layout_kwargs=dict(k=0), ax=ax)
+  plt.savefig('./plots/graph_topology_{}_{}.pdf'.format(row, col), transparent=True)
+#%%
+row_ind = 7
+for col_ind in range(8):
+  print(col_ind)
+  start_time = time.time()
+  plot_graph_community(G_ccg_dict, row_ind, col_ind, comms_dict, max_reso_config)
+  print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 def plot_example_graphs_largest_comms(G_dict, hamiltonian, comms, area_dict, active_area_dict, regions, row, col, measure, n, cc=False):
   np.random.seed(1111)
@@ -1206,7 +1450,7 @@ def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None,
   boxprops = dict(facecolor='white', edgecolor='.2')
   medianprops = dict(linestyle='-', linewidth=1.5, color='k')
   ax.boxplot(weighted_purity, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-  plt.xticks(list(range(1, len(weighted_purity)+1)), paper_label)
+  plt.xticks(list(range(1, len(weighted_purity)+1)), stimulus_labels)
   ax.xaxis.set_tick_params(labelsize=14)
   ax.yaxis.set_tick_params(labelsize=14)
   ylabel = 'weighted purity'
@@ -1358,7 +1602,7 @@ def rand_index_community_region_allnodes(comms_dict, area_dict, max_neg_reso=Non
   boxprops = dict(facecolor='white', edgecolor='.2')
   medianprops = dict(linestyle='-', linewidth=1.5, color='k')
   ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), stimulus_labels)
   ax.xaxis.set_tick_params(labelsize=14)
   ax.yaxis.set_tick_params(labelsize=14)
   ylabel = 'Rand index'
@@ -1407,7 +1651,7 @@ def rand_index_community_region_activenodes(comms_dict, area_dict, max_neg_reso=
   boxprops = dict(facecolor='white', edgecolor='.2')
   medianprops = dict(linestyle='-', linewidth=1.5, color='k')
   ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), stimulus_labels)
   ax.xaxis.set_tick_params(labelsize=14)
   ax.yaxis.set_tick_params(labelsize=14)
   ylabel = 'Rand index'
@@ -1457,7 +1701,7 @@ def rand_index_community_region_lscc(comms_dict, area_dict, max_neg_reso=None):
   boxprops = dict(facecolor='white', edgecolor='.2')
   medianprops = dict(linestyle='-', linewidth=1.5, color='k')
   ax.boxplot(all_ri_list, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-  plt.xticks(list(range(1, len(all_ri_list)+1)), paper_label)
+  plt.xticks(list(range(1, len(all_ri_list)+1)), stimulus_labels)
   ax.xaxis.set_tick_params(labelsize=14)
   ax.yaxis.set_tick_params(labelsize=14)
   ylabel = 'Rand index'
@@ -1645,15 +1889,16 @@ def plot_heatmap_region_community(comms_dict, area_dict, regions, max_neg_reso):
     hm.set(ylabel=None)
     hm.tick_params(left=False)  # remove the ticks
     hm.tick_params(bottom=False)
-    ax.set_title(paper_label[col_ind].replace('\n', ' '))
+    ax.set_title(stimulus_labels[col_ind].replace('\n', ' '))
   fig.tight_layout(rect=[0, 0, .9, 1])
   plt.savefig('./plots/heatmap_region_community.pdf', transparent=True)
   plt.show()
 
 plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
+####################### Figure 3 #######################
+########################################################
 ######################## signed motif detection
-
 with open('intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('coherence_dict.pkl', 'rb') as f:
@@ -1707,7 +1952,7 @@ def plot_zscore_all_motif(df, model_name):
     print(stimulus)
     data = df[df.stimulus==stimulus]
     ax = axes[s_ind]
-    ax.set_title(paper_label[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
+    ax.set_title(stimulus_labels[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
     barplot = sns.barplot(data=data, x="signed motif type", y="intensity z score", order=sorted_types, ax=ax)
     ax.xaxis.set_tick_params(labelsize=35, rotation=90)
     ax.yaxis.set_tick_params(labelsize=35)
@@ -1745,7 +1990,7 @@ def plot_zscore_allmotif_lollipop(df, model_name):
     data = df[df.stimulus==stimulus]
     data = data.groupby('signed motif type').mean()
     ax = axes[s_ind]
-    ax.set_title(paper_label[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    ax.set_title(stimulus_labels[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
     for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
       color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
       ax.plot([t,t], [0,y], color=color, marker="o", linewidth=4, markersize=12, markevery=(1,2))
@@ -1794,7 +2039,7 @@ plot_sig_motif_threshold(mean_df, threshold_list, measure, n)
 #%%
 ################## regional distribution of significant motifs 030T+,120D+,120U+,120C+,210+,300+
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
-region_count_dict = get_motif_region_rensus(G_ccg_dict, area_dict, sig_motif_types)
+region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_types)
 # #%%
 # ################## plot regional distribution of significant motifs
 # plot_sig_motif_region(region_count_dict, sig_motif_types)
@@ -1841,7 +2086,7 @@ def plot_motif_region_bar(region_count_dict, signed_motif_types):
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(paper_label)), paper_label, fontsize=30)
+  plt.xticks(range(len(stimulus_labels)), stimulus_labels, fontsize=30)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('0.2')
@@ -1893,7 +2138,7 @@ def plot_motif_region_box(region_count_dict, signed_motif_types):
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(paper_label)), paper_label, fontsize=30)
+  plt.xticks(range(len(stimulus_labels)), stimulus_labels, fontsize=30)
 
   box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
   if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
@@ -1995,6 +2240,193 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   plt.savefig(f'./plots/mean_Zscore_density.pdf', transparent=True)
 
 scatter_ZscoreVSdensity(whole_df4, G_ccg_dict)
+#%%
+###################### distribution of delay on each edge
+def get_motif_data(motif, motif_type, weight='offset'):
+  edges = list(motif.edges())
+  nodes = [node for sub in edges for node in sub]
+  triplets = list(set(nodes))
+  if motif_type == '021D':
+    node_P = most_common([i for i,j in edges])
+    node_X, node_O = [j for i,j in edges]
+    edge_order = [(node_P, node_X), (node_P, node_O)]
+  elif motif_type == '021U':
+    node_P = most_common([j for i,j in edges])
+    node_X, node_O = [i for i,j in edges]
+    edge_order = [(node_X, node_P), (node_O, node_P)]
+  elif motif_type == '021C':
+    node_X = most_common(nodes)
+    triplets.remove(node_X)
+    if (triplets[0], node_X) in edges:
+      node_P, node_O = triplets
+    else:
+      node_O, node_P = triplets
+    edge_order = [(node_P, node_X), (node_X, node_O)]
+  elif motif_type == '111D':
+    node_X = most_common([j for i,j in edges])
+    node_P = [j for i,j in edges if i == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+    edge_order = [(node_P, node_X), (node_X, node_P), (node_O, node_X)]
+  elif motif_type == '111U':
+    node_X = most_common([i for i,j in edges])
+    node_P = [i for i,j in edges if j == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+    edge_order = [(node_P, node_X), (node_X, node_P), (node_X, node_O)]
+  elif motif_type == '030T':
+    node_P = most_common([i for i,j in edges])
+    node_X = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_X)
+    node_O = triplets[0]
+    edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
+  elif motif_type == '030C':
+    es = edges.copy()
+    np.random.shuffle(es)
+    node_P, node_O = es[0]
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+    edge_order = [(node_P, node_O), (node_O, node_X), (node_X, node_P)]
+  elif motif_type == '201':
+    node_P = most_common([i for i,j in edges])
+    triplets.remove(node_P)
+    np.random.shuffle(triplets)
+    node_X, node_O = triplets
+    edge_order = [(node_P, node_O), (node_O, node_P), (node_P, node_X), (node_X, node_P)]
+  elif motif_type == '120D' or motif_type == '120U':
+    if motif_type == '120D':
+      node_X = most_common([i for i,j in edges])
+    else:
+      node_X = most_common([j for i,j in edges])
+    triplets.remove(node_X)
+    np.random.shuffle(triplets)
+    node_P, node_O = triplets
+    if motif_type == '120D':
+      edge_order = [(node_X, node_P), (node_P, node_O), (node_X, node_O), (node_O, node_P)]
+    else:
+      edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X), (node_O, node_P)]
+  elif motif_type == '120C':
+    node_P = most_common([i for i,j in edges])
+    node_X = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_X)
+    node_O = triplets[0]
+    edge_order = [(node_P, node_X), (node_X, node_P), (node_P, node_O), (node_O, node_X)]
+  elif motif_type == '210':
+    node_O = most_common([node for sub in edges for node in sub])
+    triplets.remove(node_O)
+    if tuple(triplets) in edges:
+      node_P, node_X = triplets
+    else:
+      node_X, node_P = triplets
+    edge_order = [(node_P, node_O), (node_O, node_P), (node_O, node_X), (node_X, node_O), (node_P, node_X)]
+  elif motif_type == '300':
+    np.random.shuffle(triplets)
+    node_P, node_X, node_O = triplets
+    edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
+  motif_data = {edge:motif[edge[0]][edge[1]][weight] for edge in edges}
+  data = [motif_data[edge] for edge in edge_order]
+  return data
+
+def get_motif_delay(G_dict, area_dict, signed_motif_types, name='offset'):
+  rows, cols = get_rowcol(G_dict)
+  delay_dict = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    node_area = area_dict[row]
+    delay_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      delay_dict[row][col] = {}
+      G = G_dict[row][col]
+      motifs_by_type = find_triads(G) # faster
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='sign')
+          if smotif_type == signed_motif_type:
+            delay = get_motif_data(motif, motif_type, 'offset')
+            # print(smotif_type, region)
+            if smotif_type not in delay_dict[row][col]:
+              delay_dict[row][col][smotif_type] = [[] for _ in range(len(delay))]
+            for i in range(len(delay)):
+              delay_dict[row][col][smotif_type][i].append(delay[i])
+  return delay_dict
+
+name = 'offset'
+name = 'duration'
+name = 'delay'
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+delay_dict = get_motif_delay(S_ccg_dict, area_dict, sig_motif_types, name=name)
+#%%
+def plot_motif_data_box(data_dict, signed_motif_types, name='offset'):
+  rows, cols = get_rowcol(data_dict)
+  fig, axes = plt.subplots(len(signed_motif_types),1, sharex=True, sharey=True, figsize=(2*len(cols), 6*len(signed_motif_types)))
+  df = pd.DataFrame()
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [8,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    print(signed_motif_type)
+    ax = axes[mt_ind]
+    for col_ind, col in enumerate(cols):
+      col_data = None
+      for row_ind, row in enumerate(rows):
+        if signed_motif_type in data_dict[row][col]:
+          data = data_dict[row][col][signed_motif_type]
+          col_data = np.concatenate((data, np.array(data)), 1) if col_data is not None else np.array(data)
+      if col_data is not None:
+        for i in range(col_data.shape[0]):
+          df = pd.concat([df, pd.DataFrame(np.concatenate((col_data[i][:,None], np.array(['edge {}'.format(i)] * col_data.shape[1])[:,None], np.array([col] * col_data.shape[1])[:,None]), 1), columns=['data', 'edge', 'stimulus'])], ignore_index=True)
+    df['data'] = pd.to_numeric(df['data'])
+    # ax.set_title(signed_motif_type, fontsize=30, rotation=0)
+    # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+    boxplot = sns.boxplot(x='stimulus', y='data', hue="edge", data=df, palette=palette, ax=ax, showfliers=False)
+    boxplot.set(xlabel=None)
+    ax.yaxis.set_tick_params(labelsize=30)
+    plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+    plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+    plt.xticks(range(len(stimulus_labels)), stimulus_labels, fontsize=30)
+
+    box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+    if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+      box_patches = ax.artists
+    num_patches = len(box_patches)
+    lines_per_boxplot = len(ax.lines) // num_patches
+    for i, patch in enumerate(box_patches):
+      # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+      col = patch.get_facecolor()
+      patch.set_edgecolor(col)
+      patch.set_facecolor('None')
+      patch.set_linewidth(4)
+      # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+      # Loop over them here, and use the same color as above
+      for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+        line.set_color(col)
+        line.set_mfc(col)  # facecolor of fliers
+        line.set_mec(col)  # edgecolor of fliers
+    # Also fix the legend
+    for legpatch in ax.legend_.get_patches():
+      col = legpatch.get_facecolor()
+      legpatch.set_edgecolor(col)
+      legpatch.set_facecolor('None')
+      legpatch.set_linewidth(3)
+
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    ax.set_ylabel('{} distribution'.format(name), fontsize=30)
+  plt.tight_layout()
+  plt.savefig('./plots/box_motif_{}.pdf'.format(name), transparent=True)
+  # plt.show()
+
+plot_motif_data_box(delay_dict, sig_motif_types, name=name)
 # %%
 ###################### test colors in scatter
 stimulus_type_color[1] = '#fee391'
@@ -2005,22 +2437,6 @@ for i in range(10):
   plt.scatter(np.arange(i, i+2), i * np.arange(i, i+2), facecolors='none', edgecolors=colors[i], label=labels[i])
 plt.legend()
 plt.show()
-# %%
-# Different sades of grey used in the plot
-
-
-
-# Create a data frame with the information for the four passwords that are going to be labeled
-# LABELS_DF = df_pw[df_pw["value"] > 90].reset_index()
-# # Create labels
-# LABELS_DF["label"] = [
-#     f"{pswrd}\nRank: {int(rank)}" 
-#     for pswrd, rank in zip(LABELS_DF["password"], LABELS_DF["rank"])
-# ]
-
-# # Set positions for the labels
-# LABELS_DF["x"] = [40, 332, 401, 496]
-# LABELS_DF["y"] = [160000000, 90000000, 45000000, 48498112]
 #%%
 def scatter_logpolar(ax, theta, r_, bullseye=0.3, **kwargs):
     min10 = np.log10(np.min(r_))
@@ -2233,4 +2649,169 @@ def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_thr
   plt.savefig('./plots/circular_lollipop_multimodel.pdf', transparent=True)
 
 multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
+# %%
+####################### Figure 4 #######################
+########################################################
+def plot_steady_distribution(G_dict, epsilon, active_area_dict, regions, maxsteps=200):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  # fig = plt.figure(figsize=(5*len(cols), 4*len(regions)))
+  fig, axes = plt.subplots(len(regions), len(cols), figsize=(5*len(cols), 4*len(regions)), sharex=True, sharey=True)
+  axes[0, 0].set_ylim(0, 1) # sharey=True propagates it to all plots
+  for col_ind, col in enumerate(cols):
+    print(col)
+    steady_distribution = np.zeros((len(regions), 2, len(regions)))
+    s_distri = {r:[] for r in regions}
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
+      _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
+      plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
+      area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+      for region_ind, region in enumerate(regions):
+        s_distri[region].append(state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, :].mean(0))
+    for region_ind, region in enumerate(regions):
+      steady_distribution[region_ind, 0] = np.vstack((s_distri[region])).mean(0)
+      steady_distribution[region_ind, 1] = np.vstack((s_distri[region])).std(0)
+    for i in range(len(regions)):
+      ax = axes[i, col_ind]
+      if col_ind == 0:
+        ax.text(0, .5, region_labels[i], size=35, color='k', ha='center', va='center')
+        ax.set_ylabel('fraction', fontsize=32, color='k') #, weight='bold'
+      if i == 0:
+        ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
+      # ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+      ax.bar(range(len(regions)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=0.6, ecolor='black', color=region_colors, capsize=10)
+      ax.set_xticks(range(len(regions)))
+      ax.set_xticklabels(region_labels, fontsize=25)
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(2.)
+        ax.spines[axis].set_color('0.1')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.yaxis.set_tick_params(labelsize=28)
+  plt.tight_layout()
+  plt.savefig('./plots/state_vector_steady_distribution_epislon_{}.pdf'.format(epsilon), transparent=True)
+  # plt.show()
+
+plot_steady_distribution(S_ccg_dict, 0, active_area_dict, visual_regions, maxsteps=2000)
+# %%
+def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  # fig = plt.figure(figsize=(5*len(cols), 4))
+  fig, axes = plt.subplots(1, len(cols), figsize=(5*len(cols), 4), sharex=True, sharey=True)
+  axes[0].set_ylim(0, 4) # sharey=True propagates it to all plots
+  for col_ind, col in enumerate(cols):
+    print(col)
+    # dominance_score = np.zeros((len(regions), 2))
+    dominance_score = []
+    s_score = []
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
+      s_score.append(state_variation[:, -1, :].mean(0) / state_variation[:, 0, :].mean(0))
+    # dominance_score[:, 0] = np.vstack((s_score)).mean(0)
+    # dominance_score[:, 1] = np.vstack((s_score)).std(0)
+    dominance_score = np.vstack((s_score)).T.tolist()
+    ax = axes[col_ind]
+    # ax = plt.subplot(1, len(cols), col_ind+1)
+    ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    # ax.barplot(range(len(regions)), dominance_score[:, 0], yerr=dominance_score[:, 1], align='center', alpha=0.6, ecolor='black', color=region_colors, capsize=10)
+    boxprops = dict(facecolor='white', edgecolor='k')
+    medianprops = dict(linestyle='-', linewidth=2.5, color='k')
+    bplot = ax.boxplot(dominance_score, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+    for patch, color in zip(bplot['boxes'], region_colors):
+      patch.set_edgecolor(color)
+    ax.set_xticks(range(1, len(regions)+1))
+    ax.set_xticklabels(region_labels, fontsize=25)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('0.1')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.yaxis.set_tick_params(labelsize=28)
+    if col_ind == 0:
+      ax.set_ylabel('dominance', fontsize=32, color='k') #, weight='bold'
+
+    box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+    if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+      box_patches = ax.artists
+    num_patches = len(box_patches)
+    lines_per_boxplot = len(ax.lines) // num_patches
+    for i, patch in enumerate(box_patches):
+      # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+      color = patch.get_edgecolor()
+      patch.set_edgecolor(color)
+      patch.set_facecolor('None')
+      patch.set_linewidth(4)
+      # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+      # Loop over them here, and use the same color as above
+      for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+        line.set_color(color)
+        line.set_mfc(color)  # facecolor of fliers
+        line.set_mec(color)  # edgecolor of fliers
+  plt.tight_layout()
+  plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}.pdf'.format(epsilon), transparent=True)
+  # plt.show()
+
+plot_dominance_score(S_ccg_dict, 0, active_area_dict, visual_regions, maxsteps=2000)
+# %%
+def get_stable(G_dict, epsilon_list, active_area_dict, regions, step2confirm=5, maxsteps=1000):
+  rows, cols = get_rowcol(G_dict)
+  np.random.seed(1)
+  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
+  step2convergence, region_frac = np.zeros((len(cols), len(regions), len(rows), len(epsilon_list))), np.zeros((len(cols), len(regions), len(rows), len(epsilon_list)))
+  for col_ind, col in enumerate(cols):
+    print(col)
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
+      for e_ind, epsilon in enumerate(epsilon_list):
+        step2convergence[col_ind, :, row_ind, e_ind], state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=step2confirm, maxsteps=maxsteps)
+        plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
+        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        for region_ind, region in enumerate(regions):
+          region_loc = np.where(one_hot[region_ind])[0][0]
+          region_frac[col_ind, region_ind, row_ind, e_ind] = state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, region_loc].mean(0) 
+    # ax = plt.subplot(1, len(cols), col_ind+1)
+  return step2convergence, region_frac
+
+epsilon_list = np.arange(0, 202, 2)
+step2convergence, region_frac = get_stable(G_ccg_dict, epsilon_list, active_area_dict, visual_regions, step2confirm=5, maxsteps=2000)
+#%%
+def plot_dataVSepsilon(data, epsilon_list, regions, name):
+  fig, axes = plt.subplots(1, len(stimulus_names), figsize=(5*len(stimulus_names), 4), sharex=True, sharey=True)
+  # axes[0].set_ylim(0, 4) # sharey=True propagates it to all plots
+  for col_ind, col in enumerate(stimulus_names):
+    print(col)
+    ax = axes[col_ind]
+    ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('0.1')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=28)
+    for area_ind, area in enumerate(regions):
+      ymean, yerr = np.nanmean(reject_outliers_2d(data[col_ind, area_ind], 0, 2), 0), 2 * np.nanstd(reject_outliers_2d(data[col_ind, area_ind], 0, 2), 0)
+      # plt.errorbar(epsilon_list, ymean, yerr=yerr, label=area, alpha=0.6, color=colors_[area_ind])
+      ax.plot(epsilon_list, ymean, label=area, alpha=0.6, color=region_colors[area_ind], linewidth=3)
+    if col_ind == len(stimulus_names) - 1:
+      handles, labels = ax.get_legend_handles_labels()
+      ax.legend(handles, labels, title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=15)
+    ax.set_xlabel('epsilon', fontsize=32, color='k') #, weight='bold'
+    if col_ind == 0:
+      ax.set_ylabel(name, fontsize=32, color='k') #, weight='bold'
+    # plt.ylim(-.5, 4.5)
+
+  plt.tight_layout()
+  plt.savefig('./plots/{}.pdf'.format(name.replace(' ', '_')), transparent=True)
+  # plt.show()
+
+plot_dataVSepsilon(step2convergence, epsilon_list, visual_regions, name='steps to convergence')
+plot_dataVSepsilon(region_frac, epsilon_list, visual_regions, name='stable region fraction')
 # %%
