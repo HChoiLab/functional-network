@@ -1,6 +1,7 @@
 # %%
 ############################## figure for publication ##############################
 ##############################                        ##############################
+from logging.config import fileConfig
 from library import *
 
 plt.rcParams['font.family'] = 'serif'
@@ -239,6 +240,95 @@ for ind, (row_a, row_b) in enumerate(h_indx):
 # plt.savefig('./plots/best_ccg_smoothed_pos.jpg')
 plt.savefig('./plots/best_ccg_smoothed_neg.jpg')
 # plt.show()
+#%%
+############### plot connectivity matrix
+import matplotlib.gridspec as gridspec
+
+def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, ratio=15):
+  rows, cols = get_rowcol(G_dict)
+  row, col = rows[row_ind], cols[col_ind]
+  G = G_dict[row][col]
+  nrow = 2
+  ncol = 2
+  fig = plt.figure(figsize=(10, 10)) 
+
+  gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
+          wspace=0.0, hspace=0.0, top=1, bottom=0., left=0., right=1.) 
+
+  active_area = active_area_dict[row]
+  ordered_nodes = [] # order nodes based on hierarchical order
+  region_size = np.zeros(len(visual_regions))
+  for r_ind, region in enumerate(visual_regions):
+    for node in active_area:
+      if active_area[node] == region:
+        ordered_nodes.append(node)
+        region_size[r_ind] += 1
+  A = nx.to_numpy_array(G, nodelist=ordered_nodes)
+  if weight is None:
+    A[A>0] = 1
+    A[A<0] = -1
+
+  areas = [active_area[node] for node in ordered_nodes]
+  # indexes = np.unique(areas, return_index=True)[1]
+  # uniq_areas = [areas[index] for index in sorted(indexes)]
+  areas_num = [(np.array(areas)==a).sum() for a in visual_regions]
+  area_inds = [0] + np.cumsum(areas_num).tolist()
+  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+
+  region_bar = []
+  for r_ind in range(len(visual_regions)):
+    region_bar += [r_ind] * int(region_size[r_ind])
+  cmap = colors.ListedColormap(region_colors)
+  bounds = [-.5,.5,1.5,2.5,3.5,4.5,5.5]
+  norm = colors.BoundaryNorm(bounds, cmap.N)
+  ax= plt.subplot(gs[0,1])
+  ax.set_xticklabels([])
+  ax.set_yticklabels([])
+  ax.imshow(np.repeat(np.array(region_bar)[None,:],len(region_bar)//ratio, 0), cmap=cmap, norm=norm)
+  ax.set_xticks([])
+  ax.set_yticks([])
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.spines['left'].set_visible(False)
+
+  for ind, t_pos in enumerate(text_pos):
+    ax.text(t_pos, 8, visual_regions[ind], va='center', ha='center', size=20, color='k')
+  ax= plt.subplot(gs[1,0])
+  ax.set_xticklabels([])
+  ax.set_yticklabels([])
+  ax.imshow(np.repeat(np.array(region_bar)[:,None],len(region_bar)//ratio, 1), cmap=cmap, norm=norm)
+  ax.set_xticks([])
+  ax.set_yticks([])
+  for ind, t_pos in enumerate(text_pos):
+    ax.text(8, t_pos, visual_regions[ind], va='center', ha='center', size=20, color='k', rotation=90)
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.spines['left'].set_visible(False)
+
+  ax= plt.subplot(gs[1,1])
+  ax.set_xticklabels([])
+  ax.set_yticklabels([])
+  ax.imshow(A, cmap=plt.cm.RdGy)
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.spines['left'].set_visible(False)
+  for region_ind in range(len(visual_regions)):
+    # color_ind = visual_regions.index(uniq_areas[region_ind])
+    ax.add_patch(Rectangle((area_inds[region_ind]-1,area_inds[region_ind]-1),areas_num[region_ind],areas_num[region_ind],linewidth=3,edgecolor=region_colors[region_ind],alpha=.6,facecolor='none'))
+  ax.set_xticks([])
+  ax.set_yticks([])
+  # plt.tight_layout()
+  plt.savefig('./plots/connectivity_matrix_{}_{}.pdf'.format(row, col), transparent=True)
+  # plt.show()
+
+row_ind, col_ind = 7, 7
+weight=None
+ratio = 15
+plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight=None, ratio=ratio)
 #%%
 def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   rows, cols = get_rowcol(G_dict)
@@ -1342,12 +1432,16 @@ def plot_graph_community(G_dict, row_ind, col_ind, comms_dict, max_reso):
   print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
   fig, ax = plt.subplots(1, 1, figsize=(8, 8))
   Graph(G.subgraph(nodes2plot), nodes=nodes2plot,
-        node_color=node_color, node_edge_width=0, edge_alpha=0.3,
+        node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.3,
         node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-        edge_layout='bundled', edge_layout_kwargs=dict(k=0), ax=ax)
+        edge_layout='bundled', edge_layout_kwargs=dict(k=0),
+        origin=(0, 0), scale=(1.6, 1.6),
+        node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax)
   plt.savefig('./plots/graph_topology_{}_{}.pdf'.format(row, col), transparent=True)
-#%%
+  # plt.show()
+
 row_ind = 7
+# col_ind = 6
 for col_ind in range(8):
   print(col_ind)
   start_time = time.time()
