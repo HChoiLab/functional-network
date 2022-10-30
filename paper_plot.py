@@ -24,6 +24,7 @@ def stimulus2stype(stimulus):
   return t_ind, stimulus_types[t_ind]
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+cortical_inds = get_cortical_inds(active_area_dict, visual_regions)
 directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
 path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected')
 if not os.path.exists(path):
@@ -43,6 +44,7 @@ S_ccg_dict = add_duration(S_ccg_dict, duration_dict)
 S_ccg_dict = add_delay(S_ccg_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
+#%%
 #%%
 ####################### Figure 1 #######################
 ########################################################
@@ -242,19 +244,50 @@ plt.savefig('./plots/best_ccg_smoothed_neg.jpg')
 # plt.show()
 #%%
 ############### plot connectivity matrix
-import matplotlib.gridspec as gridspec
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+def find_peak_zscore(corr,duration=6,maxlag=12):
+  filter = np.array([[[1]]]).repeat(duration+1, axis=2) # sum instead of mean
+  corr_integral = signal.convolve(corr, filter, mode='valid', method='fft')
+  mu, sigma = np.nanmean(corr_integral, -1), np.nanstd(corr_integral, -1)
+  abs_deviation = np.abs(corr_integral[:, :, :maxlag-duration+1] - mu[:,:,None])
+  extreme_offset = np.argmax(abs_deviation, -1)
+  ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
+  zscore = (ccg_mat_extreme - mu) / sigma
+  return zscore
+
+def ccg2zscore(ccg_corrected, max_duration=6, maxlag=12):
+  all_zscore = np.zeros(ccg_corrected.shape[:2])
+  for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
+    print('duration {}'.format(duration))
+    zscore = find_peak_zscore(ccg_corrected, duration, maxlag)
+    indx = np.abs(zscore) > np.abs(all_zscore)
+    # highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
+    if np.sum(indx):
+      all_zscore[indx] = zscore[indx]
+  return all_zscore
 
 def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, ratio=15):
   rows, cols = get_rowcol(G_dict)
   row, col = rows[row_ind], cols[col_ind]
   G = G_dict[row][col]
+  directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
+  file = row + '_' + col + '.npz'
+  try: 
+    ccg = load_npz_3d(os.path.join(directory, file))
+  except:
+    ccg = load_sparse_npz(os.path.join(directory, file))
+  try:
+    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  except:
+    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  ccg_corrected = ccg - ccg_jittered
+  ccg_zscore = ccg2zscore(ccg_corrected, max_duration=11, maxlag=12)
   nrow = 2
   ncol = 2
   fig = plt.figure(figsize=(10, 10)) 
-
   gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
-          wspace=0.0, hspace=0.0, top=1, bottom=0., left=0., right=1.) 
-
+          wspace=0.0, hspace=0.0, top=1, bottom=0.001, left=0., right=.999)
   active_area = active_area_dict[row]
   ordered_nodes = [] # order nodes based on hierarchical order
   region_size = np.zeros(len(visual_regions))
@@ -263,19 +296,12 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
       if active_area[node] == region:
         ordered_nodes.append(node)
         region_size[r_ind] += 1
-  A = nx.to_numpy_array(G, nodelist=ordered_nodes)
-  if weight is None:
-    A[A>0] = 1
-    A[A<0] = -1
-
+  A = nx.to_numpy_array(G, nodelist=ordered_nodes, weight='confidence')
   areas = [active_area[node] for node in ordered_nodes]
-  # indexes = np.unique(areas, return_index=True)[1]
-  # uniq_areas = [areas[index] for index in sorted(indexes)]
   areas_num = [(np.array(areas)==a).sum() for a in visual_regions]
   area_inds = [0] + np.cumsum(areas_num).tolist()
   areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
   text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
-
   region_bar = []
   for r_ind in range(len(visual_regions)):
     region_bar += [r_ind] * int(region_size[r_ind])
@@ -288,21 +314,27 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   ax.imshow(np.repeat(np.array(region_bar)[None,:],len(region_bar)//ratio, 0), cmap=cmap, norm=norm)
   ax.set_xticks([])
   ax.set_yticks([])
+  # divider = make_axes_locatable(ax)
+  # cax = divider.append_axes("right", size="3%", pad=0.2)
+  # cax.axis('off')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
   ax.spines['left'].set_visible(False)
 
   for ind, t_pos in enumerate(text_pos):
-    ax.text(t_pos, 8, visual_regions[ind], va='center', ha='center', size=20, color='k')
+    ax.text(t_pos, 8, region_labels[ind], va='center', ha='center', size=20, color='k')
   ax= plt.subplot(gs[1,0])
   ax.set_xticklabels([])
   ax.set_yticklabels([])
   ax.imshow(np.repeat(np.array(region_bar)[:,None],len(region_bar)//ratio, 1), cmap=cmap, norm=norm)
   ax.set_xticks([])
   ax.set_yticks([])
+  # divider = make_axes_locatable(ax)
+  # cax = divider.append_axes("top", size="3%", pad=0.2)
+  # cax.axis('off')
   for ind, t_pos in enumerate(text_pos):
-    ax.text(8, t_pos, visual_regions[ind], va='center', ha='center', size=20, color='k', rotation=90)
+    ax.text(8, t_pos, region_labels[ind], va='center', ha='center', size=20, color='k', rotation=90)
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
@@ -311,24 +343,46 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   ax= plt.subplot(gs[1,1])
   ax.set_xticklabels([])
   ax.set_yticklabels([])
-  ax.imshow(A, cmap=plt.cm.RdGy)
+  nodes = sorted(active_area.keys())
+  node2idx = {node:nodes.index(node) for node in nodes}
+  if weight is None:
+    # A[A>0] = 1
+    # A[A<0] = -1
+    mat = A
+    # cmap = plt.cm.RdGy
+  else:
+    indx = np.array(cortical_inds[row])
+    mat = ccg_zscore[indx[:,None], indx]
+    reordered_nodes = np.array([node2idx[node] for node in ordered_nodes])
+    mat = mat[reordered_nodes[:,None], reordered_nodes]
+  cmap = plt.cm.coolwarm
+  # vmin = mat.min()
+  # vmax = mat.max()
+  vmin, vmax = -5, 5
+  # print(vmin, vmax)
+  norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+  im = ax.imshow(mat, cmap=cmap, norm=norm)
+  # divider = make_axes_locatable(ax)
+  # cax = divider.append_axes("right", size="3%", pad=0.2)
+  # plt.colorbar(im, cax=cax, orientation='vertical')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
   ax.spines['left'].set_visible(False)
   for region_ind in range(len(visual_regions)):
-    # color_ind = visual_regions.index(uniq_areas[region_ind])
-    ax.add_patch(Rectangle((area_inds[region_ind]-1,area_inds[region_ind]-1),areas_num[region_ind],areas_num[region_ind],linewidth=3,edgecolor=region_colors[region_ind],alpha=.6,facecolor='none'))
+    ax.add_patch(Rectangle((area_inds[region_ind],area_inds[region_ind]),areas_num[region_ind]-1,areas_num[region_ind]-1,linewidth=5,edgecolor='white',alpha=.6,facecolor='none')) # region_colors[region_ind]
   ax.set_xticks([])
   ax.set_yticks([])
   # plt.tight_layout()
-  plt.savefig('./plots/connectivity_matrix_{}_{}.pdf'.format(row, col), transparent=True)
+  figname = './plots/connectivity_matrix_{}_{}.pdf' if weight is None else './plots/connectivity_matrix_weight_{}_{}.pdf'
+  plt.savefig(figname.format(row, col), transparent=True)
   # plt.show()
 
 row_ind, col_ind = 7, 7
 weight=None
 ratio = 15
-plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight=None, ratio=ratio)
+# plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight=None, ratio=ratio)
+plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight='weight', ratio=ratio)
 #%%
 def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   rows, cols = get_rowcol(G_dict)
