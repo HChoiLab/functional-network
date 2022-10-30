@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cm
 from matplotlib import colors
+import matplotlib.gridspec as gridspec
 import statsmodels.stats.weightstats as ws
 from statsmodels.stats.multitest import multipletests, fdrcorrection
 import networkx as nx
@@ -34,6 +35,7 @@ from networkx import NetworkXError
 from networkx.algorithms.community.community_utils import is_partition
 from networkx.utils import py_random_state
 import community
+from netgraph import Graph
 import seaborn as sns
 from numpy.lib.stride_tricks import as_strided
 from scipy.ndimage.filters import uniform_filter1d
@@ -47,13 +49,17 @@ from sklearn.manifold import TSNE
 from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
 import gurobipy as gp
+from bisect import bisect
+import holoviews as hv
+from holoviews import opts, dim
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 np.seterr(divide='ignore', invalid='ignore')
 
 customPalette = ['#630C3A', '#39C8C6', '#D3500C', '#FFB139', 'palegreen', 'darkblue', 'slategray', '#a6cee3', '#b2df8a', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#6a3d9a', '#b15928']
 stimulus_colors = ['tab:blue', 'darkorange', 'bisque', 'limegreen', 'darkgreen', 'maroon', 'indianred', 'mistyrose']
 region_colors = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
-visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
+# visual_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam'] #, 'LGd', 'LP'
+visual_regions = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
 # session_ids = [719161530, 750332458, 750749662, 754312389, 755434585, 756029989, 791319847, 797828357]
 session_ids = ['719161530','750332458','750749662','754312389','755434585','756029989','791319847','797828357']
 # stimulus_names = ['spontaneous', 'flashes', 'gabors',
@@ -62,6 +68,11 @@ session_ids = ['719161530','750332458','750749662','754312389','755434585','7560
 stimulus_names = ['spontaneous', 'flash_dark', 'flash_light',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+
+################ unique elements in the order of appearance
+def unique(l):
+  u, ind = np.unique(l, return_index=True)
+  return list(u[np.argsort(ind)])
 
 def safe_division(n, d):
     return n / d if d else 0
@@ -235,9 +246,10 @@ def spike_timing2train(T, spikeTrain):
     return spikeData
 
 class CommunityLayout():
-  def __init__(self, comm_scale=3., node_scale=1.):
+  def __init__(self, comm_scale=3., node_scale=1., k=None):
     self.comm_scale = comm_scale
     self.node_scale = node_scale
+    self.k = k
   def get_community_layout(self, g, partition):
     """
     Compute the layout for a modular graph.
@@ -253,7 +265,7 @@ class CommunityLayout():
     pos -- dict mapping int node -> (float x, float y)
         node positions
     """
-    pos_communities = self._position_communities(g, partition, scale=self.comm_scale)
+    pos_communities = self._position_communities(g, partition, scale=self.comm_scale, k=self.k)
     pos_nodes = self._position_nodes(g, partition, scale=self.node_scale)
     # combine positions
     pos = dict()
@@ -1528,6 +1540,15 @@ def load_other_data(session_ids):
   mean_speed_df = pd.read_pickle('./data/ecephys_cache_dir/sessions/mean_speed_df.pkl')
   return area_dict, active_area_dict, mean_speed_df
 
+def get_cortical_inds(active_area_dict, regions):
+  rows = list(active_area_dict.keys())
+  cortical_inds = {}
+  for row in rows:
+    active_area = active_area_dict[row].copy()
+    nodes = sorted(active_area.keys())
+    cortical_inds[row] = [nodes.index(node) for node in nodes if active_area[node] in regions]
+  return cortical_inds
+
 def generate_graph(adj_mat, confidence_level, active_area, cc=False, weight=False):
   if not weight:
     adj_mat[adj_mat.nonzero()] = 1
@@ -1747,7 +1768,7 @@ def get_abs_weight(neg_G_dict):
       abs_neg_G_dict[row][col] = G
   return abs_neg_G_dict
 
-def get_lcc(G_dict):
+def get_lcc_dict(G_dict):
   G_lcc_dict = {}
   for row in G_dict:
     G_lcc_dict[row] = {}
@@ -1883,7 +1904,7 @@ def box_intra_link_ratio(G_dict, area_dict, regions, measure, n):
   # plt.savefig('violin_intra_divide_inter_{}_{}fold.jpg'.format(measure, n))
   plt.savefig('./plots/box_intra_ratio_{}_{}fold.jpg'.format(measure, n))
 
-def plot_intra_inter_box(G_dict, area_dict, regions):
+def plot_intra_inter_box(G_dict, area_dict, regions, measure, n):
   df = pd.DataFrame()
   rows, cols = get_rowcol(G_dict)
   # metric = np.zeros((len(rows), len(cols), 3))
@@ -3040,16 +3061,21 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
     keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
     cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
     discrete_sequence = nx.utils.discrete_sequence
+  elif algorithm in ['Gnm', 'configuration_model', 'directed_configuration_model']:
+    node_idx = sorted(origin_G.nodes())
+    mapping = {i:node_idx[i] for i in range(len(node_idx))}
   for num in tqdm(range(num_rewire)):
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
       G = nx.gnm_random_graph(n, m, seed=None, directed=True)
+      G = nx.relabel_nodes(G, mapping)
     elif algorithm == 'configuration_model':
       degree_sequence = [d for n, d in origin_G.degree()]
       G = nx.configuration_model(degree_sequence)
       # remove parallel edges and self-loops
       G = nx.Graph(G)
       G.remove_edges_from(nx.selfloop_edges(G))
+      G = nx.relabel_nodes(G, mapping)
       # print(G.number_of_nodes(), G.number_of_edges())
     elif algorithm == 'directed_configuration_model':
       din = list(d for n, d in origin_G.in_degree())
@@ -3057,6 +3083,7 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
       G = nx.directed_configuration_model(din, dout)
       G = nx.DiGraph(G)
       G.remove_edges_from(nx.selfloop_edges(G))
+      G = nx.relabel_nodes(G, mapping)
     elif algorithm == 'double_edge_swap':
       # at least four nodes with edges
       G = origin_G.copy()
@@ -3216,6 +3243,9 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
         for ind, e in enumerate(G.edges()):
           G[e[0]][e[1]][weight] = weights[ind]
     random_graphs.append(G)
+  # for random_G in random_graphs:
+  #   print(nx.density(origin_G)==nx.density(random_G))
+  #   print((origin_G.number_of_nodes()==random_G.number_of_nodes()) and (origin_G.number_of_edges()==random_G.number_of_edges()))
   # nodes = sorted(list(origin_G.nodes())) # test if degree distribution is the same
   # indegree_seq = [origin_G.in_degree(node) for node in nodes]
   # outdegree_seq = [origin_G.out_degree(node) for node in nodes]
@@ -6264,6 +6294,205 @@ def plot_sig_motif_threshold(df, threshold_list, measure, n):
   plt.savefig(f'./plots/sig_motif_threshold_{measure}_{n}fold.jpg')
   # plt.show()
 
+def get_motif_region(motif, node_area, motif_type):
+  edges = list(motif.edges())
+  nodes = [node for sub in edges for node in sub]
+  triplets = list(set(nodes))
+  if motif_type == '021D':
+    node_P = most_common([i for i,j in edges])
+    node_X, node_O = [j for i,j in edges]
+  elif motif_type == '021U':
+    node_P = most_common([j for i,j in edges])
+    node_X, node_O = [i for i,j in edges]
+  elif motif_type == '021C':
+    node_X = most_common(nodes)
+    triplets.remove(node_X)
+    if (triplets[0], node_X) in edges:
+      node_P, node_O = triplets
+    else:
+      node_O, node_P = triplets
+  elif motif_type == '111D':
+    node_X = most_common([j for i,j in edges])
+    node_P = [j for i,j in edges if i == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+  elif motif_type == '111U':
+    node_X = most_common([i for i,j in edges])
+    node_P = [i for i,j in edges if j == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+  elif motif_type == '030T':
+    node_P = most_common([i for i,j in edges])
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '030C':
+    es = edges.copy()
+    np.random.shuffle(es)
+    node_P, node_O = es[0]
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '201':
+    node_P = most_common([i for i,j in edges])
+    triplets.remove(node_P)
+    np.random.shuffle(triplets)
+    node_X, node_O = triplets
+  elif motif_type == '120D':
+    node_P = most_common([i for i,j in edges])
+    triplets.remove(node_P)
+    np.random.shuffle(triplets)
+    node_X, node_O = triplets
+  elif motif_type == '120U':
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_O)
+    np.random.shuffle(triplets)
+    node_P, node_X = triplets
+  elif motif_type == '120C':
+    node_P = most_common([i for i,j in edges])
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '210':
+    node_O = most_common([node for sub in edges for node in sub])
+    triplets.remove(node_O)
+    if tuple(triplets) in edges:
+      node_P, node_X = triplets
+    else:
+      node_X, node_P = triplets
+  elif motif_type == '300':
+    np.random.shuffle(triplets)
+    node_P, node_X, node_O = triplets
+  node_order = [node_P, node_X, node_O]
+  region = [node_area[node] for node in node_order]
+  if motif_type in ['021D', '021U', '120D']: # P, X/O
+    region = '_'.join([region[0], '_'.join(sorted(region[1:]))])
+  elif motif_type == '030C':
+    region = '_'.join(sorted([region, region[1:] + region[:1], region[2:] + region[:2]])[0]) # shift string
+  elif motif_type in ['120U']:
+    region = '_'.join(['_'.join(sorted(region[:2])), region[-1]]) # P/X, O
+  elif motif_type == '300':
+    region = '_'.join(sorted(region))
+  else:
+    region = '_'.join(region)
+  return region
+
+def get_motif_region_census(G_dict, area_dict, signed_motif_types):
+  rows, cols = get_rowcol(G_dict)
+  region_count_dict = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    node_area = area_dict[row]
+    region_count_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      region_count_dict[row][col] = {}
+      G = G_dict[row][col]
+      motifs_by_type = find_triads(G) # faster
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+          if smotif_type == signed_motif_type:
+            region = get_motif_region(motif, node_area, motif_type)
+            # print(smotif_type, region)
+            region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
+      region_count_dict[row][col] = dict(sorted(region_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
+  return region_count_dict
+
+def plot_sig_motif_region(region_count_dict, signed_motif_types):
+  rows, cols = get_rowcol(region_count_dict)
+  fig, axes = plt.subplots(len(signed_motif_types),len(cols), sharex=False, sharey=True, figsize=(8*len(cols), 6*len(signed_motif_types)))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  for col_ind, col in enumerate(cols):
+    print(col)
+    for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+      region_com = {}
+      for row_ind, row in enumerate(rows):
+        region_count = region_count_dict[row][col]
+        for k in region_count:
+          if signed_motif_type in k:
+            rs = k.replace(signed_motif_type, '')
+            region_com[rs] = region_com.get(rs, 0) + region_count[k]
+      if len(region_com):
+        regions, counts = list(zip(*sorted(region_com.items(), key=lambda item: item[1], reverse=True)))
+      ax = axes[mt_ind][col_ind]
+      if mt_ind == 0:
+        ax.set_title(col, fontsize=30, rotation=0)
+      if col_ind == 0:
+        ax.text(0, 0.5 * (bottom + top), signed_motif_type,
+        horizontalalignment='right',
+        verticalalignment='center',
+        # rotation='vertical',
+        transform=ax.transAxes, fontsize=30, rotation=90)
+      if len(region_com):
+        sns.barplot(data=[[c/sum(counts)] for c in counts], ax=ax)
+      ax.set_xticks(range(len(regions)))
+      ax.set_xticklabels(regions)
+      ax.xaxis.set_tick_params(labelsize=15, rotation=90)
+      ax.yaxis.set_tick_params(labelsize=25)
+      # ax.set_ylabel('Z score of intensity', fontsize=30)
+  plt.tight_layout()
+  plt.savefig('./plots/sig_motif_region_distri.jpg')
+  # plt.show()
+
+def plot_motif_region_box(region_count_dict, signed_motif_types, measure, n):
+  rows, cols = get_rowcol(region_count_dict)
+  fig, axes = plt.subplots(len(signed_motif_types),1, sharex=True, sharey=True, figsize=(3*len(cols), 6*len(signed_motif_types)))
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    print(signed_motif_type)
+    df = pd.DataFrame()
+    for col_ind, col in enumerate(cols):
+      region_com = {}
+      VISp_data, rest_data = [], []
+      for row_ind, row in enumerate(rows):
+        # region_com = {}
+        region_count = region_count_dict[row][col]
+        for k in region_count:
+          if signed_motif_type in k:
+            rs = k.replace(signed_motif_type, '')
+            region_com[rs] = region_com.get(rs, 0) + region_count[k]
+      VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
+      rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
+        # if sum(region_com.values()):
+        #   VISp_data.append(safe_division(region_com.get('VISp_VISp_VISp', 0), sum(region_com.values())))
+        #   rest_data.append(safe_division(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']), sum(region_com.values())))
+      if (col == 'natural_movie_one') and (signed_motif_type=='300++++++'):
+        print(VISp_data)
+        print(rest_data)
+      summ = sum(VISp_data) + sum(rest_data)
+      if not summ: # othewise flashes will disappear
+        VISp_data, rest_data = [0], [0]
+      else: # sum across all mice
+        VISp_data = [sum(VISp_data)/summ]
+        rest_data = [sum(rest_data)/summ]
+        # VISp_data = [d/summ for d in VISp_data]
+        # rest_data = [d/summ for d in rest_data]
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array(['within VISp area'] * len(VISp_data))[:,None], np.array([col] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus']), 
+                  pd.DataFrame(np.concatenate((np.array(rest_data)[:,None], np.array(['the rest'] * len(rest_data))[:,None], np.array([col] * len(rest_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+      df['probability'] = pd.to_numeric(df['probability'])
+    ax = axes[mt_ind]
+    ax.set_title(signed_motif_type, fontsize=30, rotation=0)
+    # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+    barplot = sns.barplot(x='stimulus', y='probability', hue="type", data=df, palette="pastel", ax=ax)
+    barplot.set(xlabel=None)
+    ax.yaxis.set_tick_params(labelsize=30)
+    ax.set_ylabel('probability', fontsize=30)
+    plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+    plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(fontsize=30, rotation=90)
+  plt.tight_layout()
+  # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
+  plt.savefig('./plots/box_motif_region_{}_{}fold.jpg'.format(measure, n))
+
 def tran2ffl(edge_order, triad_type):
   triads = []
   if triad_type == '030T':
@@ -7977,7 +8206,7 @@ def propagation2convergence(G, epsilon, active_area, area_plot_order, step2confi
   S_init = np.array(S_init)
   A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='sign')
   neg_inds = A<0
-  A[neg_inds] = 1
+  A[neg_inds] = 0
   A[A>0] = 1
   offset_mat = nx.to_numpy_array(G, nodelist=sorted(G.nodes()),weight='offset')
   A[offset_mat==0] = 0 # remove 0 time lag edges (common input)
@@ -7993,7 +8222,7 @@ def propagation2convergence(G, epsilon, active_area, area_plot_order, step2confi
     nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
     A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = area_count[region_ind]
     diag[area_inds[region_ind]:area_inds[region_ind+1]] = area_count[region_ind]
-  A += (1+epsilon)*np.diag(diag) # disproportional to region size
+  A += (1+epsilon)*np.diag(diag)
   # disproportional to region size
   # area_inds = [0] + np.cumsum(uniq_areas_num).tolist()
   # diag = np.zeros(A.shape[0])
@@ -8001,7 +8230,8 @@ def propagation2convergence(G, epsilon, active_area, area_plot_order, step2confi
   #   nonzero = A[area_inds[region_ind]:area_inds[region_ind+1], :].nonzero()
   #   A[area_inds[region_ind]:area_inds[region_ind+1], :][nonzero] = 1 / uniq_areas_num[region_ind]
   #   diag[area_inds[region_ind]:area_inds[region_ind+1]] = 1 / uniq_areas_num[region_ind]
-  # A += (1+epsilon)*np.diag(diag) # disproportional to region size
+  # A += (1+epsilon)*np.diag(diag)
+
   # A += (1+epsilon)*np.eye(A.shape[0]) # based on preset value
   A = A.astype(float)
   A/=A.sum(0)
@@ -8116,6 +8346,19 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, measure, n, maxsteps
   plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}_{}_{}fold.jpg'.format(epsilon, measure, n))
   # plt.show()
 
+def reject_outliers_2d(data, dim=0, m=2.):
+  if dim == 0:
+    d = np.abs(data - np.median(data, 0))
+    mdev = np.median(d, 0)
+  elif dim == 1:
+    d = np.abs(data - np.median(data, 1)[:,None])
+    mdev = np.median(d, 1)[:,None]
+  mdev[mdev==0] = 1.
+  s = d / mdev
+  new_data = data.copy()
+  new_data[s > m] = np.nan
+  return new_data
+
 def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=1000):
   rows, cols = get_rowcol(G_dict)
   np.random.seed(1)
@@ -8131,14 +8374,13 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
         G = G_dict[row][col]
         for e_ind, epsilon in enumerate(epsilon_list):
           step2convergence[:, row_ind, e_ind], _ = propagation2convergence(G, epsilon, active_area_dict[row], area_plot_order, step2confirm=step2confirm, maxsteps=maxsteps)
-          
     colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
     ax = plt.subplot(1, len(cols), col_ind+1)
     plt.gca().set_title(col, fontsize=20, rotation=0)
     plt.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-    
     for area_ind, area in enumerate(area_plot_order):
-      ymean, yerr = step2convergence[area_ind].mean(0), 2 * step2convergence[area_ind].std(0)
+      # ymean, yerr = step2convergence[area_ind].mean(0), 2 * step2convergence[area_ind].std(0)
+      ymean, yerr = np.nanmean(reject_outliers_2d(step2convergence[area_ind], 0, 2), 0), 2 * np.nanstd(reject_outliers_2d(step2convergence[area_ind], 0, 2), 0)
       # plt.errorbar(epsilon_list, ymean, yerr=yerr, label=area, alpha=0.6, color=colors_[area_ind])
       plt.plot(epsilon_list, ymean, label=area, alpha=0.6, color=colors_[area_ind])
     plt.legend()
@@ -8150,8 +8392,6 @@ def plot_step2convergence(G_dict, epsilon_list, active_area_dict, measure, n, st
   plt.tight_layout()
   plt.savefig('./plots/state_vector_step2convergence_{}_{}fold.jpg'.format(measure, n))
   # plt.show()
-
-
 
 def plot_region_frac_epsilon(G_dict, epsilon_list, active_area_dict, measure, n, step2confirm=5, maxsteps=1000):
   rows, cols = get_rowcol(G_dict)
@@ -8247,7 +8487,7 @@ def plot_multi_connectivity_matrix(G_dict, active_area_dict, measure, n):
   plt.savefig('./plots/connectivity_matrix_{}_{}.jpg'.format(measure, n))
   # plt.show()
 
-def region_FR(session_ids, stimulus_names, regions, active_area_dict):
+def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
   if not os.path.isdir(directory):
     os.mkdir(directory)
@@ -8262,36 +8502,11 @@ def region_FR(session_ids, stimulus_names, regions, active_area_dict):
       for r_ind, region in enumerate(regions):
         active_nodes = [node for node in node_idx if active_area[node]==region]
         if len(active_nodes):
-          active_node_inds = np.array([node_idx.index(node) for node in active_nodes])
-          # print(active_node_inds.shape)
-          # print(sequences[active_node_inds].shape, sequences[active_node_inds].mean(0).mean(1).sum(1).shape, sequences.shape[2])
-          FR[r_ind, st_ind, se_ind] = sequences[active_node_inds].mean(1).sum(1).mean(0) / sequences.shape[2]
+          FR[r_ind, st_ind, se_ind] = 1000 * sequences[active_nodes].mean(1).sum(1).mean(0) / sequences.shape[2] # firing rate in Hz
   return FR
 
 def transparent_rgb(rgb, bg_rgb, alpha):
   return [alpha * c1 + (1 - alpha) * c2 for (c1, c2) in zip(rgb, bg_rgb)]
-
-def plot_FR_region(FR, stimulus_names, regions, measure, n):
-  for se_ind in range(FR.shape[2]):
-    if np.any(FR[:,:,se_ind] == 0):
-      se_ind2remove = se_ind
-      break
-  s_inds = list(range(FR.shape[2]))
-  s_inds.remove(se_ind2remove)
-  name = 'firing rate (Hz)'
-  df = pd.DataFrame()
-  for r_ind, region in enumerate(regions):
-    for se_ind, session_id in enumerate(session_ids):
-      df = pd.concat([df, pd.DataFrame(np.concatenate((FR[r_ind, :, se_ind][:,None], np.array(stimulus_names)[:,None], np.array([region] * len(stimulus_names))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
-  df[name] = pd.to_numeric(df[name]) * 1000 # kHz to Hz
-  plt.figure(figsize=(17, 7))
-  hue_order = ['VISam', 'VISpm', 'VISal', 'VISrl', 'VISl', 'VISp']
-  colors_ = ['tab:green', 'lightcoral', 'steelblue', 'tab:orange', 'tab:purple', 'grey']
-  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.5) for color in colors_]
-  ax = sns.boxplot(x="stimulus", y=name, hue="region", hue_order=hue_order, data=df, palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
-  ax.set(xlabel=None)
-  plt.title('firing rate (Hz) of each region with stimulus', size=15)
-  plt.savefig('./plots/FR_region_stimulus_{}_{}fold.jpg'.format(measure, n))
 
 ############################ one more significance test for CCG signal
 def unique_with_tolerance(sequence, TOL=1e-3):
