@@ -76,7 +76,6 @@ def add_bands(ax=None):
   locs = ax.get_xticks().astype(float)
   locs -= .5
   locs = np.concatenate((locs, [x_right]))
-  
   type_loc1, type_loc2 = locs[[0, 1, 3, 5]], locs[[1, 3, 5, 8]]
   for loc1, loc2 in zip(type_loc1, type_loc2):
     ax.axvspan(loc1, loc2, facecolor=stimulus_type_color[type_loc1.tolist().index(loc1)], alpha=0.2)
@@ -116,17 +115,83 @@ plt.savefig('./plots/raster.pdf', transparent=True)
 #%%
 ##################### plot best CCG sequence
 ################ plot example significant ccg for highland
-# def plot_example_ccg(directory, n=7, window=100):
-window=100
-files = os.listdir(directory)
-files.sort(key=lambda x:int(x[:9]))
-file2plot, inds_2plot, duration2plot, conf2plot = [], [], [], []
-for file in files:
-  if ('_bl' not in file) and ('gabors' not in file) and ('flashes' not in file): #   and ('drifting_gratings' in file) and ('719161530' in file) and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
-    print(file)
-    mouseID = file.split('_')[0]
-    stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
-    try:
+
+def get_best_ccg(directory, n=7, sign='pos'):
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  file2plot, inds_2plot, duration2plot, conf2plot = [], [], [], []
+  for file in files:
+    if ('_bl' not in file) and ('gabors' not in file) and ('flashes' not in file): #   and ('drifting_gratings' in file) and ('719161530' in file) and '719161530' in file and ('static_gratings' in file or 'gabors' in file) or 'flashes' in file
+      print(file)
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      try:
+        ccg = load_npz_3d(os.path.join(directory, file))
+      except:
+        ccg = load_sparse_npz(os.path.join(directory, file))
+      try:
+        ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      except:
+        ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+      ccg_corrected = ccg - ccg_jittered
+      sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+      significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+      confidence_level = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_confidence.npz')))
+      significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+      significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+      significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
+      np.random.shuffle(significant_inds)
+      
+      for duration in np.arange(0,12,1):
+        duration_inds = np.where((significant_duration==duration) & (significant_offset>0))
+        if len(duration_inds[0]):
+          if sign == 'pos':
+            best = np.max(confidence_level[duration_inds])
+            if best >= n:
+              ind = np.argmax(confidence_level[duration_inds])
+              file2plot.append(file)
+              inds_2plot.append([duration_inds[0][ind], duration_inds[1][ind]])
+              duration2plot.append(significant_duration[(duration_inds[0][ind], duration_inds[1][ind])])
+              conf2plot.append(best)
+          elif sign == 'neg':
+            best = np.min(confidence_level[duration_inds])
+            if best <= -n:
+              ind = np.argmin(confidence_level[duration_inds])
+              file2plot.append(file)
+              inds_2plot.append([duration_inds[0][ind], duration_inds[1][ind]])
+              duration2plot.append(significant_duration[(duration_inds[0][ind], duration_inds[1][ind])])
+              conf2plot.append(best)
+            # inds_2plot.append([duration_inds[0][indx[1]], duration_inds[1][indx[1]]])
+  file2plot, inds_2plot, duration2plot, conf2plot = np.array(file2plot), np.array(inds_2plot), np.array(duration2plot), np.array(conf2plot)
+  uniq_durations = np.unique(duration2plot)
+  h_indx, h_duration, h_file, h_confidence = [], [], [], []
+  for duration in sorted(uniq_durations):
+    locs = np.where(np.array(duration2plot)==duration)[0]
+    if sign == 'pos':
+      ind = np.argmax(conf2plot[locs])
+    elif sign == 'neg':
+      ind = np.argmin(conf2plot[locs])
+    h_indx.append(inds_2plot[locs[ind]])
+    h_duration.append(duration)
+    h_file.append(file2plot[locs[ind]])
+    h_confidence.append(conf2plot[locs[ind]])
+  # return file2plot, inds_2plot, duration2plot, conf2plot
+  return h_indx, h_file
+
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
+n = 4
+pos_h_indx, pos_h_file = get_best_ccg(directory, n=n, sign='pos')
+neg_h_indx, neg_h_file = get_best_ccg(directory, n=n, sign='neg')
+#%%
+############### find highest confidence for each duration
+
+#%%
+def plot_multi_best_ccg(h_indx, h_file, sign='pos', window=100, length=100):
+  fig = plt.figure(figsize=(8*4, 5*3))
+  for ind, (row_a, row_b) in enumerate(h_indx):
+    ax = plt.subplot(3, 4, ind+1)
+    file = h_file[ind]
+    try: 
       ccg = load_npz_3d(os.path.join(directory, file))
     except:
       ccg = load_sparse_npz(os.path.join(directory, file))
@@ -137,111 +202,72 @@ for file in files:
     ccg_corrected = ccg - ccg_jittered
     sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
     significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-    confidence_level = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_confidence.npz')))
     significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
     significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-    significant_inds = list(zip(*np.where(~np.isnan(significant_ccg))))
-    np.random.shuffle(significant_inds)
-    
-    for duration in np.arange(0,12,1):
-      duration_inds = np.where((significant_duration==duration) & (significant_offset>0))
-      if len(duration_inds[0]):
-        # best = np.max(confidence_level[duration_inds])
-        # if best >= 4:
-        #   ind = np.argmax(confidence_level[duration_inds])
+    highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+    plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], linewidth=3, color='k')
+    plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
+    if ind % 4 == 0:
+      plt.ylabel('CCG corrected', size=25)
+    if ind // 4 == 3 - 1:
+      plt.xlabel('time lag (ms)', size=25)
+    plt.title(significant_duration[row_a,row_b], fontsize=25)
+    plt.xticks(fontsize=22) #, weight='bold'
+    plt.yticks(fontsize=22) # , weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.savefig('./plots/best_ccg_{}.jpg'.format(sign))
+  # plt.show()
 
-        best = np.min(confidence_level[duration_inds])
-        if best <= -4:
-          ind = np.argmin(confidence_level[duration_inds])
-
-          file2plot.append(file)
-          inds_2plot.append([duration_inds[0][ind], duration_inds[1][ind]])
-          duration2plot.append(significant_duration[(duration_inds[0][ind], duration_inds[1][ind])])
-          conf2plot.append(best)
-          # inds_2plot.append([duration_inds[0][indx[1]], duration_inds[1][indx[1]]])
+plot_multi_best_ccg(pos_h_indx, pos_h_file, sign='pos', window=100, length=100)
+plot_multi_best_ccg(neg_h_indx, neg_h_file, sign='neg', window=100, length=100)
+#%%
+def plot_multi_best_ccg_smoothed(h_indx, h_file, sign='pos'):
+  fig = plt.figure(figsize=(8*4, 5*3))
+  for ind, (row_a, row_b) in enumerate(h_indx):
+    ax = plt.subplot(3, 4, ind+1)
+    file = h_file[ind]
+    try: 
+      ccg = load_npz_3d(os.path.join(directory, file))
+    except:
+      ccg = load_sparse_npz(os.path.join(directory, file))
+    try:
+      ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    except:
+      ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    ccg_corrected = ccg - ccg_jittered
+    sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+    significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+    significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+    significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
     
-#%%
-############### find highest confidence for each duration
-file2plot, inds_2plot, duration2plot, conf2plot = np.array(file2plot), np.array(inds_2plot), np.array(duration2plot), np.array(conf2plot)
-uniq_durations = np.unique(duration2plot)
-h_indx, h_duration, h_file, h_confidence = [], [], [], []
-for duration in sorted(uniq_durations):
-  locs = np.where(np.array(duration2plot)==duration)[0]
-  # ind = np.argmax(conf2plot[locs])
-  ind = np.argmin(conf2plot[locs])
-  h_indx.append(inds_2plot[locs[ind]])
-  h_duration.append(duration)
-  h_file.append(file2plot[locs[ind]])
-  h_confidence.append(conf2plot[locs[ind]])
-#%%
-length = 100
-fig = plt.figure(figsize=(8*4, 5*3))
-for ind, (row_a, row_b) in enumerate(h_indx):
-  ax = plt.subplot(3, 4, ind+1)
-  file = h_file[ind]
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-  plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], color='k')
-  plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.--', markersize=12, alpha=0.6)
-  if ind % 4 == 0:
-    plt.ylabel('signigicant CCG corrected', size=20)
-  if ind // 4 == 3 - 1:
-    plt.xlabel('time lag (ms)', size=20)
-  plt.title(significant_duration[row_a,row_b], fontsize=25)
-# plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
-# plt.savefig('./plots/best_ccg_pos.jpg')
-plt.savefig('./plots/best_ccg_neg.jpg')
-# plt.show()
-#%%
-length = 100
-fig = plt.figure(figsize=(8*4, 5*3))
-for ind, (row_a, row_b) in enumerate(h_indx):
-  ax = plt.subplot(3, 4, ind+1)
-  file = h_file[ind]
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  
-  filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
-  ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
-  highland_lag = np.array([int(significant_offset[row_a,row_b])])
-  plt.plot(np.arange(len(ccg_plot)), ccg_plot, color='k')
-  plt.plot(highland_lag, ccg_plot[highland_lag], 'r.--', markersize=12, alpha=0.6)
-  
-  # highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-  # plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], color='k')
-  # plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], 'r.-=-', markersize=12, alpha=0.6)
-  if ind % 4 == 0:
-    plt.ylabel('signigicant CCG corrected', size=20)
-  if ind // 4 == 3 - 1:
-    plt.xlabel('time lag (ms)', size=20)
-  plt.title(significant_duration[row_a,row_b], fontsize=25)
-# plt.suptitle('{} fold\n{}, {}'.format(n, mouseID, stimulus_name), size=25)
-# plt.savefig('./plots/best_ccg_smoothed_pos.jpg')
-plt.savefig('./plots/best_ccg_smoothed_neg.jpg')
-# plt.show()
+    filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
+    ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+    highland_lag = np.array([int(significant_offset[row_a,row_b])])
+    plt.plot(np.arange(len(ccg_plot)), ccg_plot, linewidth=3, color='k')
+    plt.plot(highland_lag, ccg_plot[highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
+    if ind % 4 == 0:
+      plt.ylabel('signigicant CCG corrected', size=20)
+    if ind // 4 == 3 - 1:
+      plt.xlabel('time lag (ms)', size=20)
+    plt.title(significant_duration[row_a,row_b], fontsize=25)
+    plt.xticks(fontsize=22) #, weight='bold'
+    plt.yticks(fontsize=22) # , weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.savefig('./plots/best_ccg_smoothed_{}.jpg'.format(sign))
+  # plt.show()
+
+plot_multi_best_ccg_smoothed(pos_h_indx, pos_h_file, sign='pos')
+plot_multi_best_ccg_smoothed(neg_h_indx, neg_h_file, sign='neg')
 #%%
 ############### plot connectivity matrix
 from mpl_toolkits.axes_grid1 import make_axes_locatable
