@@ -6,13 +6,16 @@ from library import *
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams["font.serif"] = ["Times New Roman"]
+combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], 'drifting_gratings', 'static_gratings', 'natural_scenes', ['natural_movie_one', 'natural_movie_three']]
+combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
+combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bebada', '#bebada', '#fb8072', '#fb8072']
 # plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
 session2keep = ['719161530','750749662','754312389','755434585','756029989','791319847','797828357']
 stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
 stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
 # stimulus_type_color = ['tab:blue', 'darkorange', 'darkgreen', 'maroon']
-stimulus_type_color = ['#8dd3c7', '#fee391', '#bebada', '#fb8072']
-region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd']
+stimulus_type_color = ['#8dd3c7', '#fee391', '#bc80bd', '#fb8072']
+region_colors = ['#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bebada']
 stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ngrating', 
               'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
 region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
@@ -22,6 +25,10 @@ model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preservi
 def stimulus2stype(stimulus):
   t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
   return t_ind, stimulus_types[t_ind]
+
+def combine_stimulus(stimulus):
+  t_ind = [i for i in range(len(combined_stimulus)) if stimulus in combined_stimulus[i]][0]
+  return t_ind, combined_stimulus_names[t_ind]
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 cortical_inds = get_cortical_inds(active_area_dict, visual_regions)
@@ -50,68 +57,77 @@ pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 ########################################################
 #%%
 ####################### raster plot
-########## raster plot
-mouse_id, stimulus_id = 0, 6
-# measure = 'pearson'
-# measure = 'cosine'
-measure = 'ccg'
-# measure = 'MI'
-# measure = 'causality'
-directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-total_sequence = np.zeros((len(area_dict[session_ids[mouse_id]]), 0))
-s_lengths = [800, 500, 500, 250, 500, 250, 1000, 2000]
-# s_lengths = [250] * 8
-for s_ind, stimulus_name in enumerate(stimulus_names):
-  print(stimulus_name)
-  sequences = load_npz_3d(os.path.join(directory, str(session_ids[mouse_id]) + '_' + stimulus_name + '.npz'))
-  total_sequence = np.concatenate((total_sequence, sequences[:, 0, :s_lengths[s_ind]]), 1)
-areas = list(active_area_dict[str(session_ids[mouse_id])].values())
-areas_num = [(np.array(areas)==a).sum() for a in visual_regions]
-areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
-sequence_by_area = {area:[ind for ind, a in active_area_dict[str(session_ids[mouse_id])].items() if a == area] for area in visual_regions}
+def get_raster_data(mouse_id, s_lengths, blank_width=50):
+  # stimulus_id = 6
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  total_sequence = np.zeros((len(area_dict[session_ids[mouse_id]]), 0))
+  # s_lengths = [800, 500, 500, 250, 500, 250, 1000, 2000]
+
+  # s_lengths = [250] * 8
+  stimulus2plot = [stimulus_names[i] for i in [0, 1, 3, 4, 5, 6]]
+  for s_ind, stimulus_name in enumerate(stimulus2plot):
+    print(stimulus_name)
+    sequences = load_npz_3d(os.path.join(directory, str(session_ids[mouse_id]) + '_' + stimulus_name + '.npz'))
+    total_sequence = np.concatenate((total_sequence, sequences[:, 0, :s_lengths[s_ind]]), 1)
+    if s_ind < len(stimulus2plot) - 1:
+      total_sequence = np.concatenate((total_sequence, np.zeros((total_sequence.shape[0], blank_width))), 1)
+    # print(total_sequence.shape)
+  areas = list(active_area_dict[str(session_ids[mouse_id])].values())
+  areas_num = [(np.array(areas)==a).sum() for a in visual_regions]
+  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  sequence_by_area = {area:[ind for ind, a in active_area_dict[str(session_ids[mouse_id])].items() if a == area] for area in visual_regions}
+  return total_sequence, areas_num, areas_start_pos, sequence_by_area
+
+mouse_id = 5
+s_lengths  = [800, 250, 250, 250, 250, 1000]
+blank_width = 50
+total_sequence, areas_num, areas_start_pos, sequence_by_area = get_raster_data(mouse_id, s_lengths, blank_width)
 # %%
-def add_bands(ax=None):
-  ax = ax or plt.gca()
-  x_left, x_right = ax.get_xlim()
-  locs = ax.get_xticks().astype(float)
-  locs -= .5
-  locs = np.concatenate((locs, [x_right]))
-  type_loc1, type_loc2 = locs[[0, 1, 3, 5]], locs[[1, 3, 5, 8]]
-  for loc1, loc2 in zip(type_loc1, type_loc2):
-    ax.axvspan(loc1, loc2, facecolor=stimulus_type_color[type_loc1.tolist().index(loc1)], alpha=0.2)
-  ax.set_xlim(x_left, x_right)
+def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_by_area):
+  sorted_sample_seq = np.vstack([total_sequence[sequence_by_area[area], :] for area in visual_regions])
+  spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :]] # divided by 1000 cuz bin size is 1 ms
+  colors1 = [region_colors[i] for i in sum([[visual_regions.index(a)] * areas_num[visual_regions.index(a)] for a in visual_regions], [])]
+  uniq_colors = unique(colors1)
+  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+  colors2 = 'black'
+  lineoffsets2 = 1
+  linelengths2 = .05
+  # create a horizontal plot
+  fig = plt.figure(figsize=(16, 10))
+  plt.eventplot(spike_pos, colors='k', lineoffsets=lineoffsets2,
+                      linelengths=linelengths2) # colors=colors1
+  for ind, t_pos in enumerate(text_pos):
+    plt.text(-.15, t_pos, region_labels[ind], size=20, color='k') #, color=region_colors[ind]
+  plt.axis('off')
+  plt.gca().invert_yaxis()
 
-  s_locs = [0] + np.cumsum(s_lengths).tolist()
-  for ind, i, j in enumerate(zip(s_locs[:-1], s_locs[1:])):
-    # ax.axhspan(i, i+.2, facecolor='0.2', alpha=0.5)
-    ax.axvspan(i/1000, j/1000, facecolor=stimulus_type_color[stimulus2stype(cols[ind])[0]], alpha=0.3)
+  s_loc1 = np.concatenate(([0],(np.cumsum(s_lengths)+np.arange(1,len(s_lengths)+1)*blank_width)))[:-1]
+  s_loc2 = s_loc1 + np.array(s_lengths)
+  stext_pos = (s_loc1 + s_loc2) / 2000
+  loc_max = max(s_loc1.max(), s_loc2.max())
+  s_loc_frac1, s_loc_frac2 = [loc/loc_max for loc in s_loc1], [loc/loc_max for loc in s_loc2]
+  for ind, t_pos in enumerate(stext_pos):
+    plt.text(t_pos, -13.5, combined_stimulus_names[ind], size=20, color='k', va='center',ha='center')
+  #### add horizontal band
+  band_pos = areas_start_pos + [areas_start_pos[-1]+areas_num[-1]]
+  xgmin, xgmax=.045, .955
+  for loc1, loc2 in zip(band_pos[:-1], band_pos[1:]):
+    # for i in range(len(s_locs_frac)-1):
+    #   xmin, xmax = s_locs_frac[i] * (xgmax-xgmin) + xgmin, s_locs_frac[i+1] * (xgmax-xgmin) + xgmin
+    for scale1, scale2 in zip(s_loc_frac1, s_loc_frac2):
+      xmin, xmax = scale1 * (xgmax-xgmin) + xgmin, scale2 * (xgmax-xgmin) + xgmin
+      if areas_start_pos.index(loc1) <= 2:
+        alpha=.2
+      else:
+        alpha=.4
+      plt.gca().axhspan(loc1, loc2, xmin=xmin, xmax=xmax, facecolor=region_colors[areas_start_pos.index(loc1)], alpha=alpha)
+    # plt.gca().axhspan(loc1, loc2, xmin=xgmin, xmax=xgmax, facecolor=region_colors[areas_start_pos.index(loc1)], alpha=0.2)
+  #### add box
+  # for stimulus_ind in range(len(stimulus2plot)):
+  #   plt.gca().add_patch(Rectangle((s_loc1[stimulus_ind]/1000,0),(s_lengths[stimulus_ind]-1)/1000,sorted_sample_seq.shape[0],linewidth=4,edgecolor='k',alpha=.3,facecolor='none')) # region_colors[region_ind]
+  plt.savefig('./plots/raster_{}.pdf'.format(session_ids[mouse_id]), transparent=True)
 
-sorted_sample_seq = np.vstack([total_sequence[sequence_by_area[area], :] for area in visual_regions])
-spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :]] # divided by 1000 cuz bin size is 1 ms
-colors1 = [region_colors[i] for i in sum([[visual_regions.index(a)] * areas_num[visual_regions.index(a)] for a in visual_regions], [])]
-uniq_colors = unique(colors1)
-text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
-colors2 = 'black'
-lineoffsets2 = 1
-linelengths2 = .2
-# create a horizontal plot
-fig = plt.figure(figsize=(16, 6))
-plt.eventplot(spike_pos, colors=colors1, lineoffsets=lineoffsets2,
-                    linelengths=linelengths2)
-for ind, t_pos in enumerate(text_pos):
-  plt.text(-.5, t_pos, visual_regions[ind], size=20, color=region_colors[ind])
-plt.axis('off')
-plt.gca().invert_yaxis()
-colors3 = ['.2', '.8']
-s_locs = [0] + np.cumsum(s_lengths).tolist()
-stext_pos = [(s_locs[i] + s_locs[i+1])/2000 for i in range(len(s_locs)-1)]
-for ind, t_pos in enumerate(stext_pos):
-  plt.text(t_pos, -2.5, stimulus_labels[ind], size=20, color='k')
-# for ind, (i, j) in enumerate(zip(s_locs[:-1], s_locs[1:])):
-#   plt.axvspan((i+5)/1000, (j-5)/1000, facecolor=colors3[ind%2], alpha=0.3)
-plt.tight_layout()
-# plt.show()
-plt.savefig('./plots/raster.pdf', transparent=True)
+plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_by_area)
 #%%
 ##################### plot best CCG sequence
 ################ plot example significant ccg for highland
@@ -268,6 +284,74 @@ def plot_multi_best_ccg_smoothed(h_indx, h_file, sign='pos'):
 
 plot_multi_best_ccg_smoothed(pos_h_indx, pos_h_file, sign='pos')
 plot_multi_best_ccg_smoothed(neg_h_indx, neg_h_file, sign='neg')
+#%%
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.font_manager as fm
+
+def plot_best_ccg(h_indx, h_file, ind, sign='pos', window=100):
+  fig, axes = plt.subplots(1, 2, figsize=(7*2, 5), sharex=True, sharey=True)
+  row_a, row_b = h_indx[ind]
+  file = h_file[ind]
+  try: 
+    ccg = load_npz_3d(os.path.join(directory, file))
+  except:
+    ccg = load_sparse_npz(os.path.join(directory, file))
+  try:
+    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  except:
+    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+  ccg_corrected = ccg - ccg_jittered
+  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+  highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+  axes[0].plot(np.arange(window+1), ccg_corrected[row_a, row_b], linewidth=5, color='k')
+  axes[0].plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=5, markersize=10, alpha=0.8)
+  filter = np.array([1/(significant_duration[row_a,row_b]+1)]).repeat(significant_duration[row_a,row_b]+1) # mean instead of sum
+  ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
+  highland_lag = np.array([int(significant_offset[row_a,row_b])])
+  axes[1].plot(np.arange(len(ccg_plot)), ccg_plot, linewidth=5, color='k')
+  axes[1].plot(highland_lag, ccg_plot[highland_lag], color='firebrick', marker='o', linewidth=5, markersize=10, alpha=0.8)
+  # plt.ylabel(r'$CCG_{corrected}$', size=25)
+  # plt.xlabel('time lag (ms)', size=25)
+  # axes[0].xaxis.set_tick_params(labelsize=30)
+  # axes[0].yaxis.set_tick_params(labelsize=30)
+  # axes[0].set_xticks([0, 100])
+  axes[0].set_yticks([])
+  axes[0].set_xlim([0, 100])
+  fontprops = fm.FontProperties(size=30)
+  size_v = (ccg_corrected[row_a, row_b].max()-ccg_corrected[row_a, row_b].min())/30
+  scalebar = AnchoredSizeBar(axes[0].transData,
+                            100, '100 ms', 'lower center',
+                            borderpad=0,
+                            pad=-1.4,
+                            sep=5,
+                            color='k',
+                            frameon=False,
+                            size_vertical=size_v,
+                            fontproperties=fontprops)
+
+  axes[0].add_artist(scalebar)
+  axes[0].set_axis_off()
+  for axis in ['bottom', 'left']:
+    axes[0].spines[axis].set_linewidth(1.5)
+    axes[0].spines[axis].set_color('0.2')
+  axes[0].spines['top'].set_visible(False)
+  axes[0].spines['right'].set_visible(False)
+  axes[0].tick_params(width=1.5)
+  axes[1].set_axis_off()
+  for axis in ['bottom', 'left']:
+    axes[1].spines[axis].set_linewidth(1.5)
+    axes[1].spines[axis].set_color('0.2')
+  axes[1].spines['top'].set_visible(False)
+  axes[1].spines['right'].set_visible(False)
+  axes[1].tick_params(width=1.5)
+  # plt.tight_layout()
+  plt.savefig('./plots/best_ccg_{}.pdf'.format(sign), transparent=True)
+  # plt.show()
+
+plot_best_ccg(pos_h_indx, pos_h_file, 9, sign='pos', window=100)
+plot_best_ccg(neg_h_indx, neg_h_file, 3, sign='neg', window=100)
 #%%
 ############### plot connectivity matrix
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -2603,7 +2687,7 @@ def plot_motif_data_box(data_dict, signed_motif_types, name='offset'):
 plot_motif_data_box(delay_dict, sig_motif_types, name=name)
 # %%
 ###################### test colors in scatter
-stimulus_type_color[1] = '#fee391'
+# stimulus_type_color[1] = '#fee391'
 colors = stimulus_type_color + region_colors
 labels = stimulus_types + visual_regions
 plt.figure()
