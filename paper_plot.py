@@ -131,7 +131,7 @@ plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_by_ar
 #%%
 ##################### plot best CCG sequence
 ################ plot example significant ccg for highland
-
+################ find highest confidence for each duration
 def get_best_ccg(directory, n=7, sign='pos'):
   files = os.listdir(directory)
   files.sort(key=lambda x:int(x[:9]))
@@ -198,9 +198,6 @@ directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
 n = 4
 pos_h_indx, pos_h_file = get_best_ccg(directory, n=n, sign='pos')
 neg_h_indx, neg_h_file = get_best_ccg(directory, n=n, sign='neg')
-#%%
-############### find highest confidence for each duration
-
 #%%
 def plot_multi_best_ccg(h_indx, h_file, sign='pos', window=100, length=100):
   fig = plt.figure(figsize=(8*4, 5*3))
@@ -285,9 +282,6 @@ def plot_multi_best_ccg_smoothed(h_indx, h_file, sign='pos'):
 plot_multi_best_ccg_smoothed(pos_h_indx, pos_h_file, sign='pos')
 plot_multi_best_ccg_smoothed(neg_h_indx, neg_h_file, sign='neg')
 #%%
-from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
-import matplotlib.font_manager as fm
-
 def plot_best_ccg(h_indx, h_file, ind, sign='pos', window=100):
   fig, axes = plt.subplots(1, 2, figsize=(7*2, 5), sharex=True, sharey=True)
   row_a, row_b = h_indx[ind]
@@ -364,23 +358,23 @@ def find_peak_zscore(corr,duration=6,maxlag=12):
   extreme_offset = np.argmax(abs_deviation, -1)
   ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(corr_integral[:, :, :maxlag-duration+1], -1, 0))
   zscore = (ccg_mat_extreme - mu) / sigma
-  return zscore
+  return zscore, ccg_mat_extreme
 
 def ccg2zscore(ccg_corrected, max_duration=6, maxlag=12):
-  all_zscore = np.zeros(ccg_corrected.shape[:2])
+  all_zscore, all_ccg = np.zeros(ccg_corrected.shape[:2]), np.zeros(ccg_corrected.shape[:2])
   for duration in np.arange(max_duration, -1, -1): # reverse order, so that sharp peaks can override highland
     print('duration {}'.format(duration))
-    zscore = find_peak_zscore(ccg_corrected, duration, maxlag)
+    zscore, ccg_mat_extreme = find_peak_zscore(ccg_corrected, duration, maxlag)
     indx = np.abs(zscore) > np.abs(all_zscore)
     # highland_ccg, confidence_level, offset, indx = find_highland(corr, min_spike, duration, maxlag, n)
     if np.sum(indx):
       all_zscore[indx] = zscore[indx]
-  return all_zscore
+      all_ccg[indx] = ccg_mat_extreme[indx]
+  return all_zscore, all_ccg
 
-def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, ratio=15):
+def get_connectivity_data(G_dict, row_ind, col_ind):
   rows, cols = get_rowcol(G_dict)
   row, col = rows[row_ind], cols[col_ind]
-  G = G_dict[row][col]
   directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
   file = row + '_' + col + '.npz'
   try: 
@@ -392,12 +386,18 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   except:
     ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
   ccg_corrected = ccg - ccg_jittered
-  ccg_zscore = ccg2zscore(ccg_corrected, max_duration=11, maxlag=12)
+  ccg_zscore, ccg_value = ccg2zscore(ccg_corrected, max_duration=11, maxlag=12)
+  return ccg_zscore, ccg_value
+
+row_ind, col_ind = 7, 7
+ccg_zscore, ccg_value = get_connectivity_data(G_ccg_dict, row_ind, col_ind)
+#%%
+def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight=None, ratio=15):
+  rows, cols = get_rowcol(G_dict)
+  row, col = rows[row_ind], cols[col_ind]
+  G = G_dict[row][col]
   nrow = 2
   ncol = 2
-  fig = plt.figure(figsize=(10, 10)) 
-  gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
-          wspace=0.0, hspace=0.0, top=1, bottom=0.001, left=0., right=.999)
   active_area = active_area_dict[row]
   ordered_nodes = [] # order nodes based on hierarchical order
   region_size = np.zeros(len(visual_regions))
@@ -418,6 +418,9 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   cmap = colors.ListedColormap(region_colors)
   bounds = [-.5,.5,1.5,2.5,3.5,4.5,5.5]
   norm = colors.BoundaryNorm(bounds, cmap.N)
+  fig = plt.figure(figsize=(10, 10)) 
+  gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
+          wspace=0.0, hspace=0.0, top=1, bottom=0.001, left=0., right=.999)
   ax= plt.subplot(gs[0,1])
   ax.set_xticklabels([])
   ax.set_yticklabels([])
@@ -456,20 +459,21 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   nodes = sorted(active_area.keys())
   node2idx = {node:nodes.index(node) for node in nodes}
   if weight is None:
-    # A[A>0] = 1
-    # A[A<0] = -1
     mat = A
-    # cmap = plt.cm.RdGy
-  else:
+  elif weight=='confidence':
     indx = np.array(cortical_inds[row])
     mat = ccg_zscore[indx[:,None], indx]
     reordered_nodes = np.array([node2idx[node] for node in ordered_nodes])
     mat = mat[reordered_nodes[:,None], reordered_nodes]
+  elif weight=='weight':
+    indx = np.array(cortical_inds[row])
+    mat = ccg_value[indx[:,None], indx]
+    reordered_nodes = np.array([node2idx[node] for node in ordered_nodes])
+    mat = mat[reordered_nodes[:,None], reordered_nodes]
   cmap = plt.cm.coolwarm
-  # vmin = mat.min()
-  # vmax = mat.max()
-  vmin, vmax = -5, 5
-  # print(vmin, vmax)
+  vmin = np.percentile(mat[mat<0], 1)
+  vmax = np.percentile(mat[mat>0], 99)
+  #   vmin, vmax = -5, 5
   norm = colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
   im = ax.imshow(mat, cmap=cmap, norm=norm)
   # divider = make_axes_locatable(ax)
@@ -484,15 +488,15 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, weight=None, r
   ax.set_xticks([])
   ax.set_yticks([])
   # plt.tight_layout()
-  figname = './plots/connectivity_matrix_{}_{}.pdf' if weight is None else './plots/connectivity_matrix_weight_{}_{}.pdf'
+  figname = './plots/connectivity_matrix_{}_{}.pdf' if weight is None else './plots/connectivity_matrix_{}'.format(weight) + '_{}_{}.pdf'
   plt.savefig(figname.format(row, col), transparent=True)
   # plt.show()
 
-row_ind, col_ind = 7, 7
 weight=None
 ratio = 15
-# plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight=None, ratio=ratio)
-plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight='weight', ratio=ratio)
+plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, weight=None, ratio=ratio)
+plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='confidence', ratio=ratio)
+plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='weight', ratio=ratio)
 #%%
 def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   rows, cols = get_rowcol(G_dict)
@@ -562,7 +566,8 @@ def alt_bands(ax=None):
   locs -= .5
   locs = np.concatenate((locs, [x_right]))
   
-  type_loc1, type_loc2 = locs[[0, 1, 3, 5]], locs[[1, 3, 5, 8]]
+  # type_loc1, type_loc2 = locs[[0, 1, 3, 5]], locs[[1, 3, 5, 8]] # for all stimuli
+  type_loc1, type_loc2 = locs[[0, 1, 2, 4]], locs[[1, 2, 4, 6]] # for combined stimuli
   for loc1, loc2 in zip(type_loc1, type_loc2):
     ax.axvspan(loc1, loc2, facecolor=stimulus_type_color[type_loc1.tolist().index(loc1)], alpha=0.2)
   ax.set_xlim(x_left, x_right)
@@ -572,6 +577,7 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
   rows, cols = get_rowcol(G_dict)
   for col_ind, col in enumerate(cols):
     print(col)
+    combined_stimulus_name = combine_stimulus(col)[1]
     ex_data, in_data = [], []
     for row_ind, row in enumerate(rows):
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
@@ -582,8 +588,8 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
       else:
         ex_data.append(signs.count(1))
         in_data.append(signs.count(-1))
-    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([col] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
-                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([col] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ex_data)[:,None], np.array(['excitatory'] * len(ex_data))[:,None], np.array([combined_stimulus_name] * len(ex_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus']), 
+                pd.DataFrame(np.concatenate((np.array(in_data)[:,None], np.array(['inhibitory'] * len(in_data))[:,None], np.array([combined_stimulus_name] * len(in_data))[:,None]), 1), columns=['number of connections', 'type', 'stimulus'])], ignore_index=True)
   df['number of connections'] = pd.to_numeric(df['number of connections'])
   if density:
     y = 'density'
@@ -617,7 +623,7 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
   handles, labels = ax.get_legend_handles_labels()
   ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=14)
   plt.setp(ax.get_legend().get_texts(), weight='bold')
-  plt.xticks(ticks=range(len(cols)), labels=stimulus_labels, fontsize=14, weight='bold')
+  plt.xticks(ticks=range(len(combined_stimulus_names)), labels=combined_stimulus_names, fontsize=14, weight='bold')
   plt.yticks(fontsize=14,  weight='bold')
   plt.ylabel(y)
   ax.set_ylabel(ax.get_ylabel(), fontsize=14, weight='bold',color='0.2')
@@ -627,13 +633,12 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
-
   # plt.yscale('log')
   ax.set(xlabel=None)
   alt_bands(ax)
   mean_links = df.groupby(['stimulus', 'type']).mean().reset_index().groupby('stimulus').sum()
-  for i, col in enumerate(cols):
-    plt.hlines(y=mean_links.loc[col], xmin=(i - .18), xmax=(i + .18), color='white', linewidth=3) # , linestyles=(0, (1,1))
+  for i, combined_stimulus_name in enumerate(combined_stimulus_names):
+    plt.hlines(y=mean_links.loc[combined_stimulus_name], xmin=(i - .18), xmax=(i + .18), color='white', linewidth=3) # , linestyles=(0, (1,1))
   plt.tight_layout()
   figname = './plots/box_ex_in_num_{}_{}fold.pdf' if not density else './plots/box_ex_in_density_{}_{}fold.pdf'
   # plt.savefig('./plots/violin_intra_inter_{}_{}fold.jpg'.format(measure, n))
@@ -654,7 +659,6 @@ def scatter_dataVSdensity(G_dict, area_dict, regions, name='intra'):
       G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
       nodes = list(G.nodes())
       node_area = {key: area_dict[row][key] for key in nodes}
-      areas = list(node_area.values())
       A = nx.to_numpy_array(G)
       A[A.nonzero()] = 1
       for region_ind_i, region_i in enumerate(regions):
@@ -685,15 +689,13 @@ def scatter_dataVSdensity(G_dict, area_dict, regions, name='intra'):
   df['ratio of inter-region connections'] = pd.to_numeric(df['ratio of inter-region connections'])
   df['ratio of excitatory connections'] = pd.to_numeric(df['ratio of excitatory connections'])
   df['density'] = pd.to_numeric(df['density'])
-  stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
-  labels = ['resting state', 'flashes', 'gratings', 'natural stimuli']
   for st_ind, stype in enumerate(stimulus_by_type):
     x = df[df['stimulus'].isin(stype)]['density'].values
     if name == 'intra':
       y = df[df['stimulus'].isin(stype)]['ratio of intra-region connections'].values
     elif name == 'ex':
       y = df[df['stimulus'].isin(stype)]['ratio of excitatory connections'].values
-    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=labels[st_ind], alpha=.6)
+    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=.8)
   X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
   X, Y = np.array(X), np.array(Y)
   if name == 'intra':
@@ -736,24 +738,6 @@ def scatter_dataVSdensity(G_dict, area_dict, regions, name='intra'):
 scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='intra')
 scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='ex')
 #%%
-# def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
-#   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
-#   if not os.path.isdir(directory):
-#     os.mkdir(directory)
-#   FR = np.zeros((len(regions), len(stimulus_names), len(session_ids)))
-#   for se_ind, session_id in enumerate(session_ids):
-#     active_area = active_area_dict[session_id]
-#     node_idx = sorted(active_area.keys())
-#     for st_ind, stimulus_name in enumerate(stimulus_names):
-#       file = str(session_id) + '_' + stimulus_name + '.npz'
-#       print(file)
-#       sequences = load_npz_3d(os.path.join(directory, file))
-#       for r_ind, region in enumerate(regions):
-#         active_nodes = [node for node in node_idx if active_area[node]==region]
-#         if len(active_nodes):
-#           FR[r_ind, st_ind, se_ind] = 1000 * sequences[active_nodes].mean(1).sum(1).mean(0) / sequences.shape[2] # firing rate in Hz
-#   return FR
-
 def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
   if not os.path.isdir(directory):
@@ -807,7 +791,7 @@ intra_links, inter_links = get_region_links(G_ccg_dict, visual_regions, active_a
 #%%
 def plot_FR_links_region(data, regions, dataname):
   if dataname == 'FR':
-    name = 'firing rate (Hz)'
+    name = 'Firing rate (Hz)'
   elif dataname == 'link':
     name = 'degree'
   df = pd.DataFrame()
@@ -815,12 +799,14 @@ def plot_FR_links_region(data, regions, dataname):
     for stimulus_name in stimulus_names:
       for se_ind in session2keep:
         sub_data = np.array(data[se_ind][stimulus_name][region])
-        df = pd.concat([df, pd.DataFrame(np.concatenate((sub_data[:,None], np.array([stimulus_name] * len(sub_data))[:,None], np.array([region] * len(sub_data))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((sub_data[:,None], np.array([combine_stimulus(stimulus_name)[1]] * len(sub_data))[:,None], np.array([region] * len(sub_data))[:,None]), 1), columns=[name, 'stimulus', 'region'])], ignore_index=True)
   df[name] = pd.to_numeric(df[name])
   # return df
-  plt.figure(figsize=(10, 14))
-  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for color in region_colors]
-  ax = sns.boxplot(y="stimulus", x=name, hue="region", hue_order=regions, data=df[(np.abs(stats.zscore(df[name])) < 2)], orient='h', palette=colors_transparency, showfliers=False) # , boxprops=dict(alpha=.6)
+  fig, ax = plt.subplots(1,1,figsize=(8, 10))
+  colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.6) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=1.) for c_ind, color in enumerate(region_colors)]
+  medianprops = dict(linestyle='-', linewidth=2.5)
+  boxprops = dict(linewidth=3)
+  boxplot = sns.boxplot(y="stimulus", x=name, hue="region", hue_order=regions, data=df[(np.abs(stats.zscore(df[name])) < 2)], orient='h', palette=colors_transparency, showfliers=False, boxprops=boxprops, medianprops=medianprops) # , boxprops=dict(alpha=.6)
   # ax = sns.violinplot(x="stimulus", y=name, inner='box', cut=0, hue="region", scale="count", hue_order=regions, data=df[(np.abs(stats.zscore(df[name])) < 2)], palette=colors_transparency) # , boxprops=dict(alpha=.6)
   
   sns.stripplot(
@@ -828,23 +814,24 @@ def plot_FR_links_region(data, regions, dataname):
       x=name, 
       hue="region",
       palette=colors_transparency,
-      data=df[(np.abs(stats.zscore(df[name])) < 2)], dodge=True, alpha=0.1
+      data=df[(np.abs(stats.zscore(df[name])) < 2)], dodge=True, alpha=0.15
   )
   ax.set(ylabel=None)
   handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles[:6], labels[:6], title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12)
+  ax.legend(handles[:6], labels[:6], title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=15, frameon=False)
   # plt.setp(ax.get_legend().get_texts())
-  plt.yticks(ticks=range(len(cols)), labels=stimulus_labels, fontsize=14)
-  plt.xticks(fontsize=14)
+  # nolinebreak = [name.replace('\n', ' ') for name in combined_stimulus_names]
+  plt.yticks(ticks=range(len(combined_stimulus_names)), labels=combined_stimulus_names, fontsize=25, rotation=90, va='center')
+  plt.xticks(fontsize=20)
   # plt.ylabel(y)
-  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='0.2')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=25,color='0.2')
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('0.2')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
-
+  ax.yaxis.set_tick_params(length=0)
   box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
   if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax2.artists
     box_patches = ax.artists
@@ -855,6 +842,7 @@ def plot_FR_links_region(data, regions, dataname):
     col = patch.get_facecolor()
     patch.set_edgecolor(col)
     patch.set_facecolor('None')
+    # patch.set_linewidth(3)
     # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
     # Loop over them here, and use the same color as above
     for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
@@ -866,6 +854,7 @@ def plot_FR_links_region(data, regions, dataname):
     col = legpatch.get_facecolor()
     legpatch.set_edgecolor(col)
     legpatch.set_facecolor('None')
+    legpatch.set_linewidth(3)
   # plt.show()
   plt.tight_layout()
   plt.savefig(f'./plots/{dataname}_region_stimulus.pdf', transparent=True)
@@ -945,7 +934,6 @@ scatter_linkVSFR(all_FR, all_links)
 #%%
 ################### scatter for each region
 def scatter_linkVSFR_region(FR, links, regions):
-
   fig, axes = plt.subplots(2, 3, figsize=(15, 10))
   for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
     r_ind = i * axes.shape[1] + j
@@ -1046,7 +1034,6 @@ def scatter_linkVSFR_stimulus(FR, links, regions, degree_type='intra'):
 
 scatter_linkVSFR_stimulus(FR, intra_links, visual_regions, degree_type='intra')
 scatter_linkVSFR_stimulus(FR, inter_links, visual_regions, degree_type='inter')
-#%%
 #%%
 ################### confidence level for difference between two correlations
 def r_confidence_interval(r, n, alpha):
@@ -1446,9 +1433,9 @@ def calculate_directed_metric(G, metric_name):
       metric = 0
   return metric
 
-def plot_metrics(G_dict):
+def plot_metrics(G_dict, metric_names):
   rows, cols = get_rowcol(G_dict)
-  metric_names = ['clustering', 'overall_reciprocity', 'flow_hierarchy', 'global_reaching_centrality']
+  # metric_names = ['clustering', 'overall_reciprocity', 'flow_hierarchy', 'global_reaching_centrality']
   # metric_names = ['wiener_index']
   plots_shape = (2, 2)
   metric = np.empty((len(rows), len(cols), len(metric_names)))
@@ -1493,7 +1480,77 @@ def plot_metrics(G_dict):
   return df
 
 metric_names = ['clustering', 'overall_reciprocity', 'flow_hierarchy', 'global_reaching_centrality']
-df = plot_metrics(G_ccg_dict)
+df = plot_metrics(G_ccg_dict, metric_names)
+#%%
+################### plot clustering coefficient
+def plot_metric(G_dict, metric_name):
+  rows, cols = get_rowcol(G_dict)
+  metric = np.empty((len(rows), len(cols)))
+  metric[:] = np.nan
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    combined_stimulus_name = combine_stimulus(col)[1]
+    for row_ind, row in enumerate(rows):
+      G = G_dict[row][col]
+      m = calculate_directed_metric(G, metric_name)
+      metric[row_ind, col_ind] = m
+    df = pd.concat([df, pd.DataFrame(np.concatenate((metric[:,col_ind][:,None], np.array([combined_stimulus_name] * len(rows))[:,None]), 1), columns=['metric', 'stimulus'])], ignore_index=True)
+  df.metric = pd.to_numeric(df.metric)
+  fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+  boxprops = dict(edgecolor='k')
+  medianprops = dict(linestyle='-', linewidth=2, color='k')
+  box = sns.boxplot(x="stimulus", y='metric', color='white', palette=combined_stimulus_colors, data=df, showfliers=True, boxprops=boxprops, medianprops=medianprops) # , boxprops=dict(alpha=.6)
+  box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+  if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+    box_patches = ax.artists
+  num_patches = len(box_patches)
+  lines_per_boxplot = len(ax.lines) // num_patches
+  for i, patch in enumerate(box_patches):
+    # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+    col = patch.get_facecolor()
+    patch.set_edgecolor(col)
+    patch.set_facecolor('None')
+    patch.set_linewidth(2)
+    # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+    # Loop over them here, and use the same color as above
+    for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      line.set_color(col)
+      line.set_mfc(col)  # facecolor of fliers
+      line.set_mec(col)  # edgecolor of fliers
+  
+  sns.stripplot(
+      x="stimulus", 
+      y='metric', 
+      palette=combined_stimulus_colors,
+      data=df, dodge=True, alpha=0.6
+  )
+  # ax.boxplot(weighted_purity, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+  nolinebreak = [name.replace('\n', ' ') for name in combined_stimulus_names]
+  plt.xticks([])
+  # plt.xticks(list(range(len(nolinebreak))), nolinebreak, rotation=90)
+  # ax.xaxis.set_tick_params(labelsize=18)
+  ax.yaxis.set_tick_params(labelsize=18)
+  xlabel = 'stimulus'
+  ax.set_xlabel(xlabel)
+  ylabel = 'clustering coefficient'
+  ax.set_ylabel(ylabel)
+  # ax.set_xscale('log')
+  ax.set_xlabel(ax.get_xlabel(), fontsize=20,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.xaxis.set_tick_params(length=0)
+  ax.yaxis.set_tick_params(length=0)
+  plt.savefig('./plots/{}.pdf'.format(metric_name))
+  return df
+
+metric_name = 'clustering'
+df = plot_metric(G_ccg_dict, metric_name)
 #%%
 def chord_diagram_region_connection(G_dict, area_dict, regions):
   hv.extension('matplotlib')
