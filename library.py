@@ -26,6 +26,8 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 from matplotlib import colors
 import matplotlib.gridspec as gridspec
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import matplotlib.font_manager as fm
 import statsmodels.stats.weightstats as ws
 from statsmodels.stats.multitest import multipletests, fdrcorrection
 import networkx as nx
