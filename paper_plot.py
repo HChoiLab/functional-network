@@ -1774,7 +1774,6 @@ def get_purity_ri(G_dict, area_dict, max_pos_reso=None, max_neg_reso=None):
       data = {}
       G = G_dict[row][col].copy()
       node_area = area_dict[row]
-      
       max_reso = max_neg_reso[row_ind][col_ind]
       comms_list = comms_dict[row][col][max_reso]
       regions = [node_area[node] for node in sorted(G.nodes())]   
@@ -1872,166 +1871,190 @@ def plot_weighted_purity_rand_index(df):
   # plt.show()
 
 plot_weighted_purity_rand_index(purity_ri_df)
-#%%
-def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
-  rows, cols = get_rowcol(G_dict)
-  if max_pos_reso is None:
-    max_pos_reso = np.ones((len(rows), len(cols)))
+# %%
+def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions, max_neg_reso=None):
+  rows, cols = get_rowcol(comms_dict)
   if max_neg_reso is None:
     max_neg_reso = np.ones((len(rows), len(cols)))
-  fig, ax = plt.subplots(figsize=(6, 4))
-  weighted_purity = []
+  df = pd.DataFrame()
   for col_ind, col in enumerate(cols):
     print(col)
-    w_purity_col = []
-    for row_ind, row in enumerate(rows):
-      data = {}
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
-      comms = signed_louvain_communities(G, weight='weight', pos_resolution=max_pos_reso[row_ind, col_ind], neg_resolution=max_neg_reso[row_ind, col_ind])
-      sizes = [len(comm) for comm in comms]
-      for comm, size in zip(comms, sizes):
-        c_regions = [area_dict[row][node] for node in comm]
-        _, counts = np.unique(c_regions, return_counts=True)
-        assert len(c_regions) == size == counts.sum()
-        purity = counts.max() / size
-        if size in data:
-          data[size].append(purity)
-        else:
-          data[size] = [purity]
-      c_size, c_purity = [k for k,v in data.items() if k >= 4], [v for k,v in data.items() if k >= 4]
-      c_size = np.array(c_size) / sum(c_size)
-      w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
-    weighted_purity.append(w_purity_col)
-  boxprops = dict(facecolor='white', edgecolor='.2')
-  medianprops = dict(linestyle='-', linewidth=1.5, color='k')
-  ax.boxplot(weighted_purity, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-  plt.xticks(list(range(1, len(weighted_purity)+1)), stimulus_labels)
-  ax.xaxis.set_tick_params(labelsize=14)
-  ax.yaxis.set_tick_params(labelsize=14)
-  ylabel = 'weighted purity'
-  ax.set_ylabel(ylabel)
-  # ax.set_xscale('log')
-  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
-  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    size_col, purity_col, coverage_col = [], [], []
+    for row_ind, row in enumerate(session2keep):
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      G = G_dict[row][col]
+      all_regions = [area_dict[row][node] for node in G.nodes()]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      lr_size = region_counts.max()
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        data = []
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          # _, counts = np.unique(c_regions, return_counts=True)
+          counts = np.array([c_regions.count(r) for r in regions])
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          data.append((size, purity, coverage))
+        size_col += [s/lr_size for s,p,c in data if s>=4]
+        purity_col += [p for s,p,c in data if s>=4]
+        coverage_col += [c for s,p,c in data if s>=4]
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array(coverage_col)[:,None], np.array([stimulus2stype(col)[1]] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'coverage', 'stimulus type'])], ignore_index=True)
+  df['community size'] = pd.to_numeric(df['community size'])
+  df['purity'] = pd.to_numeric(df['purity'])
+  df['coverage'] = pd.to_numeric(df['coverage'])
+  return df
+
+df = get_purity_coverage_comm_size(G_ccg_dict, comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
+# plt.savefig(image_name)
+#%%
+####################### jointplot of purity VS community size
+def jointplot_purity_coverage_comm_size(df, name='purity'):
+  g = sns.JointGrid()
+  ax = g.ax_joint
+  palette = {s:c for s, c in zip(stimulus_types, stimulus_type_color)}
+  for st_ind, stimulus_type in enumerate(stimulus_types[::-1]):
+    data = df[df['stimulus type']==stimulus_type]
+    x, y = data['community size'], data[name]
+    ax.scatter(x, y, facecolors=stimulus_type_color[len(stimulus_type_color)-1-st_ind], linewidth=.5, s=70, edgecolors='white', alpha=.6)
+  sns.kdeplot(data=df, x='community size', hue='stimulus type', palette=stimulus_type_color, fill=False, linewidth=2, ax=g.ax_marg_x, legend=False, common_norm=False)
+  sns.kdeplot(data=df, y=name, hue='stimulus type', palette=stimulus_type_color, linewidth=2, ax=g.ax_marg_y, legend=False, common_norm=False)
+  ax.set_xscale('log')
+  # ax.set_yscale('log')
+  ax.set_xlabel('Relative community size', fontsize=20,color='k') #, weight='bold'
+  ax.set_ylabel(name.capitalize(), fontsize=20,color='k') #, weight='bold'
+  ax.xaxis.set_tick_params(labelsize=18)
+  ax.yaxis.set_tick_params(labelsize=18)
+  # change dots to empty circles for seaborn scatter
+  kws = {"s": 90, "linewidth": 1.5}
+  handles, labels = zip(*[
+      (plt.scatter([], [], fc=color, ec='white', **kws), key) for key, color in palette.items()
+  ]) #, ec=color
+  # ax.legend(handles, labels, title="cat")
+  # handles, labels = ax.get_legend_handles_labels()
+  if name == 'purity':
+    ax.legend(handles, labels, title='', bbox_to_anchor=(.6, 1.), handletextpad=-0.1, loc='upper left', fontsize=15, frameon=False)
+  for ax in [g.ax_joint, g.ax_marg_x, g.ax_marg_y]:
+    for axis in ['bottom', 'left', 'top', 'right']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.tick_params(width=1.5)
+  # plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/joint_{}_comm_size.pdf'.format(name), transparent=True)
+
+jointplot_purity_coverage_comm_size(df, name='purity')
+jointplot_purity_coverage_comm_size(df, name='coverage')
+#%%
+def get_mean_purity_coverage_Hcommsize_col(G_dict, comms_dict, area_dict, regions, max_neg_reso=None):
+  rows, cols = get_rowcol(comms_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  purity_dict, coverage_dict = {}, {}
+  for col_ind, col in enumerate(cols):
+    print(col)
+    purity_data, coverage_data = [], []
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      all_regions = [area_dict[row][node] for node in G.nodes()]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      lr_size = region_counts.max()
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        for comm, size in zip(comms, sizes):
+          if size >= 4:
+            c_regions = [area_dict[row][node] for node in comm]
+            # _, counts = np.unique(c_regions, return_counts=True)
+            counts = np.array([c_regions.count(r) for r in regions])
+            assert len(c_regions) == size == counts.sum()
+            purity = counts.max() / size
+            coverage = (counts / region_counts).max()
+            purity_data.append((size / lr_size, purity))
+            coverage_data.append((size / lr_size, coverage))
+    purity_dict[stimulus2stype(col)[1]] = purity_data
+    coverage_dict[stimulus2stype(col)[1]] = coverage_data
+  return purity_dict, coverage_dict
+
+purity_dict, coverage_dict = get_mean_purity_coverage_Hcommsize_col(G_ccg_dict, comms_dict, area_dict, visual_regions, max_neg_reso=None)
+#%%
+def double_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [x[digitized == i].mean() for i in range(1, len(bins))]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity'):
+  fig, ax = plt.subplots(1, 1, figsize=(9, 6))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  if name == 'purity':
+    data = purity_dict
+  else:
+    data = coverage_dict
+  for col_ind, col in enumerate(data):
+    if max([i for i, j in data[col]]) <= 1:
+      x, y = np.array([s for s, d in data[col]]), np.array([d for s, d in data[col]])
+      ox, oy = None, None
+      numbin = 20
+    else:
+      x, y = np.array([s for s, d in data[col] if s <= 1]), np.array([d for s, d in data[col] if s <= 1])
+      ox, oy = np.array([s for s, d in data[col] if s > 1]), np.array([d for s, d in data[col] if s > 1])
+      numbin = 16
+    binned_x, binned_y = double_binning(x, y, numbin=numbin, log=True)
+    xy = np.array([binned_x, binned_y])
+    xy = xy[:, ~np.isnan(xy).any(axis=0)]
+    binned_x, binned_y = xy[0], xy[1]
+    # x = [(a + b) / 2 for a, b in zip(bins[:-1], bins[1:])]
+    # print(binned_x, binned_y)
+    ax.scatter(binned_x, binned_y, color=stimulus_type_color[col_ind], label=col, marker='^', s=100, alpha=1)
+    if (ox is not None) and (oy is not None):
+      binned_ox, binned_oy = double_binning(ox, oy, numbin=5, log=True)
+      oxy = np.array([binned_ox, binned_oy])
+      oxy = oxy[:, ~np.isnan(oxy).any(axis=0)]
+      binned_ox, binned_oy = oxy[0], oxy[1]
+      ax.scatter(binned_ox, binned_oy, color=stimulus_type_color[col_ind], label=col, marker='^', s=100, alpha=.4)
+    
+    slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(binned_x),binned_y)
+    line = slope*np.log10(binned_x)+intercept
+    locx, locy = .8, .3
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+    ax.plot(binned_x, line, color=stimulus_type_color[col_ind], linestyle='-', linewidth=4, alpha=.8) # (5,(10,3))
+    # ax.text(locx, locy, text, horizontalalignment='center',
+    #   verticalalignment='center', transform=ax.transAxes, fontsize=18)
+    
+    # coef = np.polyfit(np.log10(binned_x), binned_y, 1)
+    # poly1d_fn = np.poly1d(coef) 
+    # ax.plot(binned_x, poly1d_fn(binned_x), '-', color=stimulus_type_color[col_ind], alpha=.8, linewidth=3) #'--k'=black dashed line
+  ax.axvline(x=1, linewidth=3, color='.2', linestyle='--', alpha=.4)
+  plt.xscale('log')
+  plt.xlabel('Relative community size', fontsize=30)
+  plt.ylabel(name.capitalize(), fontsize=30)
+  plt.xticks(fontsize=25)
+  plt.yticks(fontsize=25)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('0.2')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
-  image_name = './plots/weighted_Hcomm_purity_{}.pdf'.format(max_method)
+  image_name = './plots/mean_{}_comm_size_col.pdf'.format(name)
+  plt.savefig(image_name, transparent=True)
   # plt.show()
-  plt.savefig(image_name)
-  return weighted_purity
 
-weighted_purity_config = plot_weighted_Hcomm_purity(G_ccg_dict, area_dict, measure, n, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config, max_method='config')
-# %%
-def plot_2Ddist_Hcommsize(G_dict, comms_dict, area_dict, measure, n, max_neg_reso=None, max_method='none', kind='scatter'):
-  rows, cols = get_rowcol(comms_dict)
-  if max_neg_reso is None:
-    max_neg_reso = np.ones((len(rows), len(cols)))
-  fig, ax = plt.subplots(figsize=(3, 3))
-  df = pd.DataFrame()
-  for col_ind, col in enumerate(cols):
-    print(col)
-    size_col = []
-    purity_col = []
-    for row_ind, row in enumerate(rows):
-      max_reso = max_neg_reso[row_ind][col_ind]
-      comms_list = comms_dict[row][col][max_reso]
-      G = G_dict[row][col]
-      all_regions = [area_dict[row][node] for node in G.nodes()]
-      _, counts = np.unique(all_regions, return_counts=True)
-      lr_size = counts.max()
-      for comms in comms_list: # 100 repeats
-        sizes = [len(comm) for comm in comms]
-        data = []
-        for comm, size in zip(comms, sizes):
-          c_regions = [area_dict[row][node] for node in comm]
-          _, counts = np.unique(c_regions, return_counts=True)
-          assert len(c_regions) == size == counts.sum()
-          # purity = counts.max() / size
-          purity = counts.max() / min(lr_size, size)
-          data.append((size, purity))
-        size_col += [s/lr_size for s,p in data if s>=4]
-        purity_col += [p for s,p in data if s>=4]
-    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array([stimulus2stype(col)[1]] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'stimulus type'])], ignore_index=True)
-  df['community size'] = pd.to_numeric(df['community size'])
-  df['purity'] = pd.to_numeric(df['purity'])
-  return df
-  
-  palette = {st:sc for st, sc in zip(stimulus_types, stimulus_type_color)}
-  kws = {"facecolor": "0", "linewidth": 1.5}
-  if kind == 'scatter':
-    plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='scatter', edgecolor=df["stimulus type"].map(palette), alpha=0.7, **kws)
-  elif kind == 'kde':
-    plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='kde', ylim=(0.13, 1.0), log_scale=[True, False], alpha=0.7)
-  plot.ax_marg_x.set_xlim(-5, 250)
-  plot.ax_marg_y.set_ylim(0.1, 1.05)
-  ax.xaxis.set_tick_params(labelsize=14)
-  ax.yaxis.set_tick_params(labelsize=14)
-  ylabel = 'purity'
-  ax.set_ylabel(ylabel)
-  # ax.set_xscale('log')
-  ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
-  ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
-  for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('0.2')
-  # ax.spines['top'].set_visible(False)
-  # ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
-
-  plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
-  plt.tight_layout()
-  image_name = './plots/dist2D_Hcomm_size_{}_{}.pdf'.format(kind, max_method)
-  # plt.show()
-  plt.savefig(image_name)
-
-df = plot_2Ddist_Hcommsize(G_ccg_dict, comms_dict, area_dict, measure, n, max_neg_reso=max_reso_config, max_method='config', kind='scatter')
-# %%
-# fig, ax = plt.subplots(figsize=(3, 3))
-palette = {st:sc for st, sc in zip(stimulus_types, stimulus_type_color)}
-joint_kws = {"linewidth": 1., 'fc':'none',
-      'edgecolor':df["stimulus type"].map(palette),
-      'alpha':0.3,
-      'height':10}
-plot = sns.jointplot(data=df, x='community size', y='purity', hue='stimulus type', kind='scatter', legend = False, **joint_kws)
-
-scatter_kws = {"fc": "none", "linewidth": 1.}
-handles, labels = zip(*[
-    (plt.scatter([], [], ec=color, **scatter_kws), key) for key, color in palette.items()
-])
-# ax = plt.gca()
-# ax.legend(handles, labels, title="", loc='upper left', frameon=False)
-# plot.ax_marg_x.set_xlim(-5, 250)
-plot.ax_marg_y.set_ylim(0.1, 1.05)
-
-plt.xlabel('relative community size', fontsize=18)
-plt.ylabel('purity', fontsize=18)
-plt.tick_params(axis="both", labelsize=18)
-plt.legend(handles, labels, title="", loc='upper left', frameon=False, fontsize=20)
-
-# ax.xaxis.set_tick_params(labelsize=14)
-# ax.yaxis.set_tick_params(labelsize=14)
-# ylabel = 'purity'
-# ax.set_ylabel(ylabel)
-# # ax.set_xscale('log')
-# ax.set_xlabel(ax.get_xlabel(), fontsize=20,color='k') #, weight='bold'
-# ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
-# for axis in ['bottom', 'left']:
-#   ax.spines[axis].set_linewidth(1.5)
-#   ax.spines[axis].set_color('0.2')
-# # ax.spines['top'].set_visible(False)
-# # ax.spines['right'].set_visible(False)
-# ax.tick_params(width=1.5)
-
-# plt.suptitle('{} 2D distribution of community size'.format(max_method), size=18)
-plt.tight_layout()
-# image_name = './plots/dist2D_Hcomm_size_{}_{}.pdf'.format(kind, max_method)
-plt.show()
-# plt.savefig(image_name)
+plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity')
+plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='coverage')
 # %%
 def rand_index_community_region_allnodes(comms_dict, area_dict, max_neg_reso=None):
   fig, ax = plt.subplots(figsize=(6, 4))
@@ -2224,7 +2247,7 @@ def occupancy_community_perregion(comms_dict, area_dict, regions, max_neg_reso=N
             region_distri = [region_distri[i] for i in large_comm_indx if region_distri[i] > 0]
             entropy_list.append(safe_division(entropy(region_distri, base=2), entropy([1] * len(region_distri), base=2))) # normalized entropy
         if len(num_comm_list):
-          df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(num_comm_list))[:,None], np.array([region] * len(num_comm_list))[:,None], np.array(num_comm_list)[:,None], np.array(comm_size_list)[:,None], np.array(occupancy_list)[:,None], np.array(leadership_list)[:,None], np.array(purity_list)[:,None], np.array(entropy_list)[:,None]), 1), columns=['stimulus', 'region', 'number of communities', 'community size', 'occupancy', 'leadership', 'purity', 'entropy'])], ignore_index=True)
+          df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([combine_stimulus(col)[1]] * len(num_comm_list))[:,None], np.array([region] * len(num_comm_list))[:,None], np.array(num_comm_list)[:,None], np.array(comm_size_list)[:,None], np.array(occupancy_list)[:,None], np.array(leadership_list)[:,None], np.array(purity_list)[:,None], np.array(entropy_list)[:,None]), 1), columns=['combined stimulus', 'region', 'number of communities', 'community size', 'occupancy', 'leadership', 'purity', 'entropy'])], ignore_index=True)
 
         # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(num_comm_list))[:,None], np.array([region] * len(num_comm_list))[:,None], np.array(['number of communities'] * len(num_comm_list))[:,None], np.array(num_comm_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
         # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array([col] * len(comm_size_list))[:,None], np.array([region] * len(comm_size_list))[:,None], np.array(['community size'] * len(comm_size_list))[:,None], np.array(comm_size_list)[:,None]), 1), columns=['stimulus', 'region', 'type', 'metric'])], ignore_index=True)
@@ -2243,38 +2266,46 @@ def occupancy_community_perregion(comms_dict, area_dict, regions, max_neg_reso=N
 df = occupancy_community_perregion(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
 def plot_data_per_region(df, regions):
-  names = ['community size', 'occupancy', 'leadership', 'purity', 'entropy']
+  # names = ['community size', 'occupancy', 'leadership', 'purity', 'entropy']
+  names = ['occupancy', 'leadership', 'purity', 'entropy']
+  # names = ['purity', 'entropy']
   for name1, name2 in itertools.combinations(names, 2):
-    fig, axes = plt.subplots(2, 4, figsize=(15, 7))
-    for s_ind, stimulus_name in enumerate(stimulus_names):
-      i, j = s_ind // 4, s_ind % 4
-      ax = axes[i, j]
+    if (name1 != 'community size') and (name2 != 'community size'):
+      sharex, sharey = False, False
+    fig, axes = plt.subplots(1, 6, figsize=(24.5, 4), sharex=sharex, sharey=sharey)
+    axes[0].set_ylabel(name2.capitalize())
+    axes[0].set_ylabel(axes[0].get_ylabel(), fontsize=20,color='k') #, weight='bold'
+    for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      ax = axes[s_ind]
       for r_ind, region in enumerate(regions):
-        mat = df[(df['stimulus']==stimulus_name) & (df['region']==region)][[name1, name2]].values
+        mat = df[(df['combined stimulus']==combined_stimulus_name) & (df['region']==region)][[name1, name2]].values
         if mat.size:
           x, y = mat[:,0], mat[:,1]
-          ax.scatter(x, y, facecolors='none', linewidth=.2, edgecolors=region_colors[r_ind], alpha=.5)
+          ax.scatter(x, y, facecolors='none', linewidth=.2, edgecolors=region_colors[r_ind], alpha=.7)
           ax.scatter(np.mean(x), np.mean(y), facecolors='none', linewidth=3., marker='^', s=200, edgecolors=region_colors[r_ind])
-      ax.set_title(stimulus_name)
-      ax.set_xlabel(name1)
-      ax.set_ylabel(name2)
-      ax.xaxis.set_tick_params(labelsize=14)
-      ax.yaxis.set_tick_params(labelsize=14)
-      ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
-      ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+      ax.set_title(combined_stimulus_name.replace('\n', ' '), fontsize=20)
+      ax.set_xlabel(name1.capitalize())
+      
+      ax.xaxis.set_tick_params(labelsize=16)
+      ax.yaxis.set_tick_params(labelsize=16)
+      ax.set_xlabel(ax.get_xlabel(), fontsize=20,color='k') #, weight='bold'
       for axis in ['bottom', 'left']:
         ax.spines[axis].set_linewidth(1.5)
         ax.spines[axis].set_color('0.2')
       ax.spines['top'].set_visible(False)
       ax.spines['right'].set_visible(False)
       ax.tick_params(width=1.5)
+      if (name1 != 'community size') and (name2 != 'community size'):
+        ax.set_xlim(-.05, 1.05)
+        ax.set_ylim(-.05, 1.05)
+      ax.plot(np.arange(*ax.get_xlim(),.1), np.arange(*ax.get_ylim(),.1), linewidth=3, color='.2', linestyle='--', alpha=.4)
     for r_ind, region in enumerate(regions):
       ax.scatter([], [], facecolors='none', linewidth=2, edgecolors=region_colors[r_ind], label=region)
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, title='', bbox_to_anchor=(.9, 1.), loc='upper left', fontsize=12, frameon=False)
+    ax.legend(handles, labels, title='', bbox_to_anchor=(.9, 1.), handletextpad=-0.1, loc='upper left', fontsize=16, frameon=False)
     plt.tight_layout()
     plt.savefig('./plots/{}_{}.pdf'.format(name1.replace(' ', '_'), name2.replace(' ', '_')), transparent=True)
-    plt.show()
+    # plt.show()
 
 plot_data_per_region(df, visual_regions)
 # %%
