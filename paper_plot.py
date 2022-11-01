@@ -1,7 +1,6 @@
 # %%
 ############################## figure for publication ##############################
 ##############################                        ##############################
-from logging.config import fileConfig
 from library import *
 
 plt.rcParams['font.family'] = 'serif'
@@ -639,7 +638,7 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
   # remove extra legend handles
   handles, labels = ax.get_legend_handles_labels()
   ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.7, 1.), loc='upper left', fontsize=20, frameon=False)
-  plt.setp(ax.get_legend().get_texts()) #, weight='bold'
+  # plt.setp(ax.get_legend().get_texts()) #, weight='bold'
   
   plt.yticks(fontsize=18) #,  weight='bold'
   plt.ylabel(y.capitalize())
@@ -1760,6 +1759,119 @@ max_reso = max_reso_gnm[row_ind][col_ind]
 hamiltonian = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], 0]
 comms_list = comms_dict[row][col][max_reso]
 plot_example_graphs_largest_comms(G_ccg_dict, hamiltonian, comms_list[2], area_dict, active_area_dict, visual_regions, row, col, measure, n, False)
+#%%
+def get_purity_ri(G_dict, area_dict, max_pos_reso=None, max_neg_reso=None):
+  rows, cols = get_rowcol(G_dict)
+  if max_pos_reso is None:
+    max_pos_reso = np.ones((len(rows), len(cols)))
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    w_purity_col, ri_list = [], []
+    for row_ind, row in enumerate(rows):
+      data = {}
+      G = G_dict[row][col].copy()
+      node_area = area_dict[row]
+      
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      regions = [node_area[node] for node in sorted(G.nodes())]   
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        for comm, size in zip(comms, sizes):
+          c_regions = [node_area[node] for node in comm]
+          _, counts = np.unique(c_regions, return_counts=True)
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          if size in data:
+            data[size].append(purity)
+          else:
+            data[size] = [purity]
+        c_size, c_purity = [k for k,v in data.items() if k >= 4], [v for k,v in data.items() if k >= 4]
+        c_size = np.array(c_size) / sum(c_size)
+        w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
+        
+        assert len(regions) == len(comm2label(comms)), '{}, {}'.format(len(regions), len(comm2label(comms)))
+        # print(len(regions), len(comm2label(comms)))
+        ri_list.append(adjusted_rand_score(regions, comm2label(comms)))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_purity_col)[:,None], np.array(['weighted purity'] * len(w_purity_col))[:,None], np.array([combine_stimulus(col)[1]] * len(w_purity_col))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ri_list)[:,None], np.array(['rand index'] * len(ri_list))[:,None], np.array([combine_stimulus(col)[1]] * len(ri_list))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+  df['data'] = pd.to_numeric(df['data'])
+  return df
+
+purity_ri_df = get_purity_ri(G_ccg_dict, area_dict, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config)
+#%%
+################# plot weighted purity and rand index across stimuli
+def plot_weighted_purity_rand_index(df):
+  fig, ax = plt.subplots(1, 1, figsize=(12, 5))
+  palette = ['#f6e8c3', '#c7eae5']
+  boxprops = dict(edgecolor='k')
+  medianprops = dict(linestyle='-', linewidth=4, color='k')
+  width = .5 # for box and strip
+  boxplot = sns.boxplot(x='combined stimulus', y='data', hue="type", width=width, palette=palette, data=df, ax=ax, boxprops=boxprops, medianprops=medianprops) #, palette=palette
+  boxplot.set(xlabel=None)
+  sns.stripplot(
+      x="combined stimulus", 
+      y='data', 
+      hue="type",
+      palette=palette,
+      data=df, dodge=True, width=width, alpha=0.15, ax=ax
+  )
+  ax.yaxis.set_tick_params(labelsize=30)
+  # plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles[:2], labels[:2], title='', bbox_to_anchor=(1., 1.), fontsize=20, frameon=False)
+  for p, artist in enumerate(ax.artists):
+    # artist.set_edgecolor('blue')
+    for q in range(p*6, p*6+6):
+      line = ax.lines[q]
+      # line.set_color('pink')
+    ax.lines[p*6+2].set_xdata(ax.lines[p*6+4].get_xdata())
+    ax.lines[p*6+3].set_xdata(ax.lines[p*6+4].get_xdata())
+  box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+  if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+    box_patches = ax.artists
+  num_patches = len(box_patches)
+  lines_per_boxplot = len(ax.lines) // num_patches
+  for i, patch in enumerate(box_patches):
+    # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+    col = patch.get_facecolor()
+    patch.set_edgecolor(col)
+    patch.set_facecolor('None')
+    patch.set_linewidth(4)
+    # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+    # Loop over them here, and use the same color as above
+    for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      line.set_color(col)
+      line.set_mfc(col)  # facecolor of fliers
+      line.set_mec(col)  # edgecolor of fliers
+  for legpatch in ax.legend_.get_patches():
+    col = legpatch.get_facecolor()
+    legpatch.set_edgecolor(col)
+    legpatch.set_facecolor('None')
+    legpatch.set_linewidth(3)
+  # plt.setp(ax.get_legend().get_texts()) #, weight='bold'
+  plt.yticks(fontsize=22) #,  weight='bold'
+  ax.set_ylabel('', fontsize=0,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.5)
+  # plt.yscale('log')
+  ax.set(xlabel=None)
+  plt.xticks(ticks=range(len(combined_stimulus_names)), labels=combined_stimulus_names, fontsize=22) #, weight='bold'
+  # plt.xticks([])
+  ax.xaxis.set_tick_params(length=0)
+  plt.tight_layout()
+  plt.savefig('./plots/purity_ri.pdf', transparent=True)
+  # plt.show()
+
+plot_weighted_purity_rand_index(purity_ri_df)
 #%%
 def plot_weighted_Hcomm_purity(G_dict, area_dict, measure, n, max_pos_reso=None, max_neg_reso=None, max_method='none'):
   rows, cols = get_rowcol(G_dict)
