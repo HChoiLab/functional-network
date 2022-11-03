@@ -5,7 +5,7 @@ from library import *
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams["font.serif"] = ["Times New Roman"]
-combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], 'drifting_gratings', 'static_gratings', 'natural_scenes', ['natural_movie_one', 'natural_movie_three']]
+combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
 combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
 combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bebada', '#bebada', '#fb8072', '#fb8072']
 # plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
@@ -20,14 +20,6 @@ stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ng
 region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
 model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
-
-def stimulus2stype(stimulus):
-  t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
-  return t_ind, stimulus_types[t_ind]
-
-def combine_stimulus(stimulus):
-  t_ind = [i for i in range(len(combined_stimulus)) if stimulus in combined_stimulus[i]][0]
-  return t_ind, combined_stimulus_names[t_ind]
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 cortical_inds = get_cortical_inds(active_area_dict, visual_regions)
@@ -182,7 +174,10 @@ def get_best_ccg(directory, n=7, sign='pos'):
   for duration in sorted(uniq_durations):
     locs = np.where(np.array(duration2plot)==duration)[0]
     if sign == 'pos':
-      ind = np.argmax(conf2plot[locs])
+      if duration == 0:
+        ind = np.argpartition(conf2plot[locs], -40)[-40]
+      else:
+        ind = np.argmax(conf2plot[locs])
     elif sign == 'neg':
       ind = np.argmin(conf2plot[locs])
     h_indx.append(inds_2plot[locs[ind]])
@@ -2429,7 +2424,7 @@ mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
 plot_zscore_distribution(whole_df, measure, n)
 #%%
 def plot_zscore_all_motif(df, model_name):
-  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
+  stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
   fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(100, 6*len(stimulus_order)))
   TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
@@ -2438,7 +2433,7 @@ def plot_zscore_all_motif(df, model_name):
     print(stimulus)
     data = df[df.stimulus==stimulus]
     ax = axes[s_ind]
-    ax.set_title(stimulus_labels[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
+    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
     barplot = sns.barplot(data=data, x="signed motif type", y="intensity z score", order=sorted_types, ax=ax)
     ax.xaxis.set_tick_params(labelsize=35, rotation=90)
     ax.yaxis.set_tick_params(labelsize=35)
@@ -2447,7 +2442,8 @@ def plot_zscore_all_motif(df, model_name):
       ax.spines[axis].set_color('0.2')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=1.5)
+    ax.tick_params(width=2.5)
+    ax.xaxis.set_tick_params(length=0)
     ax.set_ylabel('Z score of intensity', fontsize=40)
     # ax.set_ylim(top=60)
     # plt.yscale('symlog')
@@ -2463,8 +2459,8 @@ for df_ind, df in enumerate(dfs):
   plot_zscore_all_motif(df, model_names[df_ind])
 #%%
 def plot_zscore_allmotif_lollipop(df, model_name):
-  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
-  fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(30, 3*len(stimulus_order)))
+  stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
+  fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(50, 3*len(stimulus_order)))
   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
   motif_types = TRIAD_NAMES[3:]
@@ -2476,46 +2472,37 @@ def plot_zscore_allmotif_lollipop(df, model_name):
     data = df[df.stimulus==stimulus]
     data = data.groupby('signed motif type').mean()
     ax = axes[s_ind]
-    ax.set_title(stimulus_labels[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
     for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
       color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
-      ax.plot([t,t], [0,y], color=color, marker="o", linewidth=4, markersize=12, markevery=(1,2))
+      ax.plot([t,t], [0,y], color=color, marker="o", linewidth=7, markersize=20, markevery=(1,2))
     ax.set_xlim(-.5,len(sorted_types)+.5)
-    ax.set_xticks(motif_loc)
-    ax.set_xticklabels(labels=motif_types)
-    ax.xaxis.set_tick_params(labelsize=35, rotation=90)
+    ax.set_xticks([])
+    # ax.set_xticks(motif_loc)
+    # ax.set_xticklabels(labels=motif_types)
+    # ax.xaxis.set_tick_params(labelsize=35, rotation=90)
     ax.yaxis.set_tick_params(labelsize=35)
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(1.5)
       ax.spines[axis].set_color('0.2')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=1.5)
+    ax.tick_params(width=2.5)
+    ax.xaxis.set_tick_params(length=0)
     ax.set_ylabel('Z score', fontsize=40)
-    plt.yscale('symlog')
-    # ax.set_ylim(-10, 20)
+    if model_names.index(model_name) <= 1:
+      plt.yscale('symlog')
+    else:
+      ax.set_ylim(-13, 23)
   plt.tight_layout()
   figname = './plots/zscore_all_motifs_lollipop_{}.pdf'.format(model_name.replace(' ', '_'))
   # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname, transparent=True)
   # plt.show()
-  
-  # motif_types = TRIAD_NAMES[3:]
-  # motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
-  # fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(20, 6))
-  # palette = [plt.cm.tab20(i) for i in range(13)]
-  # for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
-  #   color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
-  #   ax.plot([t,t], [0,y], color=color, marker="o", markevery=(1,2))
-  # ax.set_xlim(-.5,len(sorted_types)+.5)
-  # # plt.setp(ax.get_xticklabels(), rotation=90)
-  # plt.xticks(motif_loc, motif_types)
-  # fig.tight_layout()
-  # plt.show()
 
 # plot_zscore_allmotif_lollipop(whole_df)
 dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
-dfs = [whole_df1, whole_df2]
+# dfs = [whole_df1]
 for df_ind, df in enumerate(dfs):
   plot_zscore_allmotif_lollipop(df, model_names[df_ind])
 #%%
@@ -3143,32 +3130,36 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, regions, maxstep
   np.random.seed(1)
   # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
   # fig = plt.figure(figsize=(5*len(cols), 4*len(regions)))
-  fig, axes = plt.subplots(len(regions), len(cols), figsize=(5*len(cols), 4*len(regions)), sharex=True, sharey=True)
+  fig, axes = plt.subplots(len(regions), len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 3*len(regions)), sharex=True, sharey=True)
   axes[0, 0].set_ylim(0, 1) # sharey=True propagates it to all plots
-  for col_ind, col in enumerate(cols):
-    print(col)
+  for s_ind, c_stimulus in enumerate(combined_stimulus):
+    print(c_stimulus)
     steady_distribution = np.zeros((len(regions), 2, len(regions)))
     s_distri = {r:[] for r in regions}
-    for row_ind, row in enumerate(session2keep):
-      G = G_dict[row][col]
-      areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
-      _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
-      plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
-      area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+    for col in c_stimulus:
+      for row_ind, row in enumerate(session2keep):
+        G = G_dict[row][col]
+        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
+        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
+        plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
+        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
+        for region_ind, region in enumerate(regions):
+          s_distri[region].append(state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, :].mean(0))
       for region_ind, region in enumerate(regions):
-        s_distri[region].append(state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, :].mean(0))
-    for region_ind, region in enumerate(regions):
-      steady_distribution[region_ind, 0] = np.vstack((s_distri[region])).mean(0)
-      steady_distribution[region_ind, 1] = np.vstack((s_distri[region])).std(0)
+        steady_distribution[region_ind, 0] = np.vstack((s_distri[region])).mean(0)
+        steady_distribution[region_ind, 1] = np.vstack((s_distri[region])).std(0)
     for i in range(len(regions)):
-      ax = axes[i, col_ind]
-      if col_ind == 0:
+      ax = axes[i, s_ind]
+      if s_ind == 0:
         ax.text(0, .5, region_labels[i], size=35, color='k', ha='center', va='center')
-        ax.set_ylabel('fraction', fontsize=32, color='k') #, weight='bold'
+        ax.set_ylabel('Fraction', fontsize=32, color='k') #, weight='bold'
       if i == 0:
-        ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
+        ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+      elif i == len(regions) - 1:
+        ax.set_xlabel('Source area', fontsize=32, color='k') #, weight='bold'
       # ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      ax.bar(range(len(regions)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=0.6, ecolor='black', color=region_colors, capsize=10)
+      colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.4) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for c_ind, color in enumerate(region_colors)]
+      ax.bar(range(len(regions)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=1., ecolor='black', color=colors_transparency, capsize=10)
       ax.set_xticks(range(len(regions)))
       ax.set_xticklabels(region_labels, fontsize=25)
       for axis in ['bottom', 'left']:
@@ -3188,29 +3179,33 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20
   np.random.seed(1)
   # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
   # fig = plt.figure(figsize=(5*len(cols), 4))
-  fig, axes = plt.subplots(1, len(cols), figsize=(5*len(cols), 4), sharex=True, sharey=True)
-  axes[0].set_ylim(0, 4) # sharey=True propagates it to all plots
-  for col_ind, col in enumerate(cols):
-    print(col)
-    # dominance_score = np.zeros((len(regions), 2))
+  fig, axes = plt.subplots(1, len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 4), sharex=True, sharey=True)
+  axes[0].set_ylim(0, 1) # sharey=True propagates it to all plots
+  for s_ind, c_stimulus in enumerate(combined_stimulus):
+    print(c_stimulus)
+    steady_distribution = np.zeros((len(regions), 2, len(regions)))
+    s_distri = {r:[] for r in regions}
     dominance_score = []
     s_score = []
-    for row_ind, row in enumerate(session2keep):
-      G = G_dict[row][col]
-      _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
-      s_score.append(state_variation[:, -1, :].mean(0) / state_variation[:, 0, :].mean(0))
+    for col in c_stimulus:
+      # dominance_score = np.zeros((len(regions), 2))
+      for row_ind, row in enumerate(session2keep):
+        G = G_dict[row][col]
+        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
+        s_score.append(state_variation[:, -1, :].mean(0)) # / state_variation[:, 0, :].mean(0)
     # dominance_score[:, 0] = np.vstack((s_score)).mean(0)
     # dominance_score[:, 1] = np.vstack((s_score)).std(0)
     dominance_score = np.vstack((s_score)).T.tolist()
-    ax = axes[col_ind]
+    ax = axes[s_ind]
     # ax = plt.subplot(1, len(cols), col_ind+1)
-    ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
     # ax.barplot(range(len(regions)), dominance_score[:, 0], yerr=dominance_score[:, 1], align='center', alpha=0.6, ecolor='black', color=region_colors, capsize=10)
     boxprops = dict(facecolor='white', edgecolor='k')
     medianprops = dict(linestyle='-', linewidth=2.5, color='k')
-    bplot = ax.boxplot(dominance_score, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-    for patch, color in zip(bplot['boxes'], region_colors):
-      patch.set_edgecolor(color)
+    bplot = ax.boxplot(dominance_score, showfliers=False, widths=.4, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+    # colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.4) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for c_ind, color in enumerate(region_colors)]
+    # for patch, color in zip(bplot['boxes'], region_colors):
+    #   patch.set_edgecolor(color)
     ax.set_xticks(range(1, len(regions)+1))
     ax.set_xticklabels(region_labels, fontsize=25)
     for axis in ['bottom', 'left']:
@@ -3219,8 +3214,8 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.yaxis.set_tick_params(labelsize=28)
-    if col_ind == 0:
-      ax.set_ylabel('dominance', fontsize=32, color='k') #, weight='bold'
+    if s_ind == 0:
+      ax.set_ylabel('Mean fraction', fontsize=30, color='k') #, weight='bold'
 
     box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
     if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
@@ -3229,16 +3224,16 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20
     lines_per_boxplot = len(ax.lines) // num_patches
     for i, patch in enumerate(box_patches):
       # Set the linecolor on the patch to the facecolor, and set the facecolor to None
-      color = patch.get_edgecolor()
-      patch.set_edgecolor(color)
+      # color = patch.get_edgecolor()
+      # patch.set_edgecolor(color)
       patch.set_facecolor('None')
       patch.set_linewidth(4)
       # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
       # Loop over them here, and use the same color as above
-      for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
-        line.set_color(color)
-        line.set_mfc(color)  # facecolor of fliers
-        line.set_mec(color)  # edgecolor of fliers
+      # for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      #   line.set_color(color)
+      #   line.set_mfc(color)  # facecolor of fliers
+      #   line.set_mec(color)  # edgecolor of fliers
   plt.tight_layout()
   plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}.pdf'.format(epsilon), transparent=True)
   # plt.show()
