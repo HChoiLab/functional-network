@@ -1474,8 +1474,15 @@ def load_area_speed(session_ids, stimulus_names, regions):
       area_dict[mouseID][i] = instruction.ccf.iloc[i]
     for stimulus_name in stimulus_names:
       print(stimulus_name)
-      stim_table = session.get_stimulus_table([stimulus_name])
+      if (stimulus_name=='flash_light') or (stimulus_name=='flash_dark'):
+        stim_table = session.get_stimulus_table(['flashes'])
+      else:
+        stim_table = session.get_stimulus_table([stimulus_name])
       stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+      if stimulus_name=='flash_light':
+        stim_table = stim_table[stim_table['color']==1]
+      elif stimulus_name=='flash_dark':
+        stim_table = stim_table[stim_table['color']==-1]
       if 'natural_movie' in stimulus_name:
         frame_times = stim_table.End-stim_table.Start
         print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
