@@ -1896,8 +1896,8 @@ purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_reg
 #%%
 ################# plot weighted purity and rand index across stimuli
 def plot_weighted_purity_coverage_rand_index(df):
-  fig, axes = plt.subplots(1, 3, figsize=(18, 3))
-  dnames = ['weighted purity', 'weighted coverage', 'rand index']
+  fig, axes = plt.subplots(1, 3, figsize=(20, 2))
+  dnames = ['weighted coverage', 'weighted purity', 'rand index']
   # axes[0].set_yticks(range(len(combined_stimulus_names)))
   # axes[0].set_yticklabels(labels=combined_stimulus_names)
   # axes[0].yaxis.set_tick_params(labelsize=25, rotation=90)
@@ -1911,24 +1911,24 @@ def plot_weighted_purity_coverage_rand_index(df):
     y = np.arange(len(combined_stimulus_names))
     # ax.scatter(x, y, s=150,color=combined_stimulus_colors)
     for xi, yi, erri, ci in zip(x, y, err, combined_stimulus_colors):
-      ax.errorbar(xi, yi, xerr=erri, fmt="o", ms=15, linewidth=5,color=ci)
+      ax.errorbar(xi, yi, xerr=erri, fmt="o", ms=12, linewidth=2.,color=ci)
     ax.set(ylabel=None)
     ax.yaxis.set_tick_params(length=0)
-    ax.set_ylim(-.5, len(combined_stimulus_names)-.5)
+    ax.set_ylim(-.8, len(combined_stimulus_names)-.2)
     ax.invert_yaxis()
     ax.set_yticks([])
-    ax.xaxis.set_tick_params(labelsize=22)
+    ax.xaxis.set_tick_params(labelsize=24)
   # nolinebreak = [name.replace('\n', ' ') for name in combined_stimulus_names]
   # plt.yticks(ticks=, labels=, fontsize=25, rotation=90, va='center')
   # plt.xticks(fontsize=20)
   # plt.ylabel(y)
     ax.set_xlabel('')
     for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_linewidth(1.5)
       ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=2.)
+    ax.tick_params(width=1.5)
   plt.tight_layout()
   plt.savefig('./plots/purity_coverage_ri.pdf', transparent=True)
   # plt.show()
