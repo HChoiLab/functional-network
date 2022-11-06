@@ -1705,11 +1705,12 @@ def jointplot_purity_coverage_comm_size(df, name='purity'):
   sns.kdeplot(data=df, x='community size', hue='stimulus type', palette=stimulus_type_color, fill=False, linewidth=2, ax=g.ax_marg_x, legend=False, common_norm=False)
   sns.kdeplot(data=df, y=name, hue='stimulus type', palette=stimulus_type_color, linewidth=2, ax=g.ax_marg_y, legend=False, common_norm=False)
   ax.set_xscale('log')
+  print(ax.get_xlim())
   # ax.set_yscale('log')
   ax.set_xlabel('') #, weight='bold'
   ax.set_ylabel('') #, weight='bold'
-  ax.xaxis.set_tick_params(labelsize=18)
-  ax.yaxis.set_tick_params(labelsize=18)
+  ax.xaxis.set_tick_params(labelsize=20)
+  ax.yaxis.set_tick_params(labelsize=20)
   # change dots to empty circles for seaborn scatter
   kws = {"s": 90, "linewidth": 1.5}
   handles, labels = zip(*[
@@ -1724,7 +1725,7 @@ def jointplot_purity_coverage_comm_size(df, name='purity'):
       ax.spines[axis].set_linewidth(2.)
       ax.spines[axis].set_color('k')
     ax.tick_params(width=2.)
-  # plt.tight_layout()
+  plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/joint_{}_comm_size.pdf'.format(name), transparent=True)
 
@@ -1819,11 +1820,12 @@ def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, 
     # poly1d_fn = np.poly1d(coef) 
     # ax.plot(binned_x, poly1d_fn(binned_x), '-', color=stimulus_type_color[col_ind], alpha=.8, linewidth=3) #'--k'=black dashed line
   ax.axvline(x=1, linewidth=3, color='.2', linestyle='--', alpha=.4)
+  ax.set_xlim(0.0603483134041287, 5.478847527784104)
   plt.xscale('log')
   plt.xlabel('')
   plt.ylabel('')
-  plt.xticks(fontsize=22)
-  plt.yticks(fontsize=22)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(2.)
     ax.spines[axis].set_color('k')
@@ -2368,7 +2370,7 @@ def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
   fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(4, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
   for s_ind, stimulus_name in enumerate(combined_stimulus_names):
     ax = axes[s_ind]
-    ax.set_title(stimulus_name.replace('\n', ' '), fontsize=20, rotation=0)
+    ax.set_title(stimulus_name.replace('\n', ' '), fontsize=15, rotation=0)
     all_pair_count = defaultdict(lambda: [])
     for col in combined_stimulus[s_ind]:
       for row in rows:
@@ -2384,12 +2386,15 @@ def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
         all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
     # ax.set_ylabel('Relative count')
     triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
-    boxprops = dict(color="black",linewidth=2.)
-    medianprops = dict(color="black",linewidth=2.)
+    box_color = '.2'
+    boxprops = dict(color=box_color,linewidth=1.5)
+    medianprops = dict(color=box_color,linewidth=1.5)
     box_plot = ax.boxplot(triad_counts, showfliers=False, patch_artist=True, boxprops=boxprops,medianprops=medianprops)
     # for median in box_plot['medians']:
     #   median.set_color('black')
     #   median.set_linewidth(3)
+    for item in ['boxes', 'whiskers', 'fliers', 'medians', 'caps']:
+      plt.setp(box_plot[item], color=box_color)
     for patch in box_plot['boxes']:
       patch.set_facecolor('none')
       ax.set_xticks([])
@@ -2397,20 +2402,21 @@ def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
     ax.hlines(1, xmin=left, xmax=right, color='.5', alpha=.6, linestyles='--', linewidth=2)
     # plt.hlines(1, color='r', linestyles='--')
     if log:
-      plt.yscale('log')
+      ax.set_yscale('log')
     # ax.xaxis.set_tick_params(labelsize=18)
     ax.yaxis.set_tick_params(labelsize=18)
     # ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
-    ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
+    ax.set_ylabel('', fontsize=20,color='k') #, weight='bold'
     for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('0.2')
+      ax.spines[axis].set_linewidth(1.)
+      ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=1.5)
-  fig=axes[0].figure
-  fig.text(0.03,0.5, "Relative count", fontsize=20, ha="center", va="center", rotation=90)
-  plt.tight_layout(rect=[0.03, 0., .97, 1.])
+    ax.tick_params(width=1.)
+  fig.subplots_adjust(hspace=.7) #wspace=0.2
+  # fig=axes[0].figure
+  # fig.text(0.02,0.5, "Relative count", fontsize=20, ha="center", va="center", rotation=90)
+  # plt.tight_layout(rect=[0.05, 0., .99, 1.])
   image_name = './plots/relative_count_signed_pair.pdf'
   # plt.show()
   plt.savefig(image_name, transparent=True)
@@ -2506,20 +2512,20 @@ for df_ind, df in enumerate(dfs):
   plot_zscore_all_motif(df, model_names[df_ind])
 #%%
 def plot_zscore_allmotif_lollipop(df, model_name):
-  stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
-  fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(50, 3*len(stimulus_order)))
+  # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
+  fig, axes = plt.subplots(len(combined_stimulus_names),1, sharex=True, sharey=True, figsize=(50, 3*len(combined_stimulus_names)))
   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
   motif_types = TRIAD_NAMES[3:]
   motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
   # palette = [plt.cm.tab20(i) for i in range(13)]
   palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
-  for s_ind, stimulus in enumerate(stimulus_order):
-    print(stimulus)
-    data = df[df.stimulus==stimulus]
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
     data = data.groupby('signed motif type').mean()
     ax = axes[s_ind]
-    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    # ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
     for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
       color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
       ax.plot([t,t], [0,y], color=color, marker="o", linewidth=7, markersize=20, markevery=(1,2))
@@ -2528,17 +2534,18 @@ def plot_zscore_allmotif_lollipop(df, model_name):
     # ax.set_xticks(motif_loc)
     # ax.set_xticklabels(labels=motif_types)
     # ax.xaxis.set_tick_params(labelsize=35, rotation=90)
-    ax.yaxis.set_tick_params(labelsize=35)
+    ax.yaxis.set_tick_params(labelsize=45)
     for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('0.2')
+      ax.spines[axis].set_linewidth(4.5)
+      ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=2.5)
+    ax.tick_params(width=4.5)
     ax.xaxis.set_tick_params(length=0)
-    ax.set_ylabel('Z score', fontsize=40)
+    ax.set_ylabel('')
+    # ax.set_ylabel('Z score', fontsize=40)
     if model_names.index(model_name) <= 1:
-      plt.yscale('symlog')
+      ax.set_yscale('symlog')
     else:
       ax.set_ylim(-13, 23)
   plt.tight_layout()
@@ -2549,13 +2556,188 @@ def plot_zscore_allmotif_lollipop(df, model_name):
 
 # plot_zscore_allmotif_lollipop(whole_df)
 dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
-# dfs = [whole_df1]
-for df_ind, df in enumerate(dfs):
-  plot_zscore_allmotif_lollipop(df, model_names[df_ind])
+# for df_ind, df in enumerate(dfs):
+df_ind = 3
+plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 #%%
+######################## Spearman's r of Z score
+def plot_zscoreVSrank(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharex=True, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  # palette = [plt.cm.tab20(i) for i in range(13)]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  data_dict = {}
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    
+    data_dict[combined_stimulus_name] = data.loc[sorted_types, "intensity z score"].values.flatten()
+  X = data_dict['Drifting\ngratings']
+  ind = 0
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    if combined_stimulus_name != 'Drifting\ngratings':
+      ax = axes[ind]
+      ind += 1
+      Y = data_dict[combined_stimulus_name]
+      ax.scatter(X, Y)
+      r_value, p_value = spearmanr(X, Y)
+      locx, locy = .5, .8
+      text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+      ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=30)
+      ax.xaxis.set_tick_params(labelsize=25)
+      ax.yaxis.set_tick_params(labelsize=25)
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(1.5)
+        ax.spines[axis].set_color('k')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=1.5)
+      ax.xaxis.set_tick_params(length=0)
+      ax.set_ylabel('')
+  plt.tight_layout()
+  figname = './plots/zscore_rank.pdf'
+  plt.savefig(figname, transparent=True)
+  # plt.show()
+
+plot_zscoreVSrank(whole_df4)
+#%%
+from scipy.stats import kendalltau
+######################## Heatmap of Spearman's r of Z score
+def plot_heatmap_spearman_zscore(df, name='spearmanr'):
+  fig, ax = plt.subplots(1,1, figsize=(5.6,5))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  # palette = [plt.cm.tab20(i) for i in range(13)]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  data_dict = {}
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    data_dict[combined_stimulus_name] = data.loc[sorted_types, "intensity z score"].values.flatten()
+  hm_z = np.zeros((len(combined_stimulus_names), len(combined_stimulus_names)))
+  hm_z[:] = np.nan
+  for cs1, cs2 in itertools.permutations(range(len(combined_stimulus_names)),2):
+    if name == 'spearmanr':
+      hm_z[cs1, cs2] = spearmanr(data_dict[combined_stimulus_names[cs1]], data_dict[combined_stimulus_names[cs2]])[0]
+    elif name == 'kendalltau':
+      hm_z[cs1, cs2] = kendalltau(data_dict[combined_stimulus_names[cs1]], data_dict[combined_stimulus_names[cs2]])[0]
+  # mask = np.triu(hm_z)
+  hm = sns.heatmap(hm_z, ax=ax, cmap='Greys_r', cbar=True, annot=True, annot_kws={'fontsize':12})#, mask=mask
+  ax.set_xticks(0.5 + np.arange(len(combined_stimulus_names)))
+  ax.set_xticklabels(labels=combined_stimulus_names, fontsize=12)
+  ax.set_yticks(0.5 + np.arange(len(combined_stimulus_names)))
+  ax.set_yticklabels(labels=combined_stimulus_names, fontsize=12)
+  ax.xaxis.tick_top()
+  # hm.set(yticklabels=[])
+  # hm.set(ylabel=None)
+  hm.tick_params(left=False)  # remove the ticks
+  hm.tick_params(bottom=False)
+  hm.tick_params(top=False)
+  fig.tight_layout()
+  plt.savefig('./plots/heatmap_{}_zscore.pdf'.format(name), transparent=True)
+  # plt.show()
+
+# plot_heatmap_spearman_zscore(whole_df4, name='spearmanr')
+plot_heatmap_spearman_zscore(whole_df4, name='kendalltau')
+#%%
+######################## Heatmap of Pearson Correlation r of Z score
+def plot_heatmap_correlation_zscore(df):
+  fig, ax = plt.subplots(1,1, figsize=(5.6,5))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  data_mat = np.zeros((len(combined_stimulus_names), len(sorted_types)))
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    data_mat[s_ind] = data.loc[sorted_types, "intensity z score"].values.flatten()
+  # hm_z = np.zeros((len(combined_stimulus_names), len(combined_stimulus_names)))
+  # hm_z[:] = np.nan
+  # for cs1, cs2 in itertools.permutations(range(len(combined_stimulus_names)),2):
+  #   hm_z[cs1, cs2] = spearmanr(data_dict[combined_stimulus_names[cs1]], data_dict[combined_stimulus_names[cs2]])[0]
+  # mask = np.triu(hm_z)
+  hm_z = np.corrcoef(data_mat)
+  np.fill_diagonal(hm_z, np.nan)
+  hm = sns.heatmap(hm_z, ax=ax, cmap='Greys_r', vmin=0, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':14})#, mask=mask
+  cbar = hm.collections[0].colorbar
+  cbar.ax.tick_params(labelsize=20)
+  ax.set_xticks(0.5 + np.arange(len(combined_stimulus_names)))
+  ax.set_xticklabels(labels=combined_stimulus_names, fontsize=12)
+  ax.set_yticks(0.5 + np.arange(len(combined_stimulus_names)))
+  ax.set_yticklabels(labels=combined_stimulus_names, fontsize=12)
+  ax.xaxis.tick_top()
+  # hm.set(yticklabels=[])
+  # hm.set(ylabel=None)
+  hm.tick_params(left=False)  # remove the ticks
+  hm.tick_params(bottom=False)
+  hm.tick_params(top=False)
+  fig.tight_layout()
+  plt.savefig('./plots/heatmap_correlation_zscore.pdf', transparent=True)
+  # plt.show()
+
+plot_heatmap_correlation_zscore(whole_df4)
+#%%
+######################## Number of significant motifs against threshold
+def plot_sig_motif_threshold(df, threshold_list):
+  # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
+  # stimulus_order = [s for s in stimulus_types if df[df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type].stimulus.str.contains(s).sum()]
+  num_pos, num_neg = np.zeros((len(stimulus_types), len(threshold_list))), np.zeros((len(stimulus_types), len(threshold_list)))
+  fig, ax = plt.subplots(figsize=[8,6])
+  linewidth=2.5
+  for s_ind, stimulus_type in enumerate(stimulus_types):
+    print(stimulus_type)
+    # data = df[df.stimulus==stimulus]
+    data = df[df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type]
+    for t_ind, threshold in enumerate(threshold_list):
+      num_pos[s_ind, t_ind] = len(data[data['intensity z score']>=threshold])
+      num_neg[s_ind, t_ind] = len(data[data['intensity z score']<=-threshold])
+    ax.plot(threshold_list, num_neg[s_ind, :], color=stimulus_type_color[s_ind], linestyle=(0, (5,1)), alpha=.9, linewidth=linewidth)
+    ax.plot(threshold_list, num_pos[s_ind, :], label=stimulus_type, color=stimulus_type_color[s_ind], alpha=.9, linewidth=linewidth)
+  # plt.legend(loc='lower left', frameon=False)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, [sn.replace('\n', ' ') for sn in stimulus_types], title='', loc='lower left', fontsize=7, frameon=False)#, bbox_to_anchor=(.9, 1.)
+  ax.set_xscale('log')
+  ax.set_yscale('log')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xlabel('Threshold', fontsize=25)
+  plt.ylabel('Number of significant motifs', fontsize=25)
+  axins = inset_axes(ax, loc='upper right', width="28%", # width = 30% of parent_bbox
+                   height="35%") # height : 1 inch)
+  # mark_inset(ax, axins, loc1=1, loc2=1, fc="none", ec="0.5")
+  axins.set_xlim([3,18])
+  axins.set_ylim([.8,18])
+  # # Plot zoom window
+  for s_ind, stimulus_type in enumerate(stimulus_types):
+    axins.plot(threshold_list, num_neg[s_ind, :], color=stimulus_type_color[s_ind], linestyle=(0, (5,1)), alpha=.9, linewidth=linewidth)
+    axins.plot(threshold_list, num_pos[s_ind, :], label=stimulus_type, color=stimulus_type_color[s_ind], alpha=.9, linewidth=linewidth)
+  axins.spines['top'].set_visible(False)
+  axins.spines['right'].set_visible(False)
+  plt.yscale('log')
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  # plt.tight_layout()
+  plt.savefig('./plots/sig_motif_threshold.pdf', transparent=True)
+  # plt.show()
 ################## number of significant motif VS threshold
 threshold_list = np.arange(0.1, 21, 0.1)
-plot_sig_motif_threshold(mean_df, threshold_list, measure, n)
+plot_sig_motif_threshold(mean_df4, threshold_list)
 #%%
 ################## regional distribution of significant motifs 030T+,120D+,120U+,120C+,210+,300+
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
@@ -2613,53 +2795,88 @@ def plot_motif_region_bar(region_count_dict, signed_motif_types):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
-  ax.set_ylabel('Proportion of all V1 neurons', fontsize=30)
+  ax.set_ylabel('Fraction of all V1 neurons', fontsize=30)
   plt.tight_layout()
   plt.savefig('./plots/bar_motif_region.pdf', transparent=True)
 
 plot_motif_region_bar(region_count_dict, sig_motif_types)
 # %%
+from matplotlib.patches import PathPatch
+
+def adjust_box_widths(g, fac):
+  # iterating through Axes instances
+  for ax in g.axes:
+    # iterating through axes artists:
+    for c in ax.get_children():
+      # searching for PathPatches
+      if isinstance(c, PathPatch):
+        # getting current width of box:
+        p = c.get_path()
+        verts = p.vertices
+        verts_sub = verts[:-1]
+        xmin = np.min(verts_sub[:, 0])
+        xmax = np.max(verts_sub[:, 0])
+        xmid = 0.5*(xmin+xmax)
+        xhalf = 0.5*(xmax - xmin)
+        # setting new width of box
+        xmin_new = xmid-fac*xhalf
+        xmax_new = xmid+fac*xhalf
+        verts_sub[verts_sub[:, 0] == xmin, 0] = xmin_new
+        verts_sub[verts_sub[:, 0] == xmax, 0] = xmax_new
+        # setting new width of median line
+        for l in ax.lines:
+          if np.all(l.get_xdata() == [xmin, xmax]):
+            l.set_xdata([xmin_new, xmax_new])
+
 def plot_motif_region_box(region_count_dict, signed_motif_types):
   rows, cols = get_rowcol(region_count_dict)
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(2*len(cols), 6))
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(3*len(combined_stimulus_names), 6))
   df = pd.DataFrame()
   palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [8,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
   for mt_ind, signed_motif_type in enumerate(signed_motif_types):
     print(signed_motif_type)
-    for col_ind, col in enumerate(cols):
-      for row_ind, row in enumerate(rows):
-        region_com = {}
-        VISp_data, rest_data = [], []
-        region_count = region_count_dict[row][col]
-        for k in region_count:
-          if signed_motif_type in k:
-            rs = k.replace(signed_motif_type, '')
-            region_com[rs] = region_com.get(rs, 0) + region_count[k]
-        VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
-        rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
-          # if sum(region_com.values()):
-          #   VISp_data.append(safe_division(region_com.get('VISp_VISp_VISp', 0), sum(region_com.values())))
-          #   rest_data.append(safe_division(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']), sum(region_com.values())))
-        # if (col == 'natural_movie_one') and (signed_motif_type=='300++++++'):
-        #   print(VISp_data)
-        #   print(rest_data)
-        summ = sum(VISp_data) + sum(rest_data)
-        if summ >= 5: # othewise flashes will disappear
-          VISp_data = [sum(VISp_data)/summ]
-          rest_data = [sum(rest_data)/summ]
-          # VISp_data = [d/summ for d in VISp_data]
-          # rest_data = [d/summ for d in rest_data]
-          df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array([signed_motif_type] * len(VISp_data))[:,None], np.array([col] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
-          df['probability'] = pd.to_numeric(df['probability'])
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      for col in combined_stimulus[cs_ind]:
+        for row_ind, row in enumerate(rows):
+          region_com = {}
+          VISp_data, rest_data = [], []
+          region_count = region_count_dict[row][col]
+          for k in region_count:
+            if signed_motif_type in k:
+              rs = k.replace(signed_motif_type, '')
+              region_com[rs] = region_com.get(rs, 0) + region_count[k]
+          VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
+          rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
+            # if sum(region_com.values()):
+            #   VISp_data.append(safe_division(region_com.get('VISp_VISp_VISp', 0), sum(region_com.values())))
+            #   rest_data.append(safe_division(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']), sum(region_com.values())))
+          # if (col == 'natural_movie_one') and (signed_motif_type=='300++++++'):
+          #   print(VISp_data)
+          #   print(rest_data)
+          summ = sum(VISp_data) + sum(rest_data)
+          if summ >= 5: # othewise flashes will disappear
+            VISp_data = [sum(VISp_data)/summ]
+            rest_data = [sum(rest_data)/summ]
+            # VISp_data = [d/summ for d in VISp_data]
+            # rest_data = [d/summ for d in rest_data]
+            df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array([signed_motif_type] * len(VISp_data))[:,None], np.array([combined_stimulus_name] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+            df['probability'] = pd.to_numeric(df['probability'])
   # ax.set_title(signed_motif_type, fontsize=30, rotation=0)
   # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
-  boxplot = sns.boxplot(x='stimulus', y='probability', hue="type", data=df, palette=palette, ax=ax)
+  medianprops = dict(linestyle='-', linewidth=4)
+  boxplot = sns.boxplot(x='stimulus', y='probability', hue="type", data=df, palette=palette, ax=ax, medianprops=medianprops)
+
+  adjust_box_widths(fig, 0.7)
   boxplot.set(xlabel=None)
   ax.yaxis.set_tick_params(labelsize=30)
-  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
-  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(stimulus_labels)), stimulus_labels, fontsize=30)
-
+  # plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='lower left', fontsize=22, frameon=False)#, bbox_to_anchor=(.9, 1.)
+  ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='upper center',
+   bbox_to_anchor=(0.5, 1.2), ncol=6, columnspacing=4., fontsize=22, frameon=False)
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=30)
+  ax.xaxis.set_tick_params(length=0)
   box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
   if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
     box_patches = ax.artists
@@ -2682,15 +2899,15 @@ def plot_motif_region_box(region_count_dict, signed_motif_types):
     col = legpatch.get_facecolor()
     legpatch.set_edgecolor(col)
     legpatch.set_facecolor('None')
-    legpatch.set_linewidth(3)
+    legpatch.set_linewidth(3.5)
 
   for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('0.2')
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('k')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
-  ax.set_ylabel('Proportion of all V1 neurons', fontsize=30)
+  ax.tick_params(width=2.5)
+  ax.set_ylabel('Fraction of all V1 neurons', fontsize=30)
   plt.tight_layout()
   plt.savefig('./plots/box_motif_region.pdf', transparent=True)
   # plt.show()
@@ -2700,7 +2917,6 @@ plot_motif_region_box(region_count_dict, sig_motif_types)
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
   df['density'] = 0
-  stimulus_order = [s for s in stimulus_names if df.stimulus.str.contains(s).sum()]
   TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
@@ -2710,48 +2926,45 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
   rows, cols = get_rowcol(G_dict)
   fig, ax = plt.subplots(figsize=(5, 5))
-  for col_ind, col in enumerate(cols):
-    for row_ind, row in enumerate(rows):
+  for row_ind, row in enumerate(rows):
+    for col in cols:
       G = G_dict[row][col]
       df.loc[(df['session']==row) & (df['stimulus']==col), 'density'] = nx.density(G)
   df['density'] = pd.to_numeric(df['density'])
   df['intensity z score'] = df['intensity z score'].abs()
   X, Y = [], []
-  for st_ind, stype in enumerate(stimulus_by_type):
-    x, y = [], []
-    for s_ind, stimulus in enumerate(stimulus_order):
-      if stimulus in stype:
-        print(stimulus)
-        data = df[df.stimulus==stimulus]
-        data = data.groupby(['stimulus', 'session']).mean()
-        # print(data['density'].values)
-        x += data['density'].values.tolist()
-        y += data['intensity z score'].values.tolist()
+  for st_ind, stimulus_type in enumerate(stimulus_types):
+    print(stimulus_type)
+    data = df[df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type]
+    data = data.groupby(['stimulus', 'session']).mean()
+    # print(data['density'].values)
+    x = data['density'].values.tolist()
+    y = data['intensity z score'].values.tolist()
     X += x
     Y += y
-    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=1.)
+    ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=.9, linewidths=2)
   X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
   X, Y = np.array(X), np.array(Y)
   slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
   line = slope*np.log10(X)+intercept
-  locx, locy = .8, .2
+  locx, locy = .8, .1
   text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
   ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
   # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
   ax.text(locx, locy, text, horizontalalignment='center',
-     verticalalignment='center', transform=ax.transAxes, fontsize=16)
-  plt.legend(loc='upper left', fontsize=14, frameon=False)
+     verticalalignment='center', transform=ax.transAxes, fontsize=20)
+  # plt.legend(loc='upper left', fontsize=14, frameon=False)
   ax.xaxis.set_tick_params(labelsize=20)
   ax.yaxis.set_tick_params(labelsize=20)
   plt.xlabel('Density')
-  ylabel = 'Average Z score'
+  ylabel = 'Average |Z|'
   plt.xscale('log')
   plt.ylabel(ylabel)
   ax.set_xlabel(ax.get_xlabel(), fontsize=22,color='k') #, weight='bold'
   ax.set_ylabel(ax.get_ylabel(), fontsize=22,color='k') #, weight='bold'
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('0.2')
+    ax.spines[axis].set_color('k')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
@@ -3047,7 +3260,7 @@ def circular_lollipop(df, signed_motif_types):
     )
   plt.show()
 
-GREY = 'silver'
+GREY = '.6'
 circular_lollipop(whole_df4, signed_motif_types4)
 #%%
 ####################### make sure all dfs have same signed motif types
@@ -3068,7 +3281,7 @@ whole_df2, signed_motif_types2 = add_missing_motif_type(whole_df2, signed_motif_
 whole_df3, signed_motif_types3 = add_missing_motif_type(whole_df3, signed_motif_types3, signed_motif_types)
 whole_df4, signed_motif_types4 = add_missing_motif_type(whole_df4, signed_motif_types4, signed_motif_types)
 # %%
-GREY = 'silver'
+GREY = '.5'
 motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
 
 def scale_to_interval(origin_x, low=1, high=100, logscale=False):
@@ -3095,40 +3308,50 @@ def single_circular_lollipop(data, ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7
   ax.set_xticks([])
   ax.set_yticklabels([])
   HANGLES = np.linspace(0, 2 * np.pi, 200)
-  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY, lw=lw0)
-  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY, lw=lw0)
-  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY, lw=lw0)
-  linoffset, logoffset = 2, 1.5
-  if not logscale:
-    ax.text(np.pi, linoffset + 1 + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
-    ax.text(np.pi, posgrid + linoffset + PLUS, str(posgrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
-    ax.text(np.pi, neggrid + linoffset + PLUS, str(neggrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
-  else:
-    ax.text(np.pi/2, logoffset + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
-    ax.text(np.pi/2, posgrid + logoffset + PLUS, str(round(np.power(2, posgrid))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
-    if ind == 0:
-      theta = np.pi
-    else:
-      theta = np.pi/2
-    ax.text(theta, neggrid + logoffset - .5 + PLUS, str(round(-np.power(2, abs(neggrid)))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=20)
+  ls = (0, (5, 5))
+  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY, lw=lw0, linestyle=(0, (5, 1)))
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY, lw=lw0, linestyle=ls) # needs to be denser
+  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY, lw=lw0, linestyle=ls)
+  # add text to scale circle
+  # linoffset, logoffset = 5, 2.
+  # if not logscale:
+  #   ax.text(np.pi, linoffset + 2 + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  #   ax.text(np.pi, posgrid + linoffset + PLUS, str(posgrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  #   ax.text(np.pi, neggrid + linoffset + PLUS, str(neggrid), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  # else:
+  #   ax.text(np.pi/2, logoffset + PLUS, '0', color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  #   ax.text(np.pi/2, posgrid + logoffset + PLUS, str(round(np.power(2, posgrid))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  #   if ind == 0:
+  #     theta = np.pi
+  #   else:
+  #     theta = np.pi/2
+  #   ax.text(theta, neggrid + logoffset - .5 + PLUS, str(round(-np.power(2, abs(neggrid)))), color= GREY, horizontalalignment='center', verticalalignment='center', fontsize=25)
+  print(ax.get_ylim())
+  if ind == 0:
+    ax.set_ylim([-5, 11]) # increase 
+  elif ind == 1:
+    ax.set_ylim(top = 8.5)
+  elif ind == 2:
+    ax.set_ylim([-7, 20])
+  elif ind == 3:
+    ax.set_ylim([-7, 21])
   # Highlight above threshold motifs
-  hl_idx = HEIGHTS >= posgrid
-  hl_label = np.array(sorted_types)[hl_idx]
-  hl_x = ANGLES[hl_idx]
-  if not logscale:
-    hl_y = HEIGHTS[hl_idx] + 4
-  else:
-    hl_y = HEIGHTS[hl_idx] + 2
-  hl_colors = np.array(COLORS)[hl_idx]
-  for i in range(len(hl_label)):
-    ax.text(
-        x=hl_x[i], y=hl_y[i], s=hl_label[i], color=hl_colors[i],
-        ha="center", va="center", ma="center", size=10,
-        weight="bold"
-    )
+  # hl_idx = HEIGHTS >= posgrid
+  # hl_label = np.array(sorted_types)[hl_idx]
+  # hl_x = ANGLES[hl_idx]
+  # if not logscale:
+  #   hl_y = HEIGHTS[hl_idx] + 4
+  # else:
+  #   hl_y = HEIGHTS[hl_idx] + 2
+  # hl_colors = np.array(COLORS)[hl_idx]
+  # for i in range(len(hl_label)):
+  #   ax.text(
+  #       x=hl_x[i], y=hl_y[i], s=hl_label[i], color=hl_colors[i],
+  #       ha="center", va="center", ma="center", size=10,
+  #       weight="bold")
 
 def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_three'):
-  fig, axes = plt.subplots(2, 2, figsize=(10, 10), subplot_kw={"projection": "polar"})
+  fig, axes = plt.subplots(1, 4, figsize=(20, 7), subplot_kw={"projection": "polar"})
   fig.patch.set_facecolor("white")
   sorted_types = [sorted([smotif for smotif in df1['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
@@ -3139,31 +3362,33 @@ def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_thr
   dfs = [df1, df2, df3, df4]
   for df_ind, df in enumerate(dfs):
     print(df_ind)
-    i, j = df_ind // 2, df_ind % 2
-    ax = axes[i, j]
+    # i, j = df_ind // 2, df_ind % 2
+    # ax = axes[i, j]
+    ax = axes[df_ind]
     data = df[df.stimulus==stimulus_name]
     data = data.groupby('signed motif type').mean()
     zscores = data.loc[sorted_types, "intensity z score"].values.tolist()
-    neggrid, posgrid, low, high, logscale = -5, 10, 1, 100, False
+    neggrid, posgrid, low, high, logscale = -5, 10, 0, 200, False
     if df_ind == 0: # manual logscale
       signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
       zscores = np.log2(np.abs(zscores)) * signs
       neggrid = - np.log2(10)
       posgrid = np.log2(100)
-      low=0
-      high=210
+      # low=0
+      high=600
       logscale = True
     elif df_ind == 1:
       signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
       zscores = np.log2(np.abs(zscores)) * signs
       neggrid = - np.log2(10)
       posgrid = np.log2(20)
-      low=0
-      high=160
+      # low=0
+      high=300
       logscale = True
     # print(zscores)
-    single_circular_lollipop(zscores, df_ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7, neggrid=neggrid, posgrid=posgrid, low=low, high=high, logscale=logscale)
-    ax.set_title(model_names[df_ind], fontsize=20)
+    single_circular_lollipop(zscores, df_ind, sorted_types, COLORS, ax, lwv=2.5, lw0=3., neggrid=neggrid, posgrid=posgrid, low=low, high=high, logscale=logscale)
+    ax.set_title(model_names[df_ind], fontsize=25)
+  fig.subplots_adjust(wspace=0.) #
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/circular_lollipop_multimodel.pdf', transparent=True)
