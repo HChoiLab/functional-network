@@ -1612,7 +1612,7 @@ def plot_graph_community(G_dict, row_ind, col_ind, comms_dict, max_reso):
   max_reso = max_reso[row_ind][col_ind]
   comms_list = comms_dict[row][col][max_reso]
   comms = comms_list[0]
-  node_to_community = comm2partition([comm for comm in comms if len(comm)>=6])
+  node_to_community = comm2partition([comm for comm in comms if len(comm)>=4])
   between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
   comms2plot = get_unique_elements(between_community_edges.keys())
   nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
@@ -1631,24 +1631,27 @@ def plot_graph_community(G_dict, row_ind, col_ind, comms_dict, max_reso):
       G2plot[edge[0]][edge[1]]['weight'] = 1
     else:
       G2plot[edge[0]][edge[1]]['weight'] = -1
-  # Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-  #       node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
-  #       node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-  #       edge_layout='straight', edge_layout_kwargs=dict(k=1),
-  #       origin=(0, 0), scale=(1.6, 1.6),
-  #       node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax) # bundled
-  Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-        node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-        node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-        edge_layout='straight', edge_layout_kwargs=dict(k=1),
-        origin=(-1, -1), scale=(.8, .8),
-        node_origin=np.array([0, 0]), node_scale=np.array([3.7, 3.7]), ax=ax) # bundled
+  
+  if col_ind == 3:
+    Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+          node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
+          node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+          edge_layout='straight', edge_layout_kwargs=dict(k=1),
+          origin=(-1, -1), scale=(.8, .8),
+          node_origin=np.array([0, 0]), node_scale=np.array([3.7, 3.7]), ax=ax) # bundled
+  else:
+    Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+          node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
+          node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+          edge_layout='straight', edge_layout_kwargs=dict(k=1),
+          origin=(0, 0), scale=(1.6, 1.6),
+          node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax) # bundled
   plt.savefig('./plots/graph_topology_{}_{}.pdf'.format(row, col), transparent=True)
   # plt.show()
 
 row_ind = 7
 # col_ind = 6
-for col_ind in range(3,4):
+for col_ind in range(8):
   print(col_ind)
   start_time = time.time()
   plot_graph_community(G_ccg_dict, row_ind, col_ind, comms_dict, max_reso_config)
@@ -2745,6 +2748,33 @@ region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_typ
 # #%%
 # ################## plot regional distribution of significant motifs
 # plot_sig_motif_region(region_count_dict, sig_motif_types)
+#%%
+################## community distribution of significant motifs
+def get_motif_comm_census(G_dict, area_dict, signed_motif_types):
+  rows, cols = get_rowcol(G_dict)
+  region_count_dict = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    node_area = area_dict[row]
+    region_count_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      region_count_dict[row][col] = {}
+      G = G_dict[row][col]
+      motifs_by_type = find_triads(G) # faster
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+          if smotif_type == signed_motif_type:
+            region = get_motif_region(motif, node_area, motif_type)
+            # print(smotif_type, region)
+            region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
+      region_count_dict[row][col] = dict(sorted(region_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
+  return region_count_dict
+
+
 #%%
 def plot_motif_region_bar(region_count_dict, signed_motif_types):
   rows, cols = get_rowcol(region_count_dict)
