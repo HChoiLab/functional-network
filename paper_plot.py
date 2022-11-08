@@ -1604,58 +1604,126 @@ def _find_between_community_edges(edges, node_to_community):
 
   return between_community_edges
 
-def plot_graph_community(G_dict, row_ind, col_ind, comms_dict, max_reso):
+def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
-  row, col = rows[row_ind], cols[col_ind]
-  G = G_dict[row][col]
-  nx.set_node_attributes(G, active_area_dict[row], "area")
-  max_reso = max_reso[row_ind][col_ind]
-  comms_list = comms_dict[row][col][max_reso]
-  comms = comms_list[0]
-  node_to_community = comm2partition([comm for comm in comms if len(comm)>=4])
-  between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
-  comms2plot = get_unique_elements(between_community_edges.keys())
-  nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
-  node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
-  print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
-  fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-  edge_colors = [transparent_rgb(colors.to_rgb('#2166ac'), [1,1,1], alpha=.4), transparent_rgb(colors.to_rgb('#b2182b'), [1,1,1], alpha=.3)] # blue and red
-  # return G.subgraph(nodes2plot)
-  G2plot = G.subgraph(nodes2plot).copy()
-  for n1, n2, d in G2plot.edges(data=True):
-    for att in ['confidence']:
-      d.pop(att, None)
-  # binary weight
-  for edge in G2plot.edges():
-    if G2plot[edge[0]][edge[1]]['weight'] > 0:
-      G2plot[edge[0]][edge[1]]['weight'] = 1
+  row = rows[row_ind]
+  fig, axes = plt.subplots(2, 4, figsize=(6*4, 12))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    col_ind = i * axes.shape[1] + j
+    col = cols[col_ind]
+    ax = axes[i, j]
+  # for col_ind, col in enumerate(cols):
+  #   ax = axes[col_ind]
+    ax.set_title(col, fontsize=25)
+    print(col_ind)
+    G = G_dict[row][col]
+    nx.set_node_attributes(G, active_area_dict[row], "area")
+    max_reso = max_neg_reso[row_ind][col_ind]
+    comms_list = comms_dict[row][col][max_reso]
+    comms = comms_list[0]
+    node_to_community = comm2partition([comm for comm in comms if len(comm)>=6])
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
+    node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
+    print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
+    edge_colors = [transparent_rgb(colors.to_rgb('#2166ac'), [1,1,1], alpha=.4), transparent_rgb(colors.to_rgb('#b2182b'), [1,1,1], alpha=.3)] # blue and red
+    # return G.subgraph(nodes2plot)
+    G2plot = G.subgraph(nodes2plot).copy()
+    for n1, n2, d in G2plot.edges(data=True):
+      for att in ['confidence']:
+        d.pop(att, None)
+    # binary weight
+    for edge in G2plot.edges():
+      if G2plot[edge[0]][edge[1]]['weight'] > 0:
+        G2plot[edge[0]][edge[1]]['weight'] = 1
+      else:
+        G2plot[edge[0]][edge[1]]['weight'] = -1
+    node_labels = {node:node_to_community[node] for node in nodes2plot}
+    
+    if col_ind in [0, 1, 2]:
+      # fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
+            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+            edge_layout='straight', edge_layout_kwargs=dict(k=1),
+            origin=(-1, -1), scale=(.8, .8),
+            node_origin=np.array([.5, .5]), node_scale=np.array([3.5, 3.5]), ax=ax, node_labels=node_labels) # bundled
+    elif col_ind == 3:
+      # fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
+            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+            edge_layout='straight', edge_layout_kwargs=dict(k=1),
+            origin=(-1, -1), scale=(.8, .8),
+            node_origin=np.array([0, 0]), node_scale=np.array([3.7, 3.7]), ax=ax, node_labels=node_labels) # bundled
     else:
-      G2plot[edge[0]][edge[1]]['weight'] = -1
-  
-  if col_ind == 3:
-    Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-          node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-          node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-          edge_layout='straight', edge_layout_kwargs=dict(k=1),
-          origin=(-1, -1), scale=(.8, .8),
-          node_origin=np.array([0, 0]), node_scale=np.array([3.7, 3.7]), ax=ax) # bundled
-  else:
-    Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-          node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
-          node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-          edge_layout='straight', edge_layout_kwargs=dict(k=1),
-          origin=(0, 0), scale=(1.6, 1.6),
-          node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax) # bundled
-  plt.savefig('./plots/graph_topology_{}_{}.pdf'.format(row, col), transparent=True)
+      # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
+            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+            edge_layout='straight', edge_layout_kwargs=dict(k=1),
+            origin=(0, 0), scale=(1.6, 1.6),
+            node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax, node_labels=node_labels) # bundled
+  plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
   # plt.show()
 
 row_ind = 7
 # col_ind = 6
-for col_ind in range(8):
-  print(col_ind)
-  start_time = time.time()
-  plot_graph_community(G_ccg_dict, row_ind, col_ind, comms_dict, max_reso_config)
-  print("--- %s minutes" % ((time.time() - start_time)/60))
+
+start_time = time.time()
+plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_config)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+################################ directionality score
+def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
+  rows, cols = get_rowcol(G_dict)
+  row = rows[row_ind]
+  fig, axes = plt.subplots(2, 4, figsize=(6*4, 5*2))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    col_ind = i * axes.shape[1] + j
+    col = cols[col_ind]
+    ax = axes[i, j]
+  # fig, axes = plt.subplots(1, 8, figsize=(6*8, 5))
+  # for col_ind, col in enumerate(cols):
+  #   ax = axes[col_ind]
+    ax.set_title(col, fontsize=30)
+    G = G_dict[row][col]
+    nx.set_node_attributes(G, active_area_dict[row], "area")
+    max_reso = max_neg_reso[row_ind][col_ind]
+    comms_list = comms_dict[row][col][max_reso]
+    comms = comms_list[0]
+    node_to_community = comm2partition([comm for comm in comms if len(comm)>=6])
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    # print(comms2plot)
+    nodes2plot = [[node for node in node_to_community if node_to_community[node] == comm] for comm in comms2plot]
+    comm_mat = np.zeros((len(comms2plot), len(comms2plot)))
+    for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+      # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
+      # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
+      #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
+      #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+      if etype == 'pos':
+        comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+      elif etype == 'neg':
+        comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+      else:
+        comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+    comm_ds = (comm_mat - comm_mat.T) / (comm_mat + comm_mat.T)
+    comm_ds[(comm_mat + comm_mat.T)==0] = 0
+    sns.heatmap(comm_ds, cmap='seismic', center=0, ax=ax)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=25)
+  plt.savefig('./plots/ds_comm_{}.jpg'.format(etype))
+
+row_ind = 7
+# col_ind = 6
+start_time = time.time()
+plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'pos')
+plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'neg')
+plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'all')
+print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
 def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions, max_neg_reso=None):
   rows, cols = get_rowcol(comms_dict)
