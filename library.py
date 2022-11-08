@@ -9,6 +9,7 @@ from itertools import cycle
 from scipy.stats import shapiro
 from scipy.stats import normaltest
 from scipy.stats import entropy
+from scipy.stats import spearmanr
 from scipy.spatial import distance
 from scipy.special import softmax
 from scipy.optimize import curve_fit
@@ -70,6 +71,27 @@ session_ids = ['719161530','750332458','750749662','754312389','755434585','7560
 stimulus_names = ['spontaneous', 'flash_dark', 'flash_light',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
+
+stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
+stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
+
+combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
+combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
+combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bebada', '#bebada', '#fb8072', '#fb8072']
+
+def stimulus2stype(stimulus):
+  t_ind = [i for i in range(len(stimulus_by_type)) if stimulus in stimulus_by_type[i]][0]
+  return t_ind, stimulus_types[t_ind]
+
+def combine_stimulus(stimulus):
+  t_ind = [i for i in range(len(combined_stimulus)) if stimulus in combined_stimulus[i]][0]
+  return t_ind, combined_stimulus_names[t_ind]
+
+def combined_stimulus2stype(stimulus):
+  c_ind = [i for i in range(len(combined_stimulus_names)) if stimulus in combined_stimulus_names[i]][0]
+  ostimuli = combined_stimulus[c_ind][0]
+  t_ind = [i for i in range(len(stimulus_by_type)) if ostimuli in stimulus_by_type[i]][0]
+  return t_ind, stimulus_types[t_ind]
 
 ################ unique elements in the order of appearance
 def unique(l):
@@ -414,47 +436,59 @@ def calculate_metric(G, metric_name, cc):
         metric = 0
   return metric
 
-def calculate_weighted_metric(G, metric_name, cc):
-  if metric_name == 'density':
-    metric = nx.density(G)
-  else:
-    if cc:
-      if not nx.is_connected(G):
-        largest_cc = max(nx.connected_components(G), key=len)
-        G = nx.subgraph(G, largest_cc)
-    if metric_name == 'efficiency':
-      metric = nx.global_efficiency(G)
-    elif metric_name == 'clustering':
-      metric = nx.average_clustering(G, weight='weight')
-    elif metric_name == 'transitivity':
-      metric = nx.transitivity(G)
-    elif metric_name == 'betweenness':
-      metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
-    elif metric_name == 'closeness':
-      metric = np.mean(list(nx.closeness_centrality(G).values()))
-    elif metric_name == 'modularity':
-      try:
-        if nx.is_directed(G):
-          G = G.to_undirected()
-        # weight cannot be negative
-        if sum([n<0 for n in nx.get_edge_attributes(G, "weight").values()]):
-          print('Edge weight cannot be negative for weighted modularity, setting to unweighted...')
-          unweight = {(i, j):1 for i,j in G.edges()}
-          nx.set_edge_attributes(G, unweight, 'weight')
-        part = community.best_partition(G, weight='weight')
-        metric = community.modularity(part, G, weight='weight')
-      except:
-        metric = 0
-    elif metric_name == 'assortativity':
-      metric = nx.degree_assortativity_coefficient(G, weight='weight')
-    elif metric_name == 'small-worldness':
-      if not nx.is_connected(G):
-        largest_cc = max(nx.connected_components(G), key=len)
-        G = nx.subgraph(G, largest_cc)
-      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
-        metric = nx.sigma(G)
-      else:
-        metric = 0
+def calculate_directed_metric(G, metric_name):
+  if metric_name == 'in_degree':
+    metric = G.in_degree()
+  elif metric_name == 'out_degree':
+    metric = G.out_degree()
+  elif metric_name == 'diameter':
+    metric = nx.diameter(G)
+  elif metric_name == 'radius':
+    metric = nx.radius(G)
+  elif metric_name == 'efficiency':
+    metric = nx.global_efficiency(G)
+  elif metric_name == 'clustering':
+    metric = nx.average_clustering(G, weight=None)
+  elif metric_name == 'transitivity':
+    metric = nx.transitivity(G)
+  elif metric_name == 'betweenness':
+    metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
+  elif metric_name == 'closeness':
+    metric = np.mean(list(nx.closeness_centrality(G).values()))
+  elif metric_name == 'modularity':
+    try:
+      part = community.best_partition(G, weight='weight')
+      metric = community.modularity(part, G, weight='weight') 
+    except:
+      metric = 0
+  elif metric_name == 'assortativity_oi':
+    metric = nx.degree_assortativity_coefficient(G, x='out', y='in', weight=None)
+  elif metric_name == 'assortativity_io':
+    metric = nx.degree_assortativity_coefficient(G, x='in', y='out', weight=None)
+  elif metric_name == 'assortativity_ii':
+    metric = nx.degree_assortativity_coefficient(G, x='in', y='in', weight=None)
+  elif metric_name == 'assortativity_oo':
+    metric = nx.degree_assortativity_coefficient(G, x='out', y='out', weight=None)
+  elif metric_name == 'num_cycles':
+    metric = len(list(nx.simple_cycles(G)))
+  elif metric_name == 'flow_hierarchy':
+    metric = nx.flow_hierarchy(G)
+  elif metric_name == 'overall_reciprocity':
+    metric = nx.overall_reciprocity(G)
+  elif metric_name == 'average_shortest_path_length':
+    metric = nx.average_shortest_path_length(get_lcc(G))
+  elif metric_name == 'global_reaching_centrality':
+    metric = nx.global_reaching_centrality(G)
+  elif metric_name == 'wiener_index':
+    metric = nx.wiener_index(G)
+  elif metric_name == 'small-worldness':
+    if not nx.is_connected(G):
+      largest_cc = max(nx.connected_components(G), key=len)
+      G = nx.subgraph(G, largest_cc)
+    if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
+      metric = nx.sigma(G)
+    else:
+      metric = 0
   return metric
 
 def calculate_directed_metric(G, metric_name):
@@ -1474,15 +1508,8 @@ def load_area_speed(session_ids, stimulus_names, regions):
       area_dict[mouseID][i] = instruction.ccf.iloc[i]
     for stimulus_name in stimulus_names:
       print(stimulus_name)
-      if (stimulus_name=='flash_light') or (stimulus_name=='flash_dark'):
-        stim_table = session.get_stimulus_table(['flashes'])
-      else:
-        stim_table = session.get_stimulus_table([stimulus_name])
+      stim_table = session.get_stimulus_table([stimulus_name])
       stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
-      if stimulus_name=='flash_light':
-        stim_table = stim_table[stim_table['color']==1]
-      elif stimulus_name=='flash_dark':
-        stim_table = stim_table[stim_table['color']==-1]
       if 'natural_movie' in stimulus_name:
         frame_times = stim_table.End-stim_table.Start
         print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
