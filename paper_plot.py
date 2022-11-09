@@ -1579,6 +1579,66 @@ max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_lis
 max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
 max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
 #%%
+def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list, max_neg_reso=None, comms_dict=None, metrics=None, max_method='none', cc=False):
+  rows, cols = get_rowcol(G_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  num_comm, hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col].copy()
+      if cc:
+        G = get_lcc(G)
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      hamiltonian[row_ind, col_ind] = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean()
+      nc, nl, cl = [], [], []
+      for comms in comms_list:
+        lcc_comms = []
+        for comm in comms:
+          if set(comm) <= set(G.nodes()): # only for communities in the connected component
+            lcc_comms.append(comm)
+          nc.append(len(lcc_comms))
+          count = np.array([len(comm) for comm in lcc_comms])
+          nl.append(sum(count >= 3))
+          cl.append(count[count >=3].sum() / G.number_of_nodes())
+      num_comm[row_ind, col_ind] = np.mean(nc)
+      num_lcomm[row_ind, col_ind] = np.mean(nl)
+      cov_lcomm[row_ind, col_ind] = np.mean(cl)
+      
+  metrics2plot = {'number of communities':num_comm, 'Hamiltonian':hamiltonian, 
+  'number of large communities':num_lcomm, 'coverage of large comm':cov_lcomm}
+  num_col = 2
+  num_row = int(len(metrics2plot) / num_col)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics2plot):
+    plt.subplot(num_row, num_col, i+1)
+    metric = metrics2plot[k]
+    for row_ind, row in enumerate(rows):
+      mean = metric[row_ind, :]
+      plt.plot(cols, mean, label=row, alpha=0.6)
+    plt.gca().set_title(k, fontsize=14, rotation=0)
+    plt.xticks(rotation=90)
+    # plt.yscale('symlog')
+    if i == len(metrics2plot)-1:
+      plt.legend()
+    if i // num_col < num_row - 1:
+      plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False) # labels along the bottom edge are off
+  plt.suptitle(max_method, size=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
+
+stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm', cc=False)
+stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config', cc=False)
+#%%
 ############ find nodes and comms with at least one between community edge
 def get_unique_elements(nested_list):
     return list(set(flatten_list(nested_list)))
@@ -1621,7 +1681,7 @@ def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
     max_reso = max_neg_reso[row_ind][col_ind]
     comms_list = comms_dict[row][col][max_reso]
     comms = comms_list[0]
-    node_to_community = comm2partition([comm for comm in comms if len(comm)>=6])
+    node_to_community = comm2partition([comm for comm in comms if len(comm)>=4])
     between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
     comms2plot = get_unique_elements(between_community_edges.keys())
     nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
@@ -1668,55 +1728,68 @@ def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
   plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
   # plt.show()
 
-row_ind = 7
+row_ind = 4
 # col_ind = 6
 
 start_time = time.time()
 plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_config)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-################################ directionality score between communities
-def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos'):
+################################ pairwise sign difference between comms of V1 area to comms of other areas
+def plot_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, etype='pos'):
   rows, cols = get_rowcol(G_dict)
-  fig, axes = plt.subplots(2, 4, figsize=(6*4, 5*2))
-  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
-    col_ind = i * axes.shape[1] + j
-    col = cols[col_ind]
-    ax = axes[i, j]
-    ax.set_title(col, fontsize=30)
-    area_ds = np.zeros((len(regions), len(regions)))
-    for row in session2keep:
-      ind_area_mat = np.zeros((len(regions), len(regions)))
-      active_area = active_area_dict[row]
-      G = G_dict[row][col]
-      nx.set_node_attributes(G, active_area, "area")
-      nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+  col_ind = 1
+  col = cols[col_ind]
+  region_discre = {r:[] for r in regions}
+  for row_ind, row in enumerate(rows):
+    # fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    G = G_dict[row][col]
+    nx.set_node_attributes(G, active_area_dict[row], "area")
+    max_reso = max_neg_reso[row_ind, col_ind]
+    comms_list = comms_dict[row][col][max_reso]
+    all_regions = [area_dict[row][node] for node in G.nodes()]
+    region_counts = np.array([all_regions.count(r) for r in regions])
+    
+    for comms in comms_list: # 100 repeats
+      comm_areas = []
+      large_comms = [comm for comm in comms if len(comm)>=4]
+      node_to_community = comm2partition(large_comms)
+      between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+      comms2plot = get_unique_elements(between_community_edges.keys())
+      for comm in [large_comms[i] for i in comms2plot]:
+        c_regions = [area_dict[row][node] for node in comm]
+        # _, counts = np.unique(c_regions, return_counts=True)
+        counts = np.array([c_regions.count(r) for r in regions])
+        dominant_area = regions[np.argmax(counts / region_counts)]
+        comm_areas.append(dominant_area)
+      nodes2plot = [[node for node in node_to_community if node_to_community[node] == comm] for comm in comms2plot]
+      comm_mat = np.zeros((len(comms2plot), len(comms2plot)))
       for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
-        # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
-        # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
-        #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
-        #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
         if etype == 'pos':
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+          comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
         elif etype == 'neg':
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+          comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
         else:
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
-      ind_area_ds = (ind_area_mat - ind_area_mat.T) / (ind_area_mat + ind_area_mat.T)
-      ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
-      area_ds += ind_area_ds
-    ticklabels = region_labels
-    sns.heatmap((area_ds / len(session2keep)).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
-    ax.xaxis.set_tick_params(labelsize=25)
-    ax.yaxis.set_tick_params(labelsize=25)
-    ax.invert_xaxis()
-  plt.savefig('./plots/ds_area_{}.pdf'.format(etype))
+          comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+      comm_ds = (comm_mat - comm_mat.T) / (comm_mat + comm_mat.T)
+      comm_ds[(comm_mat + comm_mat.T)==0] = 0
+      for r_ind, region in enumerate(regions):
+        if comm_areas.count(region) > 1:
+          indx = np.where(np.array(comm_areas)==region)[0]
+          product = [0, 0]
+          for ind1, ind2 in itertools.combinations(indx, 2):
+            result = np.delete(comm_ds[ind1], indx) * np.delete(comm_ds[ind2], indx)
+            product[0] += (result > 0).sum()
+            product[1] += (result < 0).sum()
+          if sum(product) > 0:
+            region_discre[region].append(safe_division(product[1], sum(product)))
+  return region_discre
+  # plt.savefig('./plots/ds_comm_{}.pdf'.format(etype), transparent=True)
 
-start_time = time.time()
-plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'pos')
-plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'neg')
-plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'all')
-print("--- %s minutes" % ((time.time() - start_time)/60))
+# plot_DSsign_product_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'pos')
+# plot_DSsign_product_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'neg')
+region_discre = plot_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_config, 'all')
+{r:np.mean(region_discre[r]) for r in region_discre}
 #%%
 ################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
@@ -1768,6 +1841,49 @@ start_time = time.time()
 plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'pos')
 plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'neg')
 plot_directionality_score_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'all')
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+################################ directionality score between areas
+def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos'):
+  rows, cols = get_rowcol(G_dict)
+  fig, axes = plt.subplots(2, 4, figsize=(6*4, 5*2))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    col_ind = i * axes.shape[1] + j
+    col = cols[col_ind]
+    ax = axes[i, j]
+    ax.set_title(col, fontsize=30)
+    area_ds = np.zeros((len(regions), len(regions)))
+    for row in session2keep:
+      ind_area_mat = np.zeros((len(regions), len(regions)))
+      active_area = active_area_dict[row]
+      G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area, "area")
+      nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+      for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+        # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
+        # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
+        #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
+        #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+        if etype == 'pos':
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+        elif etype == 'neg':
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+        else:
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+      ind_area_ds = (ind_area_mat - ind_area_mat.T) / (ind_area_mat + ind_area_mat.T)
+      ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
+      area_ds += ind_area_ds
+    ticklabels = region_labels
+    sns.heatmap((area_ds / len(session2keep)).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=25)
+    ax.invert_xaxis()
+  plt.savefig('./plots/ds_area_{}.pdf'.format(etype))
+
+start_time = time.time()
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'pos')
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'neg')
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'all')
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
 def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions, max_neg_reso=None):
@@ -2863,17 +2979,23 @@ region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_typ
 # plot_sig_motif_region(region_count_dict, sig_motif_types)
 #%%
 ################## community distribution of significant motifs
-def get_motif_comm_census(G_dict, area_dict, signed_motif_types):
+def get_motif_comm_census(G_dict, area_dict, signed_motif_types, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
-  region_count_dict = {}
+  comm_count_dict = {}
   for row_ind, row in enumerate(rows):
     print(row)
     node_area = area_dict[row]
-    region_count_dict[row] = {}
+    comm_count_dict[row] = {}
     for col_ind, col in enumerate(cols):
-      print(col)
-      region_count_dict[row][col] = {}
+      # print(col)
+      comm_count_dict[row][col] = {}
       G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area_dict[row], "area")
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      comms = comms_list[0]
+      node_to_community = comm2partition(comms)
+      comm_area = [[active_area_dict[row][node] for node in comm] for comm in comms]
       motifs_by_type = find_triads(G) # faster
       for signed_motif_type in signed_motif_types:
         motif_type = signed_motif_type.replace('+', '').replace('-', '')
@@ -2882,12 +3004,132 @@ def get_motif_comm_census(G_dict, area_dict, signed_motif_types):
           smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
           if smotif_type == signed_motif_type:
             region = get_motif_region(motif, node_area, motif_type)
-            # print(smotif_type, region)
-            region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
-      region_count_dict[row][col] = dict(sorted(region_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
-  return region_count_dict
+            motif_comm_type = 'no_V1_comm'
+            motif_comm = [node_to_community[node] for node in motif.nodes()]
+            if ('VISp' in comm_area[motif_comm[0]]) and ('VISp' in comm_area[motif_comm[1]]) and ('VISp' in comm_area[motif_comm[2]]):
+              motif_comm_type = 'V1_comm' # all 3 from communities with at least one V1 neuron
+            # if 'VISp' in region:
+            #   if len(set(motif_comm)) == 1:
+            #     motif_comm_type = 'V1_comm' # within same community and at least one V1 neuron
+            comm_count_dict[row][col][smotif_type+motif_comm_type] = comm_count_dict[row][col].get(smotif_type+motif_comm_type, 0) + 1
+      comm_count_dict[row][col] = dict(sorted(comm_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
+  return comm_count_dict
 
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+comm_count_dict = get_motif_comm_census(G_ccg_dict, area_dict, sig_motif_types, comms_dict, max_reso_config)
+#%%
+def adjust_box_widths(g, fac):
+  # iterating through Axes instances
+  for ax in g.axes:
+    # iterating through axes artists:
+    for c in ax.get_children():
+      # searching for PathPatches
+      if isinstance(c, PathPatch):
+        # getting current width of box:
+        p = c.get_path()
+        verts = p.vertices
+        verts_sub = verts[:-1]
+        xmin = np.min(verts_sub[:, 0])
+        xmax = np.max(verts_sub[:, 0])
+        xmid = 0.5*(xmin+xmax)
+        xhalf = 0.5*(xmax - xmin)
+        # setting new width of box
+        xmin_new = xmid-fac*xhalf
+        xmax_new = xmid+fac*xhalf
+        verts_sub[verts_sub[:, 0] == xmin, 0] = xmin_new
+        verts_sub[verts_sub[:, 0] == xmax, 0] = xmax_new
+        # setting new width of median line
+        for l in ax.lines:
+          if np.all(l.get_xdata() == [xmin, xmax]):
+            l.set_xdata([xmin_new, xmax_new])
 
+def plot_motif_comm_box(comm_count_dict, signed_motif_types):
+  rows, cols = get_rowcol(comm_count_dict)
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(3*len(combined_stimulus_names), 6))
+  df = pd.DataFrame()
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [8,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    print(signed_motif_type)
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      for col in combined_stimulus[cs_ind]:
+        for row_ind, row in enumerate(rows):
+          region_com = {}
+          VISp_data, rest_data = [], []
+          comm_count = comm_count_dict[row][col]
+          for k in comm_count:
+            if signed_motif_type in k:
+              rs = k.replace(signed_motif_type, '')
+              region_com[rs] = region_com.get(rs, 0) + comm_count[k]
+          VISp_data.append(region_com.get('V1_comm', 0))
+          rest_data.append(region_com.get('no_V1_comm', 0))
+            # if sum(region_com.values()):
+            #   VISp_data.append(safe_division(region_com.get('VISp_VISp_VISp', 0), sum(region_com.values())))
+            #   rest_data.append(safe_division(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']), sum(region_com.values())))
+          # if (col == 'natural_movie_one') and (signed_motif_type=='300++++++'):
+          #   print(VISp_data)
+          #   print(rest_data)
+          summ = sum(VISp_data) + sum(rest_data)
+          if summ >= 5: # othewise flashes will disappear
+            VISp_data = [sum(VISp_data)/summ]
+            rest_data = [sum(rest_data)/summ]
+            # VISp_data = [d/summ for d in VISp_data]
+            # rest_data = [d/summ for d in rest_data]
+            df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array([signed_motif_type] * len(VISp_data))[:,None], np.array([combined_stimulus_name] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+            df['probability'] = pd.to_numeric(df['probability'])
+  # ax.set_title(signed_motif_type, fontsize=30, rotation=0)
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  medianprops = dict(linestyle='-', linewidth=4)
+  boxplot = sns.boxplot(x='stimulus', y='probability', hue="type", data=df, palette=palette, ax=ax, medianprops=medianprops)
+
+  adjust_box_widths(fig, 0.7)
+  boxplot.set(xlabel=None)
+  ax.yaxis.set_tick_params(labelsize=30)
+  # plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='lower left', fontsize=22, frameon=False)#, bbox_to_anchor=(.9, 1.)
+  ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='upper center',
+   bbox_to_anchor=(0.5, 1.2), ncol=6, columnspacing=4., fontsize=22, frameon=False)
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=30)
+  ax.xaxis.set_tick_params(length=0)
+  box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+  if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+    box_patches = ax.artists
+  num_patches = len(box_patches)
+  lines_per_boxplot = len(ax.lines) // num_patches
+  for i, patch in enumerate(box_patches):
+    # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+    col = patch.get_facecolor()
+    patch.set_edgecolor(col)
+    patch.set_facecolor('None')
+    patch.set_linewidth(4)
+    # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+    # Loop over them here, and use the same color as above
+    for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      line.set_color(col)
+      line.set_mfc(col)  # facecolor of fliers
+      line.set_mec(col)  # edgecolor of fliers
+  # Also fix the legend
+  for legpatch in ax.legend_.get_patches():
+    col = legpatch.get_facecolor()
+    legpatch.set_edgecolor(col)
+    legpatch.set_facecolor('None')
+    legpatch.set_linewidth(3.5)
+
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)                                                                                                                                           
+  ax.tick_params(width=2.5)
+  ax.set_ylabel('Fraction of all V1 comms', fontsize=30)
+  # ax.set_ylabel('Fraction of within comm with V1 neurons', fontsize=30)
+  plt.tight_layout()
+  plt.savefig('./plots/box_motif_region_all_V1comm.pdf', transparent=True)
+  # plt.savefig('./plots/box_motif_region_comm.pdf', transparent=True)
+  # plt.show()
+
+plot_motif_comm_box(comm_count_dict, sig_motif_types)
 #%%
 def plot_motif_region_bar(region_count_dict, signed_motif_types):
   rows, cols = get_rowcol(region_count_dict)
@@ -2944,8 +3186,6 @@ def plot_motif_region_bar(region_count_dict, signed_motif_types):
 
 plot_motif_region_bar(region_count_dict, sig_motif_types)
 # %%
-from matplotlib.patches import PathPatch
-
 def adjust_box_widths(g, fac):
   # iterating through Axes instances
   for ax in g.axes:
@@ -2971,7 +3211,7 @@ def adjust_box_widths(g, fac):
           if np.all(l.get_xdata() == [xmin, xmax]):
             l.set_xdata([xmin_new, xmax_new])
 
-def plot_motif_region_box(region_count_dict, signed_motif_types):
+def plot_motif_region_box(region_count_dict, signed_motif_types, mtype='all_V1'):
   rows, cols = get_rowcol(region_count_dict)
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(3*len(combined_stimulus_names), 6))
   df = pd.DataFrame()
@@ -2988,8 +3228,12 @@ def plot_motif_region_box(region_count_dict, signed_motif_types):
             if signed_motif_type in k:
               rs = k.replace(signed_motif_type, '')
               region_com[rs] = region_com.get(rs, 0) + region_count[k]
-          VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
-          rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
+          if mtype == 'all_V1':
+            VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
+            rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
+          elif mtype == 'one_V1':
+            VISp_data.append(sum([region_com[k] for k in region_com if 'VISp' in k]))
+            rest_data.append(sum([region_com[k] for k in region_com if 'VISp' not in k]))
             # if sum(region_com.values()):
             #   VISp_data.append(safe_division(region_com.get('VISp_VISp_VISp', 0), sum(region_com.values())))
             #   rest_data.append(safe_division(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']), sum(region_com.values())))
@@ -3050,12 +3294,13 @@ def plot_motif_region_box(region_count_dict, signed_motif_types):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
-  ax.set_ylabel('Fraction of all V1 neurons', fontsize=30)
+  ax.set_ylabel('Fraction of {} V1 neurons'.format(mtype.replace('_V1', '')), fontsize=30)
   plt.tight_layout()
-  plt.savefig('./plots/box_motif_region.pdf', transparent=True)
+  plt.savefig('./plots/box_motif_region_{}.pdf'.format(mtype), transparent=True)
   # plt.show()
 
-plot_motif_region_box(region_count_dict, sig_motif_types)
+plot_motif_region_box(region_count_dict, sig_motif_types, mtype='all_V1')
+plot_motif_region_box(region_count_dict, sig_motif_types, mtype='one_V1')
 # %%
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
