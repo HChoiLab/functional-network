@@ -1675,7 +1675,50 @@ start_time = time.time()
 plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_config)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-################################ directionality score
+################################ directionality score between communities
+def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos'):
+  rows, cols = get_rowcol(G_dict)
+  fig, axes = plt.subplots(2, 4, figsize=(6*4, 5*2))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    col_ind = i * axes.shape[1] + j
+    col = cols[col_ind]
+    ax = axes[i, j]
+    ax.set_title(col, fontsize=30)
+    area_ds = np.zeros((len(regions), len(regions)))
+    for row in session2keep:
+      ind_area_mat = np.zeros((len(regions), len(regions)))
+      active_area = active_area_dict[row]
+      G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area, "area")
+      nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+      for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+        # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
+        # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
+        #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
+        #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+        if etype == 'pos':
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+        elif etype == 'neg':
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+        else:
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+      ind_area_ds = (ind_area_mat - ind_area_mat.T) / (ind_area_mat + ind_area_mat.T)
+      ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
+      area_ds += ind_area_ds
+    ticklabels = region_labels
+    sns.heatmap((area_ds / len(session2keep)).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=25)
+    ax.invert_xaxis()
+  plt.savefig('./plots/ds_area_{}.pdf'.format(etype))
+
+start_time = time.time()
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'pos')
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'neg')
+plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'all')
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -1712,10 +1755,12 @@ def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, et
         comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
     comm_ds = (comm_mat - comm_mat.T) / (comm_mat + comm_mat.T)
     comm_ds[(comm_mat + comm_mat.T)==0] = 0
-    sns.heatmap(comm_ds, cmap='seismic', center=0, ax=ax)
+    ticklabels = comms2plot
+    sns.heatmap(comm_ds.T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
     ax.xaxis.set_tick_params(labelsize=25)
     ax.yaxis.set_tick_params(labelsize=25)
-  plt.savefig('./plots/ds_comm_{}.jpg'.format(etype))
+    ax.invert_yaxis()
+  plt.savefig('./plots/ds_comm_{}.pdf'.format(etype), transparent=True)
 
 row_ind = 7
 # col_ind = 6
