@@ -1897,35 +1897,36 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 ################################ directionality score between areas
 def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos'):
   rows, cols = get_rowcol(G_dict)
-  fig, axes = plt.subplots(2, 4, figsize=(6*4, 5*2))
+  fig, axes = plt.subplots(2, 3, figsize=(6*3, 5*2))
   for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
-    col_ind = i * axes.shape[1] + j
-    col = cols[col_ind]
+    cs_ind = i * axes.shape[1] + j
     ax = axes[i, j]
-    ax.set_title(col, fontsize=30)
+    ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
     area_ds = np.zeros((len(regions), len(regions)))
-    for row in session2keep:
-      ind_area_mat = np.zeros((len(regions), len(regions)))
-      active_area = active_area_dict[row]
-      G = G_dict[row][col]
-      nx.set_node_attributes(G, active_area, "area")
-      nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
-      for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
-        # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
-        # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
-        #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
-        #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
-        if etype == 'pos':
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
-        elif etype == 'neg':
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
-        else:
-          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
-      ind_area_ds = (ind_area_mat - ind_area_mat.T) / (ind_area_mat + ind_area_mat.T)
-      ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
-      area_ds += ind_area_ds
+    for col in combined_stimulus[cs_ind]:
+      for row in session2keep:
+        ind_area_mat = np.zeros((len(regions), len(regions)))
+        active_area = active_area_dict[row]
+        G = G_dict[row][col]
+        nx.set_node_attributes(G, active_area, "area")
+        nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+        for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+          # print(sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)))
+          # if sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) > max_e:
+          #   edge_set = nx.edge_boundary(G, nodes1, nodes2)
+          #   max_e = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+          if etype == 'pos':
+            num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+          elif etype == 'neg':
+            num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+          else:
+            num = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+          ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += num
+        ind_area_ds = (ind_area_mat - ind_area_mat.T) / (ind_area_mat + ind_area_mat.T)
+        ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
+        area_ds += ind_area_ds
     ticklabels = region_labels
-    sns.heatmap((area_ds / len(session2keep)).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimulus[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
     ax.xaxis.set_tick_params(labelsize=25)
     ax.yaxis.set_tick_params(labelsize=25)
     ax.invert_xaxis()
@@ -1935,6 +1936,143 @@ start_time = time.time()
 plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'pos')
 plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'neg')
 plot_directionality_score_area(G_ccg_dict, active_area_dict, visual_regions, 'all')
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+################################ pos DS VS neg DS for low to high area pairs
+def plot_posDS_negDS(G_dict, active_area_dict, regions):
+  fig, axes = plt.subplots(2, 3, figsize=(6*3, 5*2))
+  for cs_ind, combined_s in enumerate(combined_stimulus):
+    i, j = cs_ind // axes.shape[1], cs_ind % axes.shape[1]
+    ax = axes[i, j]
+    ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
+  
+    label = combined_stimulus_names[cs_ind].replace('\n', ' ')
+    pos_area_ds, neg_area_ds = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
+    X, Y = [], []
+    all_pos_ds, all_neg_ds = [], []
+    for col in combined_s:
+      for row in session2keep:
+        pos_ind_area_mat, neg_ind_area_mat = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
+        active_area = active_area_dict[row]
+        G = G_dict[row][col]
+        nx.set_node_attributes(G, active_area, "area")
+        nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+        for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+          pos_num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+          neg_num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+          pos_ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += pos_num
+          neg_ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += neg_num
+        pos_ind_area_ds = (pos_ind_area_mat - pos_ind_area_mat.T) / (pos_ind_area_mat + pos_ind_area_mat.T)
+        pos_ind_area_ds[(pos_ind_area_mat + pos_ind_area_mat.T)==0] = 0
+        neg_ind_area_ds = (neg_ind_area_mat - neg_ind_area_mat.T) / (neg_ind_area_mat + neg_ind_area_mat.T)
+        neg_ind_area_ds[(neg_ind_area_mat + neg_ind_area_mat.T)==0] = 0
+        
+        pos_ind_area_ds[(pos_ind_area_mat + pos_ind_area_mat.T)<2] = np.nan
+        neg_ind_area_ds[(neg_ind_area_mat + neg_ind_area_mat.T)<1] = np.nan
+        pos_data = pos_ind_area_ds[np.tril_indices(len(regions), -1)]
+        neg_data = neg_ind_area_ds[np.tril_indices(len(regions), -1)]
+        all_pos_ds.append(pos_data)
+        all_neg_ds.append(neg_data)
+    # print(np.vstack(all_neg_ds))
+    X, Y = np.nanmean(np.vstack(all_pos_ds), 0), np.nanmean(np.vstack(all_neg_ds), 0)
+    inds = (~np.isnan(X) & ~np.isnan(Y))
+    X, Y = X[inds], Y[inds]
+    #     pos_area_ds += pos_ind_area_ds
+    #     neg_area_ds += neg_ind_area_ds
+    # X = pos_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimulus[cs_ind]))
+    # Y = neg_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimulus[cs_ind]))
+    ax.scatter(X, Y, label=label, color=combined_stimulus_colors[cs_ind], alpha=.6)
+    ax.axvline(x=0, linewidth=3, color='.2', linestyle='--', alpha=.4)
+    ax.axhline(y=0, linewidth=3, color='.2', linestyle='--', alpha=.4)
+    X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+    X, Y = np.array(X), np.array(Y)
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X, Y)
+    line = slope*X+intercept
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+    ax.plot(X, line, color=combined_stimulus_colors[cs_ind], linestyle='-', linewidth=4, alpha=.8, label=label) # (5,(10,3))
+    locx, locy = .7, .5
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=20)
+    ax.xaxis.set_tick_params(labelsize=16)
+    ax.yaxis.set_tick_params(labelsize=16)
+    if i == 1:
+      ax.set_xlabel('Excitatory directionality score', fontsize=20,color='k') #, weight='bold'
+    if j == 0:
+      ax.set_ylabel('Inhibitory directionality score', fontsize=20,color='k') #, weight='bold'
+
+  plt.savefig('./plots/posDS_negDS.pdf')
+  # plt.legend()
+  # plt.show()
+
+start_time = time.time()
+plot_posDS_negDS(G_ccg_dict, active_area_dict, visual_regions)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+regions = visual_regions
+G_dict = G_ccg_dict
+combined_s = ['natural_scenes']
+X, Y = [], []
+all_pos_ds, all_neg_ds = [], []
+for col in combined_s:
+  for row in session2keep:
+    pos_ind_area_mat, neg_ind_area_mat = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
+    active_area = active_area_dict[row]
+    G = G_dict[row][col]
+    nx.set_node_attributes(G, active_area, "area")
+    nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+    for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+      pos_num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+      neg_num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+      pos_ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += pos_num
+      neg_ind_area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += neg_num
+    pos_ind_area_ds = (pos_ind_area_mat - pos_ind_area_mat.T) / (pos_ind_area_mat + pos_ind_area_mat.T)
+    pos_ind_area_ds[(pos_ind_area_mat + pos_ind_area_mat.T)==0] = 0
+    neg_ind_area_ds = (neg_ind_area_mat - neg_ind_area_mat.T) / (neg_ind_area_mat + neg_ind_area_mat.T)
+    neg_ind_area_ds[(neg_ind_area_mat + neg_ind_area_mat.T)==0] = 0
+    
+    pos_ind_area_ds[(pos_ind_area_mat + pos_ind_area_mat.T)<2] = np.nan
+    neg_ind_area_ds[(neg_ind_area_mat + neg_ind_area_mat.T)<2] = np.nan
+    pos_data = pos_ind_area_ds[np.tril_indices(len(regions), -1)]
+    neg_data = neg_ind_area_ds[np.tril_indices(len(regions), -1)]
+    all_pos_ds.append(pos_data)
+    all_neg_ds.append(neg_data)
+#%%
+################################ directionality score between areas sum instead of average
+def plot_directionality_score_area_sum(G_dict, active_area_dict, regions, etype='pos'):
+  rows, cols = get_rowcol(G_dict)
+  fig, axes = plt.subplots(2, 3, figsize=(6*3, 5*2))
+  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
+    cs_ind = i * axes.shape[1] + j
+    ax = axes[i, j]
+    ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
+    area_mat = np.zeros((len(regions), len(regions)))
+    for col in combined_stimulus[cs_ind]:
+      for row in session2keep:
+        active_area = active_area_dict[row]
+        G = G_dict[row][col]
+        nx.set_node_attributes(G, active_area, "area")
+        nodes2plot = [[node for node in active_area if active_area[node] == area] for area in regions]
+        for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+          if etype == 'pos':
+            num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+          elif etype == 'neg':
+            num = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+          else:
+            num = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+          area_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] += num
+    area_ds = (area_mat - area_mat.T) / (area_mat + area_mat.T)
+    area_ds[(area_mat + area_mat.T)==0] = 0
+    ticklabels = region_labels
+    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimulus[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=25)
+    ax.invert_xaxis()
+  plt.savefig('./plots/ds_area_sum_{}.pdf'.format(etype))
+
+start_time = time.time()
+plot_directionality_score_area_sum(G_ccg_dict, active_area_dict, visual_regions, 'pos')
+plot_directionality_score_area_sum(G_ccg_dict, active_area_dict, visual_regions, 'neg')
+plot_directionality_score_area_sum(G_ccg_dict, active_area_dict, visual_regions, 'all')
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
 def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions, max_neg_reso=None):
