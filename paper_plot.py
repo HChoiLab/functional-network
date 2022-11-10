@@ -1573,11 +1573,61 @@ with open('comms_dict.pkl', 'rb') as f:
   comms_dict = pickle.load(f)
 with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
+#%%
+def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics): 
+  num_row, num_col = len(rows), len(cols)
+  fig = plt.figure(figsize=(5*num_col, 5*num_row))
+  ind = 1
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      plt.subplot(num_row, num_col, ind)
+      ind += 1
+      metric = metrics['Hamiltonian'].mean(-1)
+      plt.plot(resolution_list, metric[row_ind, col_ind], label=r'$H$', alpha=0.6)
+      metric_subs = metrics['subs Hamiltonian'][row_ind, col_ind].mean(-1)
+      plt.plot(resolution_list, metric_subs, color='r', label=r'$H_{subs}$', alpha=0.6)
+      plt.plot(resolution_list, metric[row_ind, col_ind] - metric_subs, 'r--', label=r'$H-H_{subs}$', alpha=0.8)
+      plt.xticks(rotation=0, fontsize=15)
+      plt.yticks(rotation=0, fontsize=20)
+      # plt.yscale('symlog')
+      if ind == num_row*num_col+1:
+        plt.legend(fontsize=20)
+      if row_ind == 0:
+        plt.title(col, size=40)
+      if row_ind < num_row -1 :
+        plt.tick_params(
+          axis='x',          # changes apply to the x-axis
+          which='both',      # both major and minor ticks are affectedrandom_metrics
+          bottom=False,      # ticks along the bottom edge are off
+          top=False,         # ticks along the top edge are off
+          labelbottom=False) # labels along the bottom edge are off
+      else:
+        plt.xlabel(r'$\gamma^-$', size=30)
+  plt.suptitle('Hamiltonian', size=45)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  # plt.show()
+  figname = './plots/{}.jpg'
+  plt.savefig(figname.format('Hamiltonian'))
+
 resolution_list = np.arange(0, 2.1, 0.1)
-max_reso_gnm, max_reso_config = get_max_dH_resolution(rows, cols, resolution_list, metrics)
+plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics)
+#%%
+def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
+  max_reso_subs = np.zeros((len(rows), len(cols)))
+  Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
+      metric_subs = subs_Hamiltonian[row_ind, col_ind].mean(-1)
+      max_reso_subs[row_ind, col_ind] = resolution_list[np.argmax(metric_subs - metric_mean)]
+  return max_reso_subs
+
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
 ################# community with Hamiltonian
-max_pos_reso_gnm = get_max_pos_reso(G_ccg_dict, max_reso_gnm)
-max_pos_reso_config = get_max_pos_reso(G_ccg_dict, max_reso_config)
+max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
 #%%
 def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list, max_neg_reso=None, comms_dict=None, metrics=None, max_method='none', cc=False):
   rows, cols = get_rowcol(G_dict)
@@ -1636,8 +1686,9 @@ def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list
   figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
   plt.savefig(figname.format(max_method, measure, n))
 
-stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm', cc=False)
-stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config', cc=False)
+stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_subs, comms_dict=comms_dict, metrics=metrics, max_method='subs', cc=False)
+# stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm', cc=False)
+# stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config', cc=False)
 #%%
 ############ find nodes and comms with at least one between community edge
 def get_unique_elements(nested_list):
