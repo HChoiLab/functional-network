@@ -1993,8 +1993,8 @@ def plot_posDS_negDS(G_dict, active_area_dict, regions):
     locx, locy = .7, .5
     ax.text(locx, locy, text, horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=20)
-    ax.xaxis.set_tick_params(labelsize=16)
-    ax.yaxis.set_tick_params(labelsize=16)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
     if i == 1:
       ax.set_xlabel('Excitatory directionality score', fontsize=20,color='k') #, weight='bold'
     if j == 0:
