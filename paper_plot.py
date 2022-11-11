@@ -1565,14 +1565,182 @@ def chord_diagram_region_connection(G_dict, area_dict, regions):
 
 chord_diagram_region_connection(G_ccg_dict, area_dict, visual_regions)
 #%%
+def get_table_histogram(session_id, stimulus_name, regions, resolution):
+  data_directory = './data/ecephys_cache_dir'
+  manifest_path = os.path.join(data_directory, "manifest.json")
+  cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+  session = cache.get_session_data(int(session_id),
+                                  amplitude_cutoff_maximum=np.inf,
+                                  presence_ratio_minimum=-np.inf,
+                                  isi_violations_maximum=np.inf)
+  df = session.units
+  df = df.rename(columns={"channel_local_index": "channel_id", 
+                          "ecephys_structure_acronym": "ccf", 
+                          "probe_id":"probe_global_id", 
+                          "probe_description":"probe_id",
+                          'probe_vertical_position': "ypos"})
+  df['unit_id']=df.index
+  if stimulus_name!='invalid_presentation':
+    if (stimulus_name=='flash_light') or (stimulus_name=='flash_dark'):
+      stim_table = session.get_stimulus_table(['flashes'])
+    else:
+      stim_table = session.get_stimulus_table([stimulus_name])
+    stim_table=stim_table.rename(columns={"start_time": "Start", "stop_time": "End"})
+    if stimulus_name=='flash_light':
+      stim_table = stim_table[stim_table['color']==1]
+    elif stimulus_name=='flash_dark':
+      stim_table = stim_table[stim_table['color']==-1]
+    if 'natural_movie' in stimulus_name:
+        frame_times = stim_table.End-stim_table.Start
+        print('frame rate:', 1/np.mean(frame_times), 'Hz', np.mean(frame_times))
+        # stim_table.to_csv(output_path+'stim_table_'+stimulus_name+'.csv')
+        # chunch each movie clip
+        stim_table = stim_table[stim_table.frame==0]
+        stim_table = stim_table.drop(['End'], axis=1)
+        duration = np.mean(remove_outlier(np.diff(stim_table.Start.values))[:10]) - 1e-4
+        stimulus_presentation_ids = stim_table.index.values
+    elif stimulus_name=='spontaneous':
+        index = np.where(stim_table.duration>=20)[0]
+        if len(index): # only keep the longest spontaneous; has to be longer than 20 sec
+            duration=20
+            stimulus_presentation_ids = stim_table.index[index]
+    else:
+        # ISI = np.mean(session.get_inter_presentation_intervals_for_stimulus([stimulus_name]).interval.values)
+        duration = round(np.mean(stim_table.duration.values), 2)
+    # each trial should have at least 250 ms
+    try: stimulus_presentation_ids
+    except NameError: stimulus_presentation_ids = stim_table.index[stim_table.duration >= 0.25].values
+    time_bin_edges = np.linspace(0, duration, int(duration / resolution)+1)
+    cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+    print('Number of units is {}, duration is {}'.format(len(cortical_units_ids), duration))
+    # get binarized tensor
+    df_cortex = df.iloc[cortical_units_ids]
+    histograms = session.presentationwise_spike_counts(
+        bin_edges=time_bin_edges,
+        stimulus_presentation_ids=stimulus_presentation_ids,
+        unit_ids=df_cortex.unit_id.values
+    )
+    return stim_table.loc[stimulus_presentation_ids], histograms
+
+################# compare functional connection probability VS within comm and cross comm
+def get_signal_correlation(G_dict, resolution):
+  all_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+  rows, cols = get_rowcol(G_dict)
+  signal_correlation_dict = {}
+  for row in rows:
+    signal_correlation_dict[row] = {}
+    for col in cols:
+      print('resolution {} for {} {}'.format(resolution, row, col))
+      # condition, time, neuron
+      stim_table, histograms = get_table_histogram(row, col, all_regions, resolution)
+      condition_ids = stim_table['stimulus_condition_id'].unique()
+      FR_condition = np.zeros((histograms.shape[-1], len(condition_ids)))
+      for c_ind, condition_id in enumerate(condition_ids):
+        inds = stim_table['stimulus_condition_id'] == condition_id
+        sequences = np.moveaxis(histograms.values[inds], -1, 0) # neuron, condition, time
+        FR_condition[:, c_ind] = 1000 * sequences.mean(1).sum(1) / sequences.shape[2] # firing rate in Hz
+      signal_correlation = np.corrcoef(FR_condition)
+      np.fill_diagonal(signal_correlation, 0)
+      signal_correlation_dict[row][col] = signal_correlation
+  return signal_correlation_dict
+
+start_time = time.time()
+resolution = 0.001
+signal_correlation_dict = get_signal_correlation(G_ccg_dict, resolution)
+a_file = open('signal_correlation_dict.pkl', 'wb')
+pickle.dump(signal_correlation_dict, a_file)
+a_file.close()
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+with open('signal_correlation_dict.pkl', 'rb') as f:
+  signal_correlation_dict = pickle.load(f)
+#%%
+def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
+  rows, cols = get_rowcol(signal_correlation_dict)
+  within_comm_dict, cross_comm_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    within_comm_dict[row], cross_comm_dict[row] = {}, {}
+    for col_ind, col in enumerate(cols):
+      signal_correlation = signal_correlation_dict[row][col]
+      max_reso = max_neg_reso[row_ind][col_ind]
+      comms_list = comms_dict[row][col][max_reso]
+      within_comm_dict[row][col], cross_comm_dict[row][col] = [], []
+      for comms in comms_list: # average for each partition, otherwise too large
+        within_comm, cross_comm = [], []
+        node_to_community = comm2partition(comms)
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if node_to_community[nodei] == node_to_community[nodej]:
+            within_comm.append(scorr)
+          else:
+            cross_comm.append(scorr)
+        within_comm_dict[row][col].append(np.nanmean(within_comm))
+        cross_comm_dict[row][col].append(np.nanmean(cross_comm))
+  df = pd.DataFrame()
+  for col in cols:
+    print(col)
+    # print(combine_stimulus(col)[1])
+    for row in session2keep:
+      within_comm, cross_comm = within_comm_dict[row][col], cross_comm_dict[row][col]
+      if combine_stimulus(col)[0] >= 5:
+        print(len(within_comm), len(cross_comm))
+      within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([combine_stimulus(col)[1]] * len(within_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([combine_stimulus(col)[1]] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+  df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+  return df
+
+start_time = time.time()
+connectionp_within_cross_comm_df = get_within_cross_comm(signal_correlation_dict, comms_dict, max_reso_subs)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def plot_connectionp_within_cross_comm(df):
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(4*len(combined_stimulus_names), 6))
+  barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", data=df, ax=ax, alpha=.4)
+  barplot.set(xlabel=None)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=30)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_ylabel('Signal correlation', fontsize=30)
+  plt.tight_layout()
+  plt.show()
+
+plot_connectionp_within_cross_comm(connectionp_within_cross_comm_df)
+#%%
 ####################### Figure 2 #######################
 ########################################################
 ################# get optimal resolution that maximizes delta H
+def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
+  max_reso_subs = np.zeros((len(rows), len(cols)))
+  Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
+      metric_subs = subs_Hamiltonian[row_ind, col_ind].mean(-1)
+      max_reso_subs[row_ind, col_ind] = resolution_list[np.argmax(metric_subs - metric_mean)]
+  return max_reso_subs
+
 rows, cols = get_rowcol(G_ccg_dict)
 with open('comms_dict.pkl', 'rb') as f:
   comms_dict = pickle.load(f)
 with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
+
+resolution_list = np.arange(0, 2.1, 0.1)
+max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
+################# community with Hamiltonian
+max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
 #%%
 def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics): 
   num_row, num_col = len(rows), len(cols)
@@ -1612,22 +1780,6 @@ def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics):
 
 resolution_list = np.arange(0, 2.1, 0.1)
 plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics)
-#%%
-def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
-  max_reso_subs = np.zeros((len(rows), len(cols)))
-  Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
-  for row_ind, row in enumerate(rows):
-    print(row)
-    for col_ind, col in enumerate(cols):
-      metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
-      metric_subs = subs_Hamiltonian[row_ind, col_ind].mean(-1)
-      max_reso_subs[row_ind, col_ind] = resolution_list[np.argmax(metric_subs - metric_mean)]
-  return max_reso_subs
-
-resolution_list = np.arange(0, 2.1, 0.1)
-max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
-################# community with Hamiltonian
-max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
 #%%
 def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list, max_neg_reso=None, comms_dict=None, metrics=None, max_method='none', cc=False):
   rows, cols = get_rowcol(G_dict)
@@ -1779,11 +1931,11 @@ def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
   plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
   # plt.show()
 
-row_ind = 4
+row_ind = 7
 # col_ind = 6
 
 start_time = time.time()
-plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_config)
+plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 ################################ pairwise sign difference between comms of V1 area to comms of other areas
