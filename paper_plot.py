@@ -1658,6 +1658,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 with open('signal_correlation_dict.pkl', 'rb') as f:
   signal_correlation_dict = pickle.load(f)
 #%%
+########################################## get signal correlation for within/cross community VS stimulus
 def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
   rows = signal_correlation_dict.keys()
   within_comm_dict, cross_comm_dict = {}, {}
@@ -1741,6 +1742,234 @@ def plot_signal_correlation_within_cross_comm_significance(df):
   plt.savefig('./plots/signal_correlation_within_cross_comm.pdf', transparent=True)
 
 plot_signal_correlation_within_cross_comm_significance(signalcorr_within_cross_comm_df)
+#%%
+########################## probability of being in the same module VS signal correlation
+from scipy.stats import chi2_contingency # problem: ValueError: All values in `observed` must be nonnegative.
+def double_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [x[digitized == i].mean() for i in range(1, len(bins))]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def double_equal_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def plot_same_module_prob_signal_correlation(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
+    data.insert(0, 'probability of same module', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='within community','probability of same module'] = 1
+    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['signal correlation'].values.flatten(), data['probability of same module'].values.flatten()
+    binned_x, binned_y = double_equal_binning(x, y, numbin=6, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    slope, intercept, r_value, p_value, std_err = stats.linregress(binned_x, binned_y)
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+    locx, locy = .4, .5
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    # ax.scatter(binned_x, binned_y)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if cs_ind == 0:
+      ax.set_ylabel('Probability of finding pairs\ninside the same module', fontsize=30)
+    ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/same_module_prob_signal_correlation.pdf', transparent=True)
+
+plot_same_module_prob_signal_correlation(signalcorr_within_cross_comm_df)
+#%%
+#%%
+########################################## get connection probability VS signal correlation
+def get_connectionp_signalcorr(signal_correlation_dict):
+  rows = signal_correlation_dict.keys()
+  connectionp_dict, signalcorr_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    connectionp_dict[row], signalcorr_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      connectionp_dict[row][combined_stimulus_name], signalcorr_dict[row][combined_stimulus_name] = [], []
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for nodei, nodej in itertools.combinations(node_idx, 2):
+        scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+        if not np.isnan(scorr):
+          connectionp_dict[row][combined_stimulus_name].append(1 if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)) else 0)
+          signalcorr_dict[row][combined_stimulus_name].append(scorr)
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names[1:]:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      connectionp, signalcorr = connectionp_dict[row][combined_stimulus_name], signalcorr_dict[row][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(connectionp)[:,None], np.array(signalcorr)[:,None], np.array([combined_stimulus_name] * len(connectionp))[:,None]), 1), columns=['connection probability', 'signal correlation', 'stimulus'])], ignore_index=True)
+  df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+  df['connection probability'] = pd.to_numeric(df['connection probability'])
+  return df
+
+start_time = time.time()
+connectionp_signalcorr_df = get_connectionp_signalcorr(signal_correlation_dict)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def plot_connectionp_signal_correlation(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) # , sharey=True
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
+    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    binned_x, binned_y = double_equal_binning(x, y, numbin=8, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    # print(binned_x, binned_y)
+    inx = [~np.isnan(i) for i in binned_y]
+    slope, intercept, r_value, p_value, std_err = stats.linregress(np.array(binned_x)[inx], np.array(binned_y)[inx])
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+    locx, locy = .4, .5
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    # ax.scatter(binned_x, binned_y)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if cs_ind == 0:
+      ax.set_ylabel('Probability of finding pairs\nwith functional connection', fontsize=30)
+    ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/connectionp_signal_correlation.pdf', transparent=True)
+
+plot_connectionp_signal_correlation(connectionp_signalcorr_df)
+#%%
+# Results not good!!!
+########################################## get signal correlation VS area distance between communities
+def get_scorr_comm_distance(signal_correlation_dict, comms_dict, regions, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  within_comm_sc, cross_comm_dict, area_distance_dict = np.zeros((len(rows), len(combined_stimulus_names)-1)), {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    cross_comm_dict[row], area_distance_dict[row] = {}, {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+      within_comm_list, cross_comm_dict[row][combined_stimulus_name], area_distance_dict[row][combined_stimulus_name] = [], [], []
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          within_comm, cross_comm, area_distance = [], [], []
+          node_to_community = comm2partition(comms)
+          comm_areas = [[active_area[node] for node in comm] for comm in comms]
+          area_distri =  [[comm_area.count(area) for area in regions] for comm_area in comm_areas]
+          for nodei, nodej in itertools.combinations(node_idx, 2):
+            scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+            if node_to_community[nodei] == node_to_community[nodej]:
+              within_comm.append(scorr)
+            else:
+              if not np.isnan(scorr):
+                cross_comm.append(scorr)
+                area_distance.append(distance.jensenshannon(area_distri[node_to_community[nodei]], area_distri[node_to_community[nodej]]))
+          within_comm_list.append(np.nanmean(within_comm))
+          cross_comm_dict[row][combined_stimulus_name] += cross_comm
+          area_distance_dict[row][combined_stimulus_name] += area_distance
+      within_comm_sc[row_ind, cs_ind] = np.nanmean(within_comm_list)
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names[1:]:
+    print(combined_stimulus_name)
+    # print(combine_stimulus(col)[1])
+    for row in session2keep:
+      cross_comm, area_distance = cross_comm_dict[row][combined_stimulus_name], area_distance_dict[row][combined_stimulus_name]
+      # if combine_stimulus(col)[0] >= 5:
+      #   print(len(within_comm), len(cross_comm))
+      # cross_comm = [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(area_distance)[:,None], np.array([combined_stimulus_name] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'area distance', 'stimulus'])], ignore_index=True)
+  df['area distance'] = pd.to_numeric(df['area distance'])
+  df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+  return within_comm_sc.mean(0), df
+
+start_time = time.time()
+within_comm_sc, signalcorr_area_distance_df = get_scorr_comm_distance(signal_correlation_dict, comms_dict, visual_regions, max_reso_subs)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# Results not good!!!
+# import statsmodels.api as sm
+from scipy.stats import chi2_contingency
+def plot_signal_correlation_comm_distance(within_comm_sc, df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 6))
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+1]]
+    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['area distance'].values.flatten(), data['signal correlation'].values.flatten()
+    # ax.scatter(x, y, label='raw data')
+    # bin_means, bin_edges, binnumber = stats.binned_statistic(X, Y, statistic='median')
+    # ax.hlines(bin_means, bin_edges[:-1], bin_edges[1:], colors='g', lw=5,
+    #           label='binned statistic of data')
+    binned_x, binned_y = double_binning(x, y, numbin=20, log=False)
+    ax.scatter(binned_x, binned_y)
+    ax.axhline(y=within_comm_sc[cs_ind], linewidth=3, color='.2', linestyle='--', alpha=.4)
+    # barplot = sns.barplot(x='stimulus', y='signal correlation', data=df, ax=ax, capsize=.05, width=0.6) # , palette=palette
+    chi_val,pvalue,dof,exp_val=chi2_contingency(np.vstack((binned_x, binned_y)))
+    # table = sm.stats.Table.from_data(data[['area distance', 'signal correlation']])
+    # pvalue = table.test_ordinal_association().pvalue
+    locx, locy = .7, .5
+    ax.text(locx, locy, pvalue, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=20)
+    ax.yaxis.set_tick_params(labelsize=30)
+    # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+    # plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=25)
+    ax.xaxis.set_tick_params(length=0)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if cs_ind == 0:
+      ax.set_ylabel('Signal correlation', fontsize=30)
+    ax.set_xlabel('Jensen-Shannon distance of area', fontsize=25)
+    
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, labels, title='', fontsize=20, frameon=False)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/signal_correlation_comm_distance.pdf', transparent=True)
+
+plot_signal_correlation_comm_distance(within_comm_sc, signalcorr_area_distance_df)
 #%%
 ####################### Figure 2 #######################
 ########################################################
