@@ -3991,6 +3991,132 @@ def plot_motif_region_box(region_count_dict, signed_motif_types, mtype='all_V1')
 
 plot_motif_region_box(region_count_dict, sig_motif_types, mtype='all_V1')
 plot_motif_region_box(region_count_dict, sig_motif_types, mtype='one_V1')
+#%%
+# %%
+def adjust_box_widths(g, fac):
+  # iterating through Axes instances
+  for ax in g.axes:
+    # iterating through axes artists:
+    for c in ax.get_children():
+      # searching for PathPatches
+      if isinstance(c, mpl.patches.PathPatch):
+        # getting current width of box:
+        p = c.get_path()
+        verts = p.vertices
+        verts_sub = verts[:-1]
+        xmin = np.min(verts_sub[:, 0])
+        xmax = np.max(verts_sub[:, 0])
+        xmid = 0.5*(xmin+xmax)
+        xhalf = 0.5*(xmax - xmin)
+        # setting new width of box
+        xmin_new = xmid-fac*xhalf
+        xmax_new = xmid+fac*xhalf
+        verts_sub[verts_sub[:, 0] == xmin, 0] = xmin_new
+        verts_sub[verts_sub[:, 0] == xmax, 0] = xmax_new
+        # setting new width of median line
+        for l in ax.lines:
+          if np.all(l.get_xdata() == [xmin, xmax]):
+            l.set_xdata([xmin_new, xmax_new])
+
+def plot_motif_role(region_count_dict, signed_motif_types, mtype='all_V1'):
+  rows, cols = get_rowcol(region_count_dict)
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(3*len(combined_stimulus_names), 6))
+  df = pd.DataFrame()
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [8,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    print(signed_motif_type)
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      for col in combined_stimuli[cs_ind]:
+        for row_ind, row in enumerate(rows):
+          region_com = {}
+          VISp_data, rest_data = [], []
+          region_count = region_count_dict[row][col]
+          for k in region_count:
+            if signed_motif_type in k:
+              rs = k.replace(signed_motif_type, '')
+              region_com[rs] = region_com.get(rs, 0) + region_count[k]
+          # print(region_com)
+          for motif_area in region_com:
+            if signed_motif_type.replace('+', '').replace('-', '') in ['030T', '120D', '120C']:
+              if motif_area.startswith('VISp'):
+                VISp_data.append(region_com[motif_area])
+              else:
+                rest_data.append(region_com[motif_area])
+            elif signed_motif_type.replace('+', '').replace('-', '') in ['120U']:
+              if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[1] == 'VISp'):
+                VISp_data.append(region_com[motif_area])
+              else:
+                rest_data.append(region_com[motif_area])
+            elif signed_motif_type.replace('+', '').replace('-', '') in ['210']:
+              if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[2] == 'VISp'):
+                VISp_data.append(region_com[motif_area])
+              else:
+                rest_data.append(region_com[motif_area])
+            elif signed_motif_type.replace('+', '').replace('-', '') in ['300']:
+              if 'VISp' in motif_area:
+                VISp_data.append(region_com[motif_area])
+              else:
+                rest_data.append(region_com[motif_area])
+          summ = sum(VISp_data) + sum(rest_data)
+          if summ >= 5: # othewise flashes will disappear
+            VISp_data = [sum(VISp_data)/summ]
+            rest_data = [sum(rest_data)/summ]
+            # VISp_data = [d/summ for d in VISp_data]
+            # rest_data = [d/summ for d in rest_data]
+            df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array([signed_motif_type] * len(VISp_data))[:,None], np.array([combined_stimulus_name] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+            df['probability'] = pd.to_numeric(df['probability'])
+  # ax.set_title(signed_motif_type, fontsize=30, rotation=0)
+  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
+  medianprops = dict(linestyle='-', linewidth=4)
+  boxplot = sns.boxplot(x='stimulus', y='probability', hue="type", data=df, palette=palette, ax=ax, medianprops=medianprops)
+
+  adjust_box_widths(fig, 0.7)
+  boxplot.set(xlabel=None)
+  ax.yaxis.set_tick_params(labelsize=30)
+  # plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
+  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='lower left', fontsize=22, frameon=False)#, bbox_to_anchor=(.9, 1.)
+  ax.legend(handles, ['' for _ in range(len(handles))], title='', loc='upper center',
+   bbox_to_anchor=(0.5, 1.2), ncol=6, columnspacing=4., fontsize=22, frameon=False)
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=30)
+  ax.xaxis.set_tick_params(length=0)
+  box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
+  if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
+    box_patches = ax.artists
+  num_patches = len(box_patches)
+  lines_per_boxplot = len(ax.lines) // num_patches
+  for i, patch in enumerate(box_patches):
+    # Set the linecolor on the patch to the facecolor, and set the facecolor to None
+    col = patch.get_facecolor()
+    patch.set_edgecolor(col)
+    patch.set_facecolor('None')
+    patch.set_linewidth(4)
+    # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
+    # Loop over them here, and use the same color as above
+    for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+      line.set_color(col)
+      line.set_mfc(col)  # facecolor of fliers
+      line.set_mec(col)  # edgecolor of fliers
+  # Also fix the legend
+  for legpatch in ax.legend_.get_patches():
+    col = legpatch.get_facecolor()
+    legpatch.set_edgecolor(col)
+    legpatch.set_facecolor('None')
+    legpatch.set_linewidth(3.5)
+
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.5)
+  ax.set_ylabel('Fraction of driver V1 neurons', fontsize=30)
+  plt.tight_layout()
+  plt.savefig('./plots/box_motif_driver.pdf', transparent=True)
+  # plt.show()
+
+plot_motif_role(region_count_dict, sig_motif_types)
 # %%
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
