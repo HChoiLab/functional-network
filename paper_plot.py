@@ -5,7 +5,7 @@ from library import *
 
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams["font.serif"] = ["Times New Roman"]
-combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
+combined_stimuli = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
 combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
 combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bc80bd', '#bc80bd', '#fb8072', '#fb8072']
 # plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
@@ -1134,9 +1134,9 @@ def annot_significance(star, x1, x2, y, col='k', ax=None):
   ax = plt.gca() if ax is None else ax
   ax.text((x1+x2)*.5, y, star, ha='center', va='bottom', color=col, fontsize=14)
 
-def annot_difference(star, x1, x2, y, h, col='k', ax=None):
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
   ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.5, c=col)
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
   ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
 
 def plot_intra_inter_r_bar_significance(df, regions):
@@ -1186,7 +1186,7 @@ def plot_intra_inter_r_bar_significance(df, regions):
       inter_r = inter_r + .01 if inter_r > 0 else inter_r - .08
       annot_significance(intra_star, -.45 + r_ind, 0.05 + r_ind, intra_r, ax=ax)
       annot_significance(inter_star, -.05 + r_ind, .45 + r_ind, inter_r, ax=ax)
-      annot_difference(diff_star, -.2 + r_ind, .2 + r_ind, max(intra_r, inter_r) + .1, .03, ax=ax)
+      annot_difference(diff_star, -.2 + r_ind, .2 + r_ind, max(intra_r, inter_r) + .1, .03, 1.5, ax=ax)
     liml, limu = ax.get_ylim()
     ax.set_ylim([liml - .02, limu + .05])
   # plt.show()
@@ -1629,19 +1629,22 @@ def get_signal_correlation(G_dict, resolution):
   signal_correlation_dict = {}
   for row in rows:
     signal_correlation_dict[row] = {}
-    for col in cols:
-      print('resolution {} for {} {}'.format(resolution, row, col))
-      # condition, time, neuron
-      stim_table, histograms = get_table_histogram(row, col, all_regions, resolution)
-      condition_ids = stim_table['stimulus_condition_id'].unique()
-      FR_condition = np.zeros((histograms.shape[-1], len(condition_ids)))
-      for c_ind, condition_id in enumerate(condition_ids):
-        inds = stim_table['stimulus_condition_id'] == condition_id
-        sequences = np.moveaxis(histograms.values[inds], -1, 0) # neuron, condition, time
-        FR_condition[:, c_ind] = 1000 * sequences.mean(1).sum(1) / sequences.shape[2] # firing rate in Hz
+    for combined_stimulus in combined_stimuli[1:]:
+      print(row, combined_stimulus_names[combined_stimuli.index(combined_stimulus)].replace('\n', ' '))
+      FR_condition = []
+      for col in combined_stimulus:
+        # condition, time, neuron
+        stim_table, histograms = get_table_histogram(row, col, all_regions, resolution)
+        unique_sblock = stim_table[['stimulus_block', 'stimulus_condition_id']].drop_duplicates()
+        for i in range(unique_sblock.shape[0]):
+          inds = (stim_table['stimulus_block']==unique_sblock.iloc[i]['stimulus_block']) & (stim_table['stimulus_condition_id']==unique_sblock.iloc[i]['stimulus_condition_id'])
+          sequences = np.moveaxis(histograms.values[inds], -1, 0) # neuron, condition, time
+          # FR_condition[:, c_ind] = 1000 * sequences.mean(1).sum(1) / sequences.shape[2] # firing rate in Hz
+          FR_condition.append(1000 * sequences.mean(1).sum(1) / sequences.shape[2]) # firing rate in Hz
+      FR_condition = np.vstack(FR_condition).T # transpose to (neuron, block)
       signal_correlation = np.corrcoef(FR_condition)
       np.fill_diagonal(signal_correlation, 0)
-      signal_correlation_dict[row][col] = signal_correlation
+      signal_correlation_dict[row][combine_stimulus(col)[1]] = signal_correlation
   return signal_correlation_dict
 
 start_time = time.time()
@@ -1656,79 +1659,115 @@ with open('signal_correlation_dict.pkl', 'rb') as f:
   signal_correlation_dict = pickle.load(f)
 #%%
 def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
-  rows, cols = get_rowcol(signal_correlation_dict)
+  rows = signal_correlation_dict.keys()
   within_comm_dict, cross_comm_dict = {}, {}
   for row_ind, row in enumerate(rows):
     print(row)
     active_area = active_area_dict[row]
     node_idx = sorted(active_area.keys())
     within_comm_dict[row], cross_comm_dict[row] = {}, {}
-    for col_ind, col in enumerate(cols):
-      signal_correlation = signal_correlation_dict[row][col]
-      max_reso = max_neg_reso[row_ind][col_ind]
-      comms_list = comms_dict[row][col][max_reso]
-      within_comm_dict[row][col], cross_comm_dict[row][col] = [], []
-      for comms in comms_list: # average for each partition, otherwise too large
-        within_comm, cross_comm = [], []
-        node_to_community = comm2partition(comms)
-        for nodei, nodej in itertools.combinations(node_idx, 2):
-          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
-          if node_to_community[nodei] == node_to_community[nodej]:
-            within_comm.append(scorr)
-          else:
-            cross_comm.append(scorr)
-        within_comm_dict[row][col].append(np.nanmean(within_comm))
-        cross_comm_dict[row][col].append(np.nanmean(cross_comm))
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name] = [], []
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          within_comm, cross_comm = [], []
+          node_to_community = comm2partition(comms)
+          for nodei, nodej in itertools.combinations(node_idx, 2):
+            scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+            if node_to_community[nodei] == node_to_community[nodej]:
+              within_comm.append(scorr)
+            else:
+              cross_comm.append(scorr)
+          within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
+          cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
   df = pd.DataFrame()
-  for col in cols:
-    print(col)
+  for combined_stimulus_name in combined_stimulus_names[1:]:
+    print(combined_stimulus_name)
     # print(combine_stimulus(col)[1])
     for row in session2keep:
-      within_comm, cross_comm = within_comm_dict[row][col], cross_comm_dict[row][col]
-      if combine_stimulus(col)[0] >= 5:
-        print(len(within_comm), len(cross_comm))
+      within_comm, cross_comm = within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name]
+      # if combine_stimulus(col)[0] >= 5:
+      #   print(len(within_comm), len(cross_comm))
       within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
-      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([combine_stimulus(col)[1]] * len(within_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
-      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([combine_stimulus(col)[1]] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([combined_stimulus_name] * len(within_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([combined_stimulus_name] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
   df['signal correlation'] = pd.to_numeric(df['signal correlation'])
   return df
 
 start_time = time.time()
-connectionp_within_cross_comm_df = get_within_cross_comm(signal_correlation_dict, comms_dict, max_reso_subs)
+signalcorr_within_cross_comm_df = get_within_cross_comm(signal_correlation_dict, comms_dict, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def plot_connectionp_within_cross_comm(df):
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(4*len(combined_stimulus_names), 6))
-  barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", data=df, ax=ax, alpha=.4)
-  barplot.set(xlabel=None)
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_signal_correlation_within_cross_comm_significance(df):
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
   ax.yaxis.set_tick_params(labelsize=30)
-  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=30)
+  plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=25)
+  ax.xaxis.set_tick_params(length=0)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('0.2')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
+  ax.set_xlabel('')
   ax.set_ylabel('Signal correlation', fontsize=30)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0., 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
+    _, p = ztest(within_comm, cross_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
+    within_sr = within_sr + .015
+    cross_sr = cross_sr + .015
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
   plt.tight_layout()
-  plt.show()
+  # plt.show()
+  plt.savefig('./plots/signal_correlation_within_cross_comm.pdf', transparent=True)
 
-plot_connectionp_within_cross_comm(connectionp_within_cross_comm_df)
+plot_signal_correlation_within_cross_comm_significance(signalcorr_within_cross_comm_df)
 #%%
 ####################### Figure 2 #######################
 ########################################################
 ################# get optimal resolution that maximizes delta H
-def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
-  max_reso_subs = np.zeros((len(rows), len(cols)))
+
+# def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
+#   max_reso_subs = np.zeros((len(rows), len(cols)))
+#   Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
+#   for row_ind, row in enumerate(rows):
+#     print(row)
+#     for col_ind, col in enumerate(cols):
+#       metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
+#       metric_subs = subs_Hamiltonian[row_ind, col_ind].mean(-1)
+#       max_reso_subs[row_ind, col_ind] = resolution_list[np.argmax(metric_subs - metric_mean)]
+#   return max_reso_subs
+
+# for each community partition individually
+def get_max_dH_resolution(rows, cols, resolution_list, metrics):
   Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
+  max_reso_subs = np.zeros((len(rows), len(cols), Hamiltonian.shape[-1]))
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
-      metric_mean = Hamiltonian[row_ind, col_ind].mean(-1)
-      metric_subs = subs_Hamiltonian[row_ind, col_ind].mean(-1)
-      max_reso_subs[row_ind, col_ind] = resolution_list[np.argmax(metric_subs - metric_mean)]
+      for run in range(Hamiltonian.shape[-1]):
+        metric_mean = Hamiltonian[row_ind, col_ind, :, run]
+        metric_subs = subs_Hamiltonian[row_ind, col_ind, :, run]
+        max_reso_subs[row_ind, col_ind, run] = resolution_list[np.argmax(metric_subs - metric_mean)]
   return max_reso_subs
 
 rows, cols = get_rowcol(G_ccg_dict)
@@ -1740,7 +1779,7 @@ with open('metrics.pkl', 'rb') as f:
 resolution_list = np.arange(0, 2.1, 0.1)
 max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
 ################# community with Hamiltonian
-max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
+# max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
 #%%
 def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics): 
   num_row, num_col = len(rows), len(cols)
@@ -1785,16 +1824,19 @@ def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list
   rows, cols = get_rowcol(G_dict)
   if max_neg_reso is None:
     max_neg_reso = np.ones((len(rows), len(cols)))
-  num_comm, hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(4)]
+  num_comm, hamiltonian, subs_Hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(5)]
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
-      G = G_dict[row][col].copy()
+      origin_G = G_dict[row][col].copy()
       if cc:
-        G = get_lcc(G)
+        G = get_lcc(origin_G)
+      else:
+        G = origin_G
       max_reso = max_neg_reso[row_ind][col_ind]
       comms_list = comms_dict[row][col][max_reso]
       hamiltonian[row_ind, col_ind] = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean()
+      subs_Hamiltonian[row_ind, col_ind] = metrics['subs Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean()
       nc, nl, cl = [], [], []
       for comms in comms_list:
         lcc_comms = []
@@ -1802,14 +1844,14 @@ def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list
           if set(comm) <= set(G.nodes()): # only for communities in the connected component
             lcc_comms.append(comm)
           nc.append(len(lcc_comms))
-          count = np.array([len(comm) for comm in lcc_comms])
-          nl.append(sum(count >= 3))
-          cl.append(count[count >=3].sum() / G.number_of_nodes())
+          comm_size = np.array([len(comm) for comm in lcc_comms])
+          nl.append(sum(comm_size >= 4))
+          cl.append(comm_size[comm_size >=4].sum() / origin_G.number_of_nodes())
       num_comm[row_ind, col_ind] = np.mean(nc)
       num_lcomm[row_ind, col_ind] = np.mean(nl)
       cov_lcomm[row_ind, col_ind] = np.mean(cl)
       
-  metrics2plot = {'number of communities':num_comm, 'Hamiltonian':hamiltonian, 
+  metrics2plot = {'number of communities':num_comm, 'delta Hamiltonian':subs_Hamiltonian - hamiltonian, 
   'number of large communities':num_lcomm, 'coverage of large comm':cov_lcomm}
   num_col = 2
   num_row = int(len(metrics2plot) / num_col)
@@ -1841,6 +1883,84 @@ def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list
 stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_subs, comms_dict=comms_dict, metrics=metrics, max_method='subs', cc=False)
 # stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_gnm, comms_dict=comms_dict, metrics=metrics, max_method='gnm', cc=False)
 # stat_modular_structure_Hamiltonian_comms(G_ccg_dict, measure, n, resolution_list, max_neg_reso=max_reso_config, comms_dict=comms_dict, metrics=metrics, max_method='config', cc=False)
+#%%
+def box_modular_structure_Hamiltonian_comms(G_dict, resolution_list, max_neg_reso=None, comms_dict=None, metrics=None, max_method='none', cc=False):
+  rows, cols = get_rowcol(G_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  num_comm, hamiltonian, subs_Hamiltonian, delta_Hamiltonian, num_lcomm, cov_lcomm = [[[] for _ in range(len(combined_stimuli))] for _ in range(6)]
+  
+  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+    print(combined_stimulus_names[cs_ind])
+    for col in combined_stimulus:
+      col_ind = cols.index(col)
+      for row_ind, row in enumerate(rows):
+        origin_G = G_dict[row][col].copy()
+        if cc:
+          G = get_lcc(origin_G)
+        else:
+          G = origin_G
+        h, rh = [], []
+        nc, nl, cl = [], [], []
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          h.append(metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+          rh.append(metrics['subs Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          lcc_comms = []
+          for comm in comms:
+            if set(comm) <= set(G.nodes()): # only for communities in the connected component
+              lcc_comms.append(comm)
+            nc.append(len(lcc_comms))
+            comm_size = np.array([len(comm) for comm in lcc_comms])
+            th = 3
+            nl.append(sum(comm_size >= th))
+            cl.append(comm_size[comm_size >=th].sum() / origin_G.number_of_nodes())
+        # h, rh = metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean(), metrics['subs Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0]].mean()
+        hamiltonian[cs_ind] += h
+        subs_Hamiltonian[cs_ind] += rh
+        delta_Hamiltonian[cs_ind] += [abs(hh/rhh) for rhh, hh in zip(rh, h)]
+        
+        num_comm[cs_ind].append(np.mean(nc))
+        num_lcomm[cs_ind].append(np.mean(nl))
+        cov_lcomm[cs_ind].append(np.mean(cl))
+  # return num_comm, hamiltonian, subs_Hamiltonian, delta_Hamiltonian, num_lcomm, cov_lcomm
+  metrics2plot = {'number of communities':num_comm, 'relative Hamiltonian':delta_Hamiltonian, 
+  'number of large communities':num_lcomm, 'coverage of large comm':cov_lcomm}
+  num_col = 2
+  num_row = int(len(metrics2plot) / num_col)
+  fig, axes = plt.subplots(2, 2, figsize=(5*num_col, 5*num_row))
+  for i, k in enumerate(metrics2plot):
+    ax = axes[i//axes.shape[1], i%axes.shape[1]]
+    metric = metrics2plot[k]
+    boxprops = dict(facecolor='white', edgecolor='.2')
+    medianprops = dict(linestyle='-', linewidth=1.5, color='.2')
+    ax.boxplot(metric, showfliers=False, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
+    # plt.xticks(list(range(1, len(metric)+1)), combined_stimulus_names)
+    ax.set_xticks(1 + np.arange(len(combined_stimulus_names)))
+    ax.set_xticklabels(labels=combined_stimulus_names, fontsize=12)
+    ax.xaxis.set_tick_params(labelsize=14)
+    ax.yaxis.set_tick_params(labelsize=14)
+    ylabel = k
+    ax.set_ylabel(ylabel)
+    # ax.set_xscale('log')
+    ax.set_xlabel(ax.get_xlabel(), fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel(ax.get_ylabel(), fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    
+  plt.suptitle(max_method, size=25)
+  plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+  plt.show()
+  # figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
+  # plt.savefig(figname.format(max_method, measure, n))
+
+box_modular_structure_Hamiltonian_comms(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, comms_dict=comms_dict, metrics=metrics, max_method='subs', cc=False)
 #%%
 ############ find nodes and comms with at least one between community edge
 def get_unique_elements(nested_list):
@@ -2055,7 +2175,7 @@ def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos
     ax = axes[i, j]
     ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
     area_ds = np.zeros((len(regions), len(regions)))
-    for col in combined_stimulus[cs_ind]:
+    for col in combined_stimuli[cs_ind]:
       for row in session2keep:
         ind_area_mat = np.zeros((len(regions), len(regions)))
         active_area = active_area_dict[row]
@@ -2078,7 +2198,7 @@ def plot_directionality_score_area(G_dict, active_area_dict, regions, etype='pos
         ind_area_ds[(ind_area_mat + ind_area_mat.T)==0] = 0
         area_ds += ind_area_ds
     ticklabels = region_labels
-    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimulus[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimuli[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
     ax.xaxis.set_tick_params(labelsize=25)
     ax.yaxis.set_tick_params(labelsize=25)
     ax.invert_xaxis()
@@ -2093,7 +2213,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 ################################ pos DS VS neg DS for low to high area pairs
 def plot_posDS_negDS(G_dict, active_area_dict, regions):
   fig, axes = plt.subplots(2, 3, figsize=(6*3, 5*2))
-  for cs_ind, combined_s in enumerate(combined_stimulus):
+  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
     i, j = cs_ind // axes.shape[1], cs_ind % axes.shape[1]
     ax = axes[i, j]
     ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
@@ -2102,7 +2222,7 @@ def plot_posDS_negDS(G_dict, active_area_dict, regions):
     pos_area_ds, neg_area_ds = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
     X, Y = [], []
     all_pos_ds, all_neg_ds = [], []
-    for col in combined_s:
+    for col in combined_stimulus:
       for row in session2keep:
         pos_ind_area_mat, neg_ind_area_mat = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
         active_area = active_area_dict[row]
@@ -2131,8 +2251,8 @@ def plot_posDS_negDS(G_dict, active_area_dict, regions):
     X, Y = X[inds], Y[inds]
     #     pos_area_ds += pos_ind_area_ds
     #     neg_area_ds += neg_ind_area_ds
-    # X = pos_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimulus[cs_ind]))
-    # Y = neg_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimulus[cs_ind]))
+    # X = pos_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimuli[cs_ind]))
+    # Y = neg_area_ds[np.triu_indices(len(regions), 1)] / (len(session2keep) * len(combined_stimuli[cs_ind]))
     ax.scatter(X, Y, label=label, color=combined_stimulus_colors[cs_ind], alpha=.6)
     ax.axvline(x=0, linewidth=3, color='.2', linestyle='--', alpha=.4)
     ax.axhline(y=0, linewidth=3, color='.2', linestyle='--', alpha=.4)
@@ -2162,10 +2282,10 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 regions = visual_regions
 G_dict = G_ccg_dict
-combined_s = ['natural_scenes']
+combined_stimulus = ['natural_scenes']
 X, Y = [], []
 all_pos_ds, all_neg_ds = [], []
-for col in combined_s:
+for col in combined_stimulus:
   for row in session2keep:
     pos_ind_area_mat, neg_ind_area_mat = np.zeros((len(regions), len(regions))), np.zeros((len(regions), len(regions)))
     active_area = active_area_dict[row]
@@ -2198,7 +2318,7 @@ def plot_directionality_score_area_sum(G_dict, active_area_dict, regions, etype=
     ax = axes[i, j]
     ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=30)
     area_mat = np.zeros((len(regions), len(regions)))
-    for col in combined_stimulus[cs_ind]:
+    for col in combined_stimuli[cs_ind]:
       for row in session2keep:
         active_area = active_area_dict[row]
         G = G_dict[row][col]
@@ -2215,7 +2335,7 @@ def plot_directionality_score_area_sum(G_dict, active_area_dict, regions, etype=
     area_ds = (area_mat - area_mat.T) / (area_mat + area_mat.T)
     area_ds[(area_mat + area_mat.T)==0] = 0
     ticklabels = region_labels
-    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimulus[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
+    sns.heatmap((area_ds / (len(session2keep) * len(combined_stimuli[cs_ind]))).T, cmap='seismic', center=0, ax=ax, xticklabels=ticklabels, yticklabels=ticklabels)
     ax.xaxis.set_tick_params(labelsize=25)
     ax.yaxis.set_tick_params(labelsize=25)
     ax.invert_xaxis()
@@ -2945,7 +3065,7 @@ def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
     ax = axes[s_ind]
     ax.set_title(stimulus_name.replace('\n', ' '), fontsize=15, rotation=0)
     all_pair_count = defaultdict(lambda: [])
-    for col in combined_stimulus[s_ind]:
+    for col in combined_stimuli[s_ind]:
       for row in rows:
         G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
         signs = list(nx.get_edge_attributes(G, "sign").values())
@@ -3392,7 +3512,7 @@ def plot_motif_comm_box(comm_count_dict, signed_motif_types):
   for mt_ind, signed_motif_type in enumerate(signed_motif_types):
     print(signed_motif_type)
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-      for col in combined_stimulus[cs_ind]:
+      for col in combined_stimuli[cs_ind]:
         for row_ind, row in enumerate(rows):
           region_com = {}
           VISp_data, rest_data = [], []
@@ -3560,7 +3680,7 @@ def plot_motif_region_box(region_count_dict, signed_motif_types, mtype='all_V1')
   for mt_ind, signed_motif_type in enumerate(signed_motif_types):
     print(signed_motif_type)
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-      for col in combined_stimulus[cs_ind]:
+      for col in combined_stimuli[cs_ind]:
         for row_ind, row in enumerate(rows):
           region_com = {}
           VISp_data, rest_data = [], []
@@ -4133,7 +4253,7 @@ def plot_steady_distribution(G_dict, epsilon, active_area_dict, regions, maxstep
   # fig = plt.figure(figsize=(5*len(cols), 4*len(regions)))
   fig, axes = plt.subplots(len(regions), len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 3*len(regions)), sharex=True, sharey=True)
   axes[0, 0].set_ylim(0, 1) # sharey=True propagates it to all plots
-  for s_ind, c_stimulus in enumerate(combined_stimulus):
+  for s_ind, c_stimulus in enumerate(combined_stimuli):
     print(c_stimulus)
     steady_distribution = np.zeros((len(regions), 2, len(regions)))
     s_distri = {r:[] for r in regions}
@@ -4182,7 +4302,7 @@ def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20
   # fig = plt.figure(figsize=(5*len(cols), 4))
   fig, axes = plt.subplots(1, len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 4), sharex=True, sharey=True)
   axes[0].set_ylim(0, 1) # sharey=True propagates it to all plots
-  for s_ind, c_stimulus in enumerate(combined_stimulus):
+  for s_ind, c_stimulus in enumerate(combined_stimuli):
     print(c_stimulus)
     steady_distribution = np.zeros((len(regions), 2, len(regions)))
     s_distri = {r:[] for r in regions}
