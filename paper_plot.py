@@ -2185,9 +2185,9 @@ def box_modular_structure_Hamiltonian_comms(G_dict, resolution_list, max_neg_res
     
   plt.suptitle(max_method, size=25)
   plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-  plt.show()
-  # figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
-  # plt.savefig(figname.format(max_method, measure, n))
+  # plt.show()
+  figname = './plots/stat_modular_Hamiltonian_maxreso_{}_{}_{}fold.jpg'
+  plt.savefig(figname.format(max_method, measure, n))
 
 box_modular_structure_Hamiltonian_comms(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, comms_dict=comms_dict, metrics=metrics, max_method='subs', cc=False)
 #%%
@@ -4018,7 +4018,7 @@ def adjust_box_widths(g, fac):
           if np.all(l.get_xdata() == [xmin, xmax]):
             l.set_xdata([xmin_new, xmax_new])
 
-def plot_motif_role(region_count_dict, signed_motif_types, mtype='all_V1'):
+def plot_motif_role(region_count_dict, signed_motif_types, ntype='driver'):
   rows, cols = get_rowcol(region_count_dict)
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(3*len(combined_stimulus_names), 6))
   df = pd.DataFrame()
@@ -4036,27 +4036,50 @@ def plot_motif_role(region_count_dict, signed_motif_types, mtype='all_V1'):
               rs = k.replace(signed_motif_type, '')
               region_com[rs] = region_com.get(rs, 0) + region_count[k]
           # print(region_com)
-          for motif_area in region_com:
-            if signed_motif_type.replace('+', '').replace('-', '') in ['030T', '120D', '120C']:
-              if motif_area.startswith('VISp'):
-                VISp_data.append(region_com[motif_area])
-              else:
-                rest_data.append(region_com[motif_area])
-            elif signed_motif_type.replace('+', '').replace('-', '') in ['120U']:
-              if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[1] == 'VISp'):
-                VISp_data.append(region_com[motif_area])
-              else:
-                rest_data.append(region_com[motif_area])
-            elif signed_motif_type.replace('+', '').replace('-', '') in ['210']:
-              if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[2] == 'VISp'):
-                VISp_data.append(region_com[motif_area])
-              else:
-                rest_data.append(region_com[motif_area])
-            elif signed_motif_type.replace('+', '').replace('-', '') in ['300']:
-              if 'VISp' in motif_area:
-                VISp_data.append(region_com[motif_area])
-              else:
-                rest_data.append(region_com[motif_area])
+          if ntype == 'driver':
+            for motif_area in region_com:
+              if signed_motif_type.replace('+', '').replace('-', '') in ['030T', '120D', '120C']:
+                if motif_area.startswith('VISp'):
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['120U']:
+                if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[1] == 'VISp'):
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['210']:
+                if (motif_area.split('_')[0] == 'VISp') or (motif_area.split('_')[2] == 'VISp'):
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['300']:
+                if 'VISp' in motif_area:
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+          elif ntype == 'driven':
+            for motif_area in region_com:
+              if signed_motif_type.replace('+', '').replace('-', '') in ['030T', '120D', '120C']:
+                if motif_area.endswith('VISp'):
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['120U']:
+                if motif_area.split('_')[2] == 'VISp':
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['210']:
+                if motif_area.split('_')[1] == 'VISp':
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
+              elif signed_motif_type.replace('+', '').replace('-', '') in ['300']:
+                if 'VISp' in motif_area:
+                  VISp_data.append(region_com[motif_area])
+                else:
+                  rest_data.append(region_com[motif_area])
           summ = sum(VISp_data) + sum(rest_data)
           if summ >= 5: # othewise flashes will disappear
             VISp_data = [sum(VISp_data)/summ]
@@ -4111,12 +4134,13 @@ def plot_motif_role(region_count_dict, signed_motif_types, mtype='all_V1'):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
-  ax.set_ylabel('Fraction of driver V1 neurons', fontsize=30)
+  ax.set_ylabel('Fraction of {} V1 neurons'.format(ntype), fontsize=30)
   plt.tight_layout()
-  plt.savefig('./plots/box_motif_driver.pdf', transparent=True)
+  plt.savefig('./plots/box_motif_{}.pdf'.format(ntype), transparent=True)
   # plt.show()
 
-plot_motif_role(region_count_dict, sig_motif_types)
+plot_motif_role(region_count_dict, sig_motif_types, 'driver')
+plot_motif_role(region_count_dict, sig_motif_types, 'driven')
 # %%
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
