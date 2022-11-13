@@ -1802,7 +1802,6 @@ def plot_same_module_prob_signal_correlation(df):
 
 plot_same_module_prob_signal_correlation(signalcorr_within_cross_comm_df)
 #%%
-#%%
 ########################################## get connection probability VS signal correlation
 def get_connectionp_signalcorr(signal_correlation_dict):
   rows = signal_correlation_dict.keys()
@@ -3391,6 +3390,100 @@ signed_motif_types1 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_
 signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types2]
 signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
 signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
+#%%
+################## plot weight/confidence difference between within motif/other neurons
+def get_data_within_cross_motif(G_dict, signed_motif_types, weight='confidence'):
+  rows, cols = get_rowcol(G_dict)
+  within_motif_dict, cross_motif_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    within_motif_dict[row], cross_motif_dict[row] = {}, {}
+    for col_ind, col in enumerate(cols):
+      print(col)
+      within_motif_dict[row][col], cross_motif_dict[row][col] = [], []
+      G = G_dict[row][col]
+      motifs_by_type = find_triads(G) # faster
+      motif_edges = []
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
+          if smotif_type == signed_motif_type:
+            motif_edges += list(motif.edges())
+      for e in G.edges():
+        if e in motif_edges:
+          within_motif_dict[row][col].append(abs(G[e[0]][e[1]][weight]))
+        else:
+          cross_motif_dict[row][col].append(abs(G[e[0]][e[1]][weight]))
+  df = pd.DataFrame()
+  for col in cols:
+    for row in session2keep:
+      within_motif, cross_motif = within_motif_dict[row][col], cross_motif_dict[row][col]
+      within_motif, cross_motif = [e for e in within_motif if not np.isnan(e)], [e for e in cross_motif if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within motif'] * len(within_motif))[:,None], np.array([combine_stimulus(col)[1]] * len(within_motif))[:,None]), 1), columns=['CCG', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_motif)[:,None], np.array(['otherwise'] * len(cross_motif))[:,None], np.array([combine_stimulus(col)[1]] * len(cross_motif))[:,None]), 1), columns=['CCG', 'type', 'stimulus'])], ignore_index=True)
+  df['CCG'] = pd.to_numeric(df['CCG'])
+  if weight == 'confidence':
+    df=df.rename(columns = {'CCG':'CCG Z score'})
+  return df
+
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+# confidence_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='confidence')
+weight_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='weight')
+#%%
+def confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return m-h, m+h
+
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_data_within_cross_motif_significance(df, weight='confidence'):
+  fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  y = 'CCG' if weight=='weight' else 'CCG Z score'
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=20)
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('')
+  ax.set_ylabel('Absolute ' + ax.get_ylabel(), fontsize=30)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, ['within motif', 'otherwise'], title='', bbox_to_anchor=(.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  if weight == 'confidence':
+    ax.set_ylim(top=7)
+    h, l = .1, .1
+  else:
+    h, l = 0.002, .0005
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    _, p = ztest(within_motif, cross_motif, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/{}_within_cross_motif.pdf'.format(weight), transparent=True)
+
+# plot_data_within_cross_motif_significance(confidence_within_cross_motif_df, weight='confidence')
+plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
 #%%
 ################## remove outlier from mean_df (outside 2 std)
 mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
