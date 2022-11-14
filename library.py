@@ -21,7 +21,7 @@ import re
 # import random
 from mpl_toolkits.axes_grid1 import axes_grid
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, PathPatch
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.cm as cm
@@ -29,8 +29,8 @@ from matplotlib import colors
 import matplotlib.gridspec as gridspec
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 import matplotlib.font_manager as fm
-import statsmodels.stats.weightstats as ws
 from statsmodels.stats.multitest import multipletests, fdrcorrection
+from statsmodels.stats.weightstats import ztest as ztest
 import networkx as nx
 import networkx.algorithms.community as nx_comm
 from collections import defaultdict, deque
@@ -3484,7 +3484,11 @@ def comm2label(comms):
   return [p for n, p in sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0])]
   
 def comm2partition(comms):
-  return dict(sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0]))
+  return dict(sorted({node:comms.index(comm) for comm in comms for node in comm}.items(), key=lambda x:x[0]))
+
+def partition2comm(partition):
+  comm_indx = set(partition.values())
+  return [[k for k in partition.keys() if partition[k]==ci] for ci in comm_indx]
 
 def variation_of_information(X, Y):
   n = float(sum([len(x) for x in X]))
@@ -6417,7 +6421,7 @@ def get_motif_region(motif, node_area, motif_type):
     region = '_'.join(region)
   return region
 
-def get_motif_region_census(G_dict, area_dict, signed_motif_types):
+def get_motif_region_census(df, G_dict, area_dict, signed_motif_types):
   rows, cols = get_rowcol(G_dict)
   region_count_dict = {}
   for row_ind, row in enumerate(rows):
@@ -6430,14 +6434,15 @@ def get_motif_region_census(G_dict, area_dict, signed_motif_types):
       G = G_dict[row][col]
       motifs_by_type = find_triads(G) # faster
       for signed_motif_type in signed_motif_types:
-        motif_type = signed_motif_type.replace('+', '').replace('-', '')
-        motifs = motifs_by_type[motif_type]
-        for motif in motifs:
-          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
-          if smotif_type == signed_motif_type:
-            region = get_motif_region(motif, node_area, motif_type)
-            # print(smotif_type, region)
-            region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
+        # if abs(df[(df['session']==row) & (df['stimulus']==col) & (df['signed motif type']==signed_motif_type)]['intensity z score'].tolist()[0]) > 1.96: # 95% confidence level
+          motif_type = signed_motif_type.replace('+', '').replace('-', '')
+          motifs = motifs_by_type[motif_type]
+          for motif in motifs:
+            smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+            if smotif_type == signed_motif_type:
+              region = get_motif_region(motif, node_area, motif_type)
+              # print(smotif_type, region)
+              region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
       region_count_dict[row][col] = dict(sorted(region_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
   return region_count_dict
 
