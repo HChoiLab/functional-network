@@ -1744,7 +1744,7 @@ def plot_signal_correlation_within_cross_comm_significance(df):
 plot_signal_correlation_within_cross_comm_significance(signalcorr_within_cross_comm_df)
 #%%
 ########################## probability of being in the same module VS signal correlation
-from scipy.stats import chi2_contingency # problem: ValueError: All values in `observed` must be nonnegative.
+import statsmodels.api as sm
 def double_binning(x, y, numbin=20, log=False):
   if log:
     bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
@@ -1765,8 +1765,21 @@ def double_equal_binning(x, y, numbin=20, log=False):
   binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
   return binned_x, binned_y
 
+def double_equal_binning_counts(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  connect = [(y[digitized == i]==1).sum() for i in range(1, len(bins))]
+  disconnect = [(y[digitized == i]==0).sum() for i in range(1, len(bins))]
+  return connect, disconnect
+
 def plot_same_module_prob_signal_correlation(df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
+  axes[0].set_ylim(top=1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
@@ -1776,12 +1789,16 @@ def plot_same_module_prob_signal_correlation(df):
     data.loc[data['type']=='within community','probability of same module'] = 1
     ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['signal correlation'].values.flatten(), data['probability of same module'].values.flatten()
-    binned_x, binned_y = double_equal_binning(x, y, numbin=6, log=False)
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
-    slope, intercept, r_value, p_value, std_err = stats.linregress(binned_x, binned_y)
-    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
-    locx, locy = .4, .5
-    ax.text(locx, locy, text, horizontalalignment='center',
+    for i in range(len(binned_x)):
+      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
+    table = sm.stats.Table.from_data(np.vstack((x, y)).T)
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .2, .5
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=25)
     # ax.scatter(binned_x, binned_y)
     ax.xaxis.set_tick_params(labelsize=30)
@@ -1803,55 +1820,74 @@ def plot_same_module_prob_signal_correlation(df):
 plot_same_module_prob_signal_correlation(signalcorr_within_cross_comm_df)
 #%%
 ########################################## get connection probability VS signal correlation
-def get_connectionp_signalcorr(signal_correlation_dict):
+def get_connectionp_signalcorr(G_dict, signal_correlation_dict):
   rows = signal_correlation_dict.keys()
-  connectionp_dict, signalcorr_dict = {}, {}
+  connect_dict, disconnect_dict = {}, {}
   for row_ind, row in enumerate(rows):
     print(row)
     active_area = active_area_dict[row]
     node_idx = sorted(active_area.keys())
-    connectionp_dict[row], signalcorr_dict[row] = {}, {}
+    connect_dict[row], disconnect_dict[row] = {}, {}
     for combined_stimulus_name in combined_stimulus_names[1:]:
-      connectionp_dict[row][combined_stimulus_name], signalcorr_dict[row][combined_stimulus_name] = [], []
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name] = [], []
       signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
-      for nodei, nodej in itertools.combinations(node_idx, 2):
-        scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
-        if not np.isnan(scorr):
-          connectionp_dict[row][combined_stimulus_name].append(1 if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)) else 0)
-          signalcorr_dict[row][combined_stimulus_name].append(scorr)
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col]
+        connect, disconnect = [], []
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if not np.isnan(scorr):
+            if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)):
+              connect.append(scorr)
+            else:
+              disconnect.append(scorr)
+        # Add bootstrapping to create more datapoints
+        connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(connect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+        disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(disconnect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
   df = pd.DataFrame()
   for combined_stimulus_name in combined_stimulus_names[1:]:
     print(combined_stimulus_name)
     for row in session2keep:
-      connectionp, signalcorr = connectionp_dict[row][combined_stimulus_name], signalcorr_dict[row][combined_stimulus_name]
+      connect, disconnect = connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name]
       # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
-      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(connectionp)[:,None], np.array(signalcorr)[:,None], np.array([combined_stimulus_name] * len(connectionp))[:,None]), 1), columns=['connection probability', 'signal correlation', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(connect)[:,None], np.array(['connected'] * len(connect))[:,None], np.array([combined_stimulus_name] * len(connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(disconnect)[:,None], np.array(['disconnected'] * len(disconnect))[:,None], np.array([combined_stimulus_name] * len(disconnect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
   df['signal correlation'] = pd.to_numeric(df['signal correlation'])
-  df['connection probability'] = pd.to_numeric(df['connection probability'])
   return df
 
 start_time = time.time()
-connectionp_signalcorr_df = get_connectionp_signalcorr(signal_correlation_dict)
+connectionp_signalcorr_df = get_connectionp_signalcorr(G_ccg_dict, signal_correlation_dict)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 def plot_connectionp_signal_correlation(df):
-  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) # , sharey=True
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5)) #
+  axes[0].set_ylim(top = 1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
     data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
     ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
-    x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
-    binned_x, binned_y = double_equal_binning(x, y, numbin=8, log=False)
+
+    data.insert(0, 'probability of connection', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='connected','probability of connection'] = 1
+    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['signal correlation'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
-    # print(binned_x, binned_y)
-    inx = [~np.isnan(i) for i in binned_y]
-    slope, intercept, r_value, p_value, std_err = stats.linregress(np.array(binned_x)[inx], np.array(binned_y)[inx])
-    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
-    locx, locy = .4, .5
-    ax.text(locx, locy, text, horizontalalignment='center',
+    for i in range(len(binned_x)):
+      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
+    xy = np.vstack((x, y)).T
+    table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .2, .8
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=25)
-    # ax.scatter(binned_x, binned_y)
     ax.xaxis.set_tick_params(labelsize=30)
     ax.yaxis.set_tick_params(labelsize=30)
     for axis in ['bottom', 'left']:
@@ -1902,8 +1938,10 @@ def get_scorr_comm_distance(signal_correlation_dict, comms_dict, regions, max_ne
                 cross_comm.append(scorr)
                 area_distance.append(distance.jensenshannon(area_distri[node_to_community[nodei]], area_distri[node_to_community[nodej]]))
           within_comm_list.append(np.nanmean(within_comm))
-          cross_comm_dict[row][combined_stimulus_name] += cross_comm
-          area_distance_dict[row][combined_stimulus_name] += area_distance
+          # cross_comm_dict[row][combined_stimulus_name] += cross_comm
+          # area_distance_dict[row][combined_stimulus_name] += area_distance
+          cross_comm_dict[row][combined_stimulus_name].append(np.mean(cross_comm))
+          area_distance_dict[row][combined_stimulus_name].append(np.mean(area_distance))
       within_comm_sc[row_ind, cs_ind] = np.nanmean(within_comm_list)
   df = pd.DataFrame()
   for combined_stimulus_name in combined_stimulus_names[1:]:
@@ -1924,8 +1962,7 @@ within_comm_sc, signalcorr_area_distance_df = get_scorr_comm_distance(signal_cor
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 # Results not good!!!
-# import statsmodels.api as sm
-from scipy.stats import chi2_contingency
+import statsmodels.api as sm
 def plot_signal_correlation_comm_distance(within_comm_sc, df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 6))
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
@@ -1934,20 +1971,24 @@ def plot_signal_correlation_comm_distance(within_comm_sc, df):
     data = df[df.stimulus==combined_stimulus_names[cs_ind+1]]
     ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['area distance'].values.flatten(), data['signal correlation'].values.flatten()
-    # ax.scatter(x, y, label='raw data')
-    # bin_means, bin_edges, binnumber = stats.binned_statistic(X, Y, statistic='median')
-    # ax.hlines(bin_means, bin_edges[:-1], bin_edges[1:], colors='g', lw=5,
-    #           label='binned statistic of data')
-    binned_x, binned_y = double_binning(x, y, numbin=20, log=False)
-    ax.scatter(binned_x, binned_y)
+
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
     ax.axhline(y=within_comm_sc[cs_ind], linewidth=3, color='.2', linestyle='--', alpha=.4)
-    # barplot = sns.barplot(x='stimulus', y='signal correlation', data=df, ax=ax, capsize=.05, width=0.6) # , palette=palette
-    chi_val,pvalue,dof,exp_val=chi2_contingency(np.vstack((binned_x, binned_y)))
-    # table = sm.stats.Table.from_data(data[['area distance', 'signal correlation']])
-    # pvalue = table.test_ordinal_association().pvalue
-    locx, locy = .7, .5
-    ax.text(locx, locy, pvalue, horizontalalignment='center',
-        verticalalignment='center', transform=ax.transAxes, fontsize=20)
+    for i in range(len(binned_x)):
+      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
+    xy = np.vstack((x, y)).T
+    table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .2, .8
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+
+    # binned_x, binned_y = double_binning(x, y, numbin=6, log=False)
+    # ax.scatter(binned_x, binned_y)
+
     ax.yaxis.set_tick_params(labelsize=30)
     # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
     # plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=25)
@@ -2215,23 +2256,21 @@ def _find_between_community_edges(edges, node_to_community):
 
   return between_community_edges
 
-def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
+def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
-  fig, axes = plt.subplots(2, 4, figsize=(6*4, 12))
-  for i, j in [(f,s) for f in range(axes.shape[0]) for s in range(axes.shape[1])]:
-    col_ind = i * axes.shape[1] + j
-    col = cols[col_ind]
-    ax = axes[i, j]
-  # for col_ind, col in enumerate(cols):
-  #   ax = axes[col_ind]
-    ax.set_title(col, fontsize=25)
-    print(col_ind)
+  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 12))
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    col = combined_stimuli[cs_ind][-1]
+    ax = axes[cs_ind]
+    col_ind = cols.index(col)
+    # ax.set_title(combined_stimulus_name, fontsize=25)
+    print(col)
     G = G_dict[row][col]
     nx.set_node_attributes(G, active_area_dict[row], "area")
-    max_reso = max_neg_reso[row_ind][col_ind]
+    max_reso = max_neg_reso[row_ind][col_ind][0]
     comms_list = comms_dict[row][col][max_reso]
-    comms = comms_list[0]
+    comms = comms_list[comm_ind]
     node_to_community = comm2partition([comm for comm in comms if len(comm)>=4])
     between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
     comms2plot = get_unique_elements(between_community_edges.keys())
@@ -2250,41 +2289,159 @@ def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
         G2plot[edge[0]][edge[1]]['weight'] = 1
       else:
         G2plot[edge[0]][edge[1]]['weight'] = -1
-    node_labels = {node:node_to_community[node] for node in nodes2plot}
-    
-    if col_ind in [0, 1, 2]:
-      # fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
-            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-            edge_layout='straight', edge_layout_kwargs=dict(k=1),
-            origin=(-1, -1), scale=(.8, .8),
-            node_origin=np.array([.5, .5]), node_scale=np.array([3.5, 3.5]), ax=ax, node_labels=node_labels) # bundled
-    elif col_ind == 3:
-      # fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    # node_labels = {node:node_to_community[node] for node in nodes2plot}
+    if col_ind in [0, 1, 2, 4, 5, 6, 7]:
       Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
             node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
             node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
             edge_layout='straight', edge_layout_kwargs=dict(k=1),
             origin=(-1, -1), scale=(.8, .8),
-            node_origin=np.array([0, 0]), node_scale=np.array([3.7, 3.7]), ax=ax, node_labels=node_labels) # bundled
-    else:
-      # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+            node_origin=np.array([.5, .5]), node_scale=np.array([3.5, 3.5]), ax=ax) # bundled, node_labels=node_labels
+    elif col_ind == 3:
       Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.08,
+            node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
             node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
             edge_layout='straight', edge_layout_kwargs=dict(k=1),
-            origin=(0, 0), scale=(1.6, 1.6),
-            node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax, node_labels=node_labels) # bundled
-  plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
+            origin=(-1, -1), scale=(.8, .8),
+            node_origin=np.array([0, 0]), node_scale=np.array([3., 3.]), ax=ax) # bundled
+    # else:
+    #   Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+    #         node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
+    #         node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+    #         edge_layout='straight', edge_layout_kwargs=dict(k=1),
+    #         origin=(0, 0), scale=(1.6, 1.6),
+    #         node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax) # bundled
+  plt.tight_layout()
+  plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
+  # plt.savefig('./plots/graph_topology/all_graph_topology_{}_{}.jpg'.format(row, comm_ind))
   # plt.show()
-
-row_ind = 7
+# [2, 5, 6]
+# row_ind = 5
 # col_ind = 6
 
 start_time = time.time()
-plot_graph_community(G_ccg_dict, row_ind, comms_dict, max_reso_subs)
+for row_ind, comm_ind in zip([2, 2, 5, 6], [2, 18, 5, 41]):
+  print(row_ind, comm_ind)
+  plot_graph_community(G_ccg_dict, row_ind, comm_ind, comms_dict, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+######################### Plot relative Hamiltonian as a measure of modular or not
+def arrowed_spines(
+        ax,
+        x_width_fraction=0.2,
+        x_height_fraction=0.02,
+        lw=None,
+        ohg=0.2,
+        locations=('bottom right', 'left up'),
+        **arrow_kwargs
+):
+    # set/override some default plotting parameters if required
+    arrow_kwargs.setdefault('overhang', ohg)
+    arrow_kwargs.setdefault('clip_on', False)
+    arrow_kwargs.update({'length_includes_head': True})
+
+    # axis line width
+    if lw is None:
+        # FIXME: does this still work if the left spine has been deleted?
+        lw = ax.spines['left'].get_linewidth()
+    annots = {}
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    # get width and height of axes object to compute
+    # matching arrowhead length and width
+    fig = ax.get_figure()
+    dps = fig.dpi_scale_trans.inverted()
+    bbox = ax.get_window_extent().transformed(dps)
+    width, height = bbox.width, bbox.height
+    # manual arrowhead width and length
+    hw = x_width_fraction * (ymax-ymin)
+    hl = x_height_fraction * (xmax-xmin)
+    # compute matching arrowhead length and width
+    yhw = hw/(ymax-ymin)*(xmax-xmin)* height/width
+    yhl = hl/(xmax-xmin)*(ymax-ymin)* width/height
+    # draw x and y axis
+    for loc_str in locations:
+        side, direction = loc_str.split(' ')
+        assert side in {'top', 'bottom', 'left', 'right'}, "Unsupported side"
+        assert direction in {'up', 'down', 'left', 'right'}, "Unsupported direction"
+
+        if side in {'bottom', 'top'}:
+            if direction in {'up', 'down'}:
+                raise ValueError("Only left/right arrows supported on the bottom and top")
+            dy = 0
+            head_width = hw
+            head_length = hl
+            y = ymin if side == 'bottom' else ymax
+
+            if direction == 'right':
+                x = xmin
+                dx = xmax - xmin
+            else:
+                x = xmax
+                dx = xmin - xmax
+        else:
+            if direction in {'left', 'right'}:
+                raise ValueError("Only up/downarrows supported on the left and right")
+            dx = 0
+            head_width = yhw
+            head_length = yhl
+            x = xmin if side == 'left' else xmax
+            if direction == 'up':
+                y = ymin
+                dy = ymax - ymin
+            else:
+                y = ymax
+                dy = ymin - ymax
+        annots[loc_str] = ax.arrow(x, y, dx, dy, fc='k', ec='k', lw = lw,
+                 head_width=head_width, head_length=head_length, **arrow_kwargs)
+
+    return annots
+
+def plot_relative_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metrics=None, max_method='none', cc=False):
+  rows, cols = get_rowcol(G_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  delta_Hamiltonian = [[] for _ in range(len(combined_stimuli))]
+  # hamiltonian, subs_Hamiltonian = [np.full([len(rows), len(cols), metrics['Hamiltonian'].shape[-1]], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      origin_G = G_dict[row][col].copy()
+      if cc:
+        G = get_lcc(origin_G)
+      else:
+        G = origin_G
+      h, rh = [], []
+      for run in range(metrics['Hamiltonian'].shape[-1]):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        h.append(metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+        rh.append(metrics['subs Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+      delta_Hamiltonian[combine_stimulus(col)[0]] += [abs(hh/rhh) for rhh, hh in zip(rh, h)]
+  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 2))
+  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH) for dH in delta_Hamiltonian], width=.1, align='center', alpha=1., ecolor='black', color='.2', capsize=10)
+  
+  # arrowed_spines(fig, ax)
+  ax.set_xlim(-.2, 5.5)
+  ax.set_ylim(1., 1.6)
+
+  annots = arrowed_spines(ax, locations=['bottom right'], lw=4.)
+
+  ax.set_xticks([])
+  # ax.set_xticklabels(combined_stimulus_names, fontsize=25)
+  for axis in ['top', 'left']:
+    ax.spines[axis].set_linewidth(4.)
+    ax.spines[axis].set_color('k')
+  ax.xaxis.tick_top()
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.yaxis.set_tick_params(labelsize=50)
+  ax.set_ylabel('rH', size=60)
+  ax.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/relative_Hamiltonian_{}.pdf'.format(max_method), transparent=True)
+
+plot_relative_Hamiltonian(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, metrics=metrics, max_method='subs', cc=False)
 #%%
 ################################ pairwise sign difference between comms of V1 area to comms of other areas
 def plot_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, etype='pos'):
