@@ -2259,7 +2259,7 @@ def _find_between_community_edges(edges, node_to_community):
 def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
-  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 12))
+  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(12*len(combined_stimuli), 12))
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     col = combined_stimuli[cs_ind][-1]
     ax = axes[cs_ind]
@@ -2268,10 +2268,11 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
     print(col)
     G = G_dict[row][col]
     nx.set_node_attributes(G, active_area_dict[row], "area")
-    max_reso = max_neg_reso[row_ind][col_ind][0]
+    max_reso = max_neg_reso[row_ind][col_ind][comm_ind]
     comms_list = comms_dict[row][col][max_reso]
     comms = comms_list[comm_ind]
-    node_to_community = comm2partition([comm for comm in comms if len(comm)>=4])
+    comms = [comm for comm in comms if len(comm)>=4] # only plot large communities
+    node_to_community = comm2partition(comms)
     between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
     comms2plot = get_unique_elements(between_community_edges.keys())
     nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
@@ -2303,7 +2304,7 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
             node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
             edge_layout='straight', edge_layout_kwargs=dict(k=1),
             origin=(-1, -1), scale=(.8, .8),
-            node_origin=np.array([0, 0]), node_scale=np.array([3., 3.]), ax=ax) # bundled
+            node_origin=np.array([-1, -1]), node_scale=np.array([2., 2.]), ax=ax) # bundled
     # else:
     #   Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
     #         node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
@@ -2312,13 +2313,13 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
     #         origin=(0, 0), scale=(1.6, 1.6),
     #         node_origin=np.array([-1, -1]), node_scale=np.array([1.4, 1.4]), ax=ax) # bundled
   plt.tight_layout()
-  plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
+  # plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
   # plt.savefig('./plots/graph_topology/all_graph_topology_{}_{}.jpg'.format(row, comm_ind))
-  # plt.show()
-# [2, 5, 6]
-# row_ind = 5
-# col_ind = 6
+  plt.show()
 
+row_ind, comm_ind = 5, 5
+plot_graph_community(G_ccg_dict, row_ind, comm_ind, comms_dict, max_reso_subs)
+#%%
 start_time = time.time()
 for row_ind, comm_ind in zip([2, 2, 5, 6], [2, 18, 5, 41]):
   print(row_ind, comm_ind)
@@ -2854,7 +2855,7 @@ def double_binning(x, y, numbin=20, log=False):
   return binned_x, binned_y
 
 def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity'):
-  fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+  fig, ax = plt.subplots(1, 1, figsize=(5, 2.5))
   left, width = .25, .5
   bottom, height = .25, .5
   right = left + width
