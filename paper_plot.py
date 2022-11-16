@@ -1659,7 +1659,7 @@ with open('signal_correlation_dict.pkl', 'rb') as f:
   signal_correlation_dict = pickle.load(f)
 #%%
 ########################################## get signal correlation for within/cross community VS stimulus
-def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
+def get_within_cross_comm(G_dict, signal_correlation_dict, comms_dict, max_neg_reso):
   rows = signal_correlation_dict.keys()
   within_comm_dict, cross_comm_dict = {}, {}
   for row_ind, row in enumerate(rows):
@@ -1672,13 +1672,15 @@ def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
       signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
       for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
         col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
         for run in range(metrics['Hamiltonian'].shape[-1]):
           max_reso = max_neg_reso[row_ind, col_ind, run]
           comms_list = comms_dict[row][col][max_reso]
           comms = comms_list[run]
           within_comm, cross_comm = [], []
           node_to_community = comm2partition(comms)
-          for nodei, nodej in itertools.combinations(node_idx, 2):
+          # for nodei, nodej in G.edges(): # limited to only edges
+          for nodei, nodej in itertools.combinations(node_idx, 2): # for all neurons
             scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
             if node_to_community[nodei] == node_to_community[nodej]:
               within_comm.append(scorr)
@@ -1701,7 +1703,7 @@ def get_within_cross_comm(signal_correlation_dict, comms_dict, max_neg_reso):
   return df
 
 start_time = time.time()
-signalcorr_within_cross_comm_df = get_within_cross_comm(signal_correlation_dict, comms_dict, max_reso_subs)
+signalcorr_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, signal_correlation_dict, comms_dict, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
@@ -1739,6 +1741,7 @@ def plot_signal_correlation_within_cross_comm_significance(df):
     annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
   plt.tight_layout()
   # plt.show()
+  # plt.savefig('./plots/signal_correlation_within_cross_comm_edgesonly.pdf', transparent=True)
   plt.savefig('./plots/signal_correlation_within_cross_comm.pdf', transparent=True)
 
 plot_signal_correlation_within_cross_comm_significance(signalcorr_within_cross_comm_df)
@@ -2444,35 +2447,435 @@ def plot_relative_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metric
 
 plot_relative_Hamiltonian(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, metrics=metrics, max_method='subs', cc=False)
 #%%
+################################ Results not good!!!
+def get_strongly_functional_module(G_dict, signal_correlation_dict, comms_dict, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  strong_module_dict = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    strong_module_dict[row] = {}
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        G = G_dict[row][col]
+        strong_module_dict[row][col] = {}
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          strong_module_dict[row][col][run] = []
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          node_to_community = comm2partition(comms)
+          comms = [comm for comm in comms if len(comm) >= 4]
+          cross_comm = []
+          
+          for nodei, nodej in itertools.combinations(node_idx, 2): # for all neurons
+            if node_to_community[nodei] != node_to_community[nodej]:
+              cross_comm.append(signal_correlation[nodei, nodej])
+          sc_mean, sc_std = np.nanmean(cross_comm), np.nanstd(cross_comm)
+          # for nodei, nodej in G.edges(): # limited to only edges
+          for comm in comms:
+            # comm_sc = np.nanmean([signal_correlation[e[0], e[1]] for e in G.subgraph(comm).edges()]) # limited to only edges
+            comm_sc = np.nanmean([signal_correlation[nodei, nodej] for nodei, nodej in itertools.combinations(comm, 2)]) # for all neuron pairs
+
+            if comm_sc > sc_mean + 1 * sc_std:
+              strong_module_dict[row][col][run].append(comm)
+  return strong_module_dict
+#%%
+################################ number of strongly functional modules
+def get_mean_signal_corr(signal_correlation_dict, comms_dict, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  cross_comm = []
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          node_to_community = comm2partition(comms)        
+          for nodei, nodej in itertools.combinations(node_idx, 2): # for all neurons
+            if node_to_community[nodei] != node_to_community[nodej]:
+              cross_comm.append(signal_correlation[nodei, nodej])
+  sc_mean, sc_std = np.nanmean(cross_comm), np.nanstd(cross_comm)
+  return sc_mean, sc_std
+
+sc_mean, sc_std = get_mean_signal_corr(signal_correlation_dict, comms_dict, max_reso_subs)
+#%%
+def get_strongly_functional_module(sc_mean, sc_std, signal_correlation_dict, comms_dict, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  strong_module_dict = {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    strong_module_dict[row] = {}
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        strong_module_dict[row][col] = {}
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          strong_module_dict[row][col][run] = []
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          # comms = [comm for comm in comms if len(comm) >= 4]
+          # for nodei, nodej in G.edges(): # limited to only edges
+          for comm in comms:
+            # comm_sc = np.nanmean([signal_correlation[e[0], e[1]] for e in G.subgraph(comm).edges()]) # limited to only edges
+            comm_sc = np.nanmean([signal_correlation[nodei, nodej] for nodei, nodej in itertools.combinations(comm, 2)]) # for all neuron pairs
+            if comm_sc > sc_mean + 1 * sc_std:
+              strong_module_dict[row][col][run].append(comm)
+              print(row, col, comm_sc)
+  return strong_module_dict
+strong_module_dict = get_strongly_functional_module(sc_mean, sc_std, signal_correlation_dict, comms_dict, max_reso_subs)
+#%%
+############################ Results not good!!!
+################################ number of srongly functional modules
+def plot_num_strongly_functional_module(strong_module_dict):
+  rows, cols = get_rowcol(strong_module_dict)
+  runs = len(strong_module_dict[rows[0]][cols[0]])
+  df = pd.DataFrame()
+  for col in cols:
+    num_modules = []
+    for row in rows:
+      for run in range(runs):
+        num_modules.append(len(strong_module_dict[row][col][run]))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(num_modules)[:,None], np.array([combine_stimulus(col)[1]] * len(num_modules))[:,None]), 1), columns=['number of modules', 'combined stimulus'])], ignore_index=True)
+  df['number of modules'] = pd.to_numeric(df['number of modules'])
+  fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+  sns.barplot(df, x='combined stimulus', y='number of modules', ax=ax)
+  plt.show()
+  return df
+
+df = plot_num_strongly_functional_module(strong_module_dict)
+#%%
+################################ get module signal correlation and purity
+def get_module_signal_correlation_purity(signal_correlation_dict, comms_dict, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  signal_corr_dict, purity_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    signal_corr_dict[row], purity_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        signal_corr_dict[row][col], purity_dict[row][col] = {}, {}
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          signal_corr_dict[row][col][run], purity_dict[row][col][run] = [], []
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          comms = [comm for comm in comms if len(comm) >= 4]
+          # for nodei, nodej in G.edges(): # limited to only edges
+          for comm in comms:
+            comm_sc = np.nanmean([signal_correlation[nodei, nodej] for nodei, nodej in itertools.combinations(comm, 2)]) # for all neuron pairs
+            if not np.isnan(comm_sc):
+              c_regions = [active_area[node] for node in comm]
+              _, counts = np.unique(c_regions, return_counts=True)
+              signal_corr_dict[row][col][run].append(comm_sc)
+              purity_dict[row][col][run].append(counts.max() / counts.sum())
+  return signal_corr_dict, purity_dict
+
+signal_corr_dict, purity_dict = get_module_signal_correlation_purity(signal_correlation_dict, comms_dict, max_reso_subs)
+#%%
+############################ Results not good!!!
+def double_equal_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def binning_count(x, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  count = [(digitized == i).sum() for i in range(1, len(bins))]
+  return count
+
+def plot_signal_correlation_purity(signal_corr_dict, purity_dict):
+  rows, cols = get_rowcol(signal_corr_dict)
+  fig, axes = plt.subplots(1, 5, figsize=(3*5, 3), sharey=True)
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    x, y = [], []
+    ax = axes[cs_ind]
+    ax.set_title(combined_stimulus_name.replace('\n', ' '), pad=30, fontsize=25)
+    for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+      for row in rows:
+        for run in range(len(signal_corr_dict[row][col])):
+          # x.append(np.mean(purity_dict[row][col][run]))
+          # y.append(np.mean(signal_corr_dict[row][col][run]))
+          x += purity_dict[row][col][run]
+          y += signal_corr_dict[row][col][run]
+    x, y = np.array(x), np.array(y)
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    count = binning_count(x, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    for i in range(len(binned_x)):
+      ax.annotate('{}'.format(count[i]), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=13)
+    table = sm.stats.Table.from_data(np.vstack((x, y)).T)
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .4, .1
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    # ax.scatter(binned_x, binned_y)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if cs_ind == 0:
+      ax.set_ylabel('Signal correlation', fontsize=30)
+    ax.set_xlabel('Purity', fontsize=25)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  plt.savefig('./plots/signal_correlation_purity.pdf', transparent=True)
+  # plt.show()
+
+plot_signal_correlation_purity(signal_corr_dict, purity_dict)
+#%%
+def plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list):
+  rows, cols = get_rowcol(signal_corr_dict)
+  runs = len(signal_corr_dict[rows[0]][cols[0]])
+  fig, axes = plt.subplots(1, 2, figsize=(4*2, 4), sharex=True)
+  mean_signal_corr, num_module = np.zeros((len(stimulus_types)-1, len(th_list))), np.zeros((len(stimulus_types)-1, len(th_list)))
+  for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
+    x, y = [], []
+    for col in stimulus_by_type[stimulus_types.index(stimulus_type)]:
+      for row in session2keep:
+        for run in range(runs):
+          # x.append(np.mean(purity_dict[row][col][run]))
+          # y.append(np.mean(signal_corr_dict[row][col][run]))
+          x += purity_dict[row][col][run]
+          y += signal_corr_dict[row][col][run]
+    x, y = np.array(x), np.array(y)
+    for th_ind, th in enumerate(th_list):
+      inds = x>=th
+      mean_signal_corr[st_ind, th_ind] = y[inds].mean()
+      num_module[st_ind, th_ind] = inds.sum() / (runs * len(session2keep) * len(stimulus_by_type[stimulus_types.index(stimulus_type)]))
+  for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
+    axes[0].plot(th_list, mean_signal_corr[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
+    axes[1].plot(th_list, num_module[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
+  axes[0].set_ylabel('Signal correlation', fontsize=25)
+  axes[1].set_ylabel('Number of modules', fontsize=25)
+  for ax in axes:
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    ax.set_xlabel('Threshold', fontsize=25)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  # plt.savefig('./plots/signal_correlation_VSpurity_threshold.pdf', transparent=True)
+  plt.show()
+
+th_list = np.arange(0, 1, 0.05)
+plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list)
+#%%
+################################ get module CCG weights/confidence and purity
+def get_module_weight_confidence_purity(G_dict, comms_dict, max_neg_reso):
+  rows, cols = get_rowcol(G_dict)
+  weight_dict, confidence_dict, purity_dict = {}, {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    weight_dict[row], confidence_dict[row], purity_dict[row] = {}, {}, {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      for col in combined_stimuli[cs_ind]:
+        weight_dict[row][col], confidence_dict[row][col], purity_dict[row][col] = {}, {}, {}
+        col_ind = stimulus_names.index(col)
+        for run in range(metrics['Hamiltonian'].shape[-1]):
+          weight_dict[row][col][run], confidence_dict[row][col][run], purity_dict[row][col][run] = [], [], []
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          comms = [comm for comm in comms if len(comm) >= 4]
+          for comm in comms:
+            c_regions = [active_area[node] for node in comm]
+            _, counts = np.unique(c_regions, return_counts=True)
+            if not np.isnan(np.mean([w for _, _, w in G.subgraph(comm).edges(data='weight')])):
+              weight_dict[row][col][run].append(np.mean([w for _, _, w in G.subgraph(comm).edges(data='weight')]))
+              confidence_dict[row][col][run].append(np.mean([w for _, _, w in G.subgraph(comm).edges(data='confidence')]))
+              purity_dict[row][col][run].append(counts.max() / counts.sum())
+  return weight_dict, confidence_dict, purity_dict
+
+weight_dict, confidence_dict, purity_dict = get_module_weight_confidence_purity(G_ccg_dict, comms_dict, max_reso_subs)
+#%%
+############################ Results not good!!!
+def double_equal_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def binning_count(x, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  count = [(digitized == i).sum() for i in range(1, len(bins))]
+  return count
+
+def plot_data_purity(data_dict, purity_dict, name='weight'):
+  rows, cols = get_rowcol(data_dict)
+  fig, axes = plt.subplots(1, 6, figsize=(3*6, 3))
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    x, y = [], []
+    ax = axes[cs_ind]
+    ax.set_title(combined_stimulus_name.replace('\n', ' '), pad=30, fontsize=25)
+    for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+      for row in rows:
+        for run in range(len(data_dict[row][col])):
+          # x.append(np.mean(purity_dict[row][col][run]))
+          # y.append(np.mean(data_dict[row][col][run]))
+          x += purity_dict[row][col][run]
+          y += data_dict[row][col][run]
+    x, y = np.array(x), np.array(y)
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    count = binning_count(x, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    for i in range(len(binned_x)):
+      ax.annotate('{}'.format(count[i]), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=13)
+    table = sm.stats.Table.from_data(np.vstack((x, y)).T)
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .4, .1
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    # ax.scatter(binned_x, binned_y)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if cs_ind == 0:
+      ax.set_ylabel(name.capitalize(), fontsize=30)
+    ax.set_xlabel('Purity', fontsize=25)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  plt.savefig('./plots/{}_purity.pdf'.format(name), transparent=True)
+  # plt.show()
+
+plot_data_purity(weight_dict, purity_dict, name='weight')
+plot_data_purity(confidence_dict, purity_dict, name='confidence')
+#%%
+def plot_data_VSpurity_threshold(data_dict, purity_dict, th_list, name='weight'):
+  rows, cols = get_rowcol(data_dict)
+  runs = len(data_dict[rows[0]][cols[0]])
+  fig, axes = plt.subplots(1, 2, figsize=(4*2, 4), sharex=True)
+  mean_data, num_module = np.zeros((len(stimulus_types), len(th_list))), np.zeros((len(stimulus_types), len(th_list)))
+  for st_ind, stimulus_type in enumerate(stimulus_types):
+    x, y = [], []
+    for col in stimulus_by_type[stimulus_types.index(stimulus_type)]:
+      for row in session2keep:
+        for run in range(runs):
+          # x.append(np.mean(purity_dict[row][col][run]))
+          # y.append(np.mean(data_dict[row][col][run]))
+          x += purity_dict[row][col][run]
+          y += data_dict[row][col][run]
+    x, y = np.array(x), np.array(y)
+    for th_ind, th in enumerate(th_list):
+      inds = x>=th
+      mean_data[st_ind, th_ind] = y[inds].mean()
+      num_module[st_ind, th_ind] = inds.sum() / (runs * len(session2keep) * len(stimulus_by_type[st_ind]))
+  for st_ind, stimulus_type in enumerate(stimulus_types):
+    axes[0].plot(th_list, mean_data[st_ind], label=stimulus_type, color=stimulus_type_color[st_ind])
+    axes[1].plot(th_list, num_module[st_ind], label=stimulus_type, color=stimulus_type_color[st_ind])
+  axes[0].set_ylabel(name.capitalize(), fontsize=25)
+  axes[1].set_ylabel('Number of modules', fontsize=25)
+  for ax in axes:
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    ax.set_xlabel('Threshold', fontsize=25)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  plt.savefig('./plots/{}_VSpurity_threshold.pdf'.format(name), transparent=True)
+  # plt.show()
+
+th_list = np.arange(0, 1, 0.05)
+plot_data_VSpurity_threshold(weight_dict, purity_dict, th_list, name='weight')
+plot_data_VSpurity_threshold(confidence_dict, purity_dict, th_list, name='confidence')
+#%%
 ################################ pairwise sign difference between comms of V1 area to comms of other areas
 def plot_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, etype='pos'):
   rows, cols = get_rowcol(G_dict)
-  col_ind = 1
+  col_ind = 7
   col = cols[col_ind]
+  print(col)
   region_discre = {r:[] for r in regions}
   for row_ind, row in enumerate(rows):
     # fig, ax = plt.subplots(1, 1, figsize=(6, 5))
     G = G_dict[row][col]
     nx.set_node_attributes(G, active_area_dict[row], "area")
-    max_reso = max_neg_reso[row_ind, col_ind]
-    comms_list = comms_dict[row][col][max_reso]
-    all_regions = [area_dict[row][node] for node in G.nodes()]
+    all_regions = [active_area_dict[row][node] for node in G.nodes()]
     region_counts = np.array([all_regions.count(r) for r in regions])
     
-    for comms in comms_list: # 100 repeats
+    for run in range(metrics['Hamiltonian'].shape[-1]):
+      max_reso = max_neg_reso[row_ind, col_ind, run]
+      comms_list = comms_dict[row][col][max_reso]
+      comms = comms_list[run]
       comm_areas = []
       large_comms = [comm for comm in comms if len(comm)>=4]
       node_to_community = comm2partition(large_comms)
-      between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
-      comms2plot = get_unique_elements(between_community_edges.keys())
-      for comm in [large_comms[i] for i in comms2plot]:
-        c_regions = [area_dict[row][node] for node in comm]
+      # between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+      # comms2plot = get_unique_elements(between_community_edges.keys())
+      # for comm in [large_comms[i] for i in comms2plot]:
+      for comm in large_comms:
+        c_regions = [active_area_dict[row][node] for node in comm]
         # _, counts = np.unique(c_regions, return_counts=True)
         counts = np.array([c_regions.count(r) for r in regions])
         dominant_area = regions[np.argmax(counts / region_counts)]
         comm_areas.append(dominant_area)
-      nodes2plot = [[node for node in node_to_community if node_to_community[node] == comm] for comm in comms2plot]
-      comm_mat = np.zeros((len(comms2plot), len(comms2plot)))
+      nodes2plot = large_comms
+      comm_mat = np.zeros((len(large_comms), len(large_comms)))
       for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
         if etype == 'pos':
           comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
@@ -2497,7 +2900,7 @@ def plot_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, etype='p
 
 # plot_DSsign_product_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'pos')
 # plot_DSsign_product_comm(G_ccg_dict, row_ind, comms_dict, max_reso_config, 'neg')
-region_discre = plot_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_config, 'all')
+region_discre = plot_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, 'all')
 {r:np.mean(region_discre[r]) for r in region_discre}
 #%%
 ################################ directionality score between communities
