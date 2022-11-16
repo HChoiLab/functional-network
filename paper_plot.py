@@ -2947,10 +2947,15 @@ def jaccard_distance(a, b):
   c = set(a).intersection(set(b))
   return 1 - float(len(c)) / (len(a) + len(b) - len(c))
 
+def jaccard_similarity(a, b):
+  c = set(a).intersection(set(b))
+  return float(len(c)) / (len(a) + len(b) - len(c))
+
 def get_Jaccard_distance_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, etype='pos'):
-  jaccardD = {r:{th:[] for th in th_list} for r in regions}
+  jaccardD, jaccardD_random = {r:{th:[] for th in th_list} for r in regions}, []
   for col in stimulus_by_type[3]: # only natural stimuli
     print(col)
+    col_ind = cols.index(col)
     for row_ind, row in enumerate(session2keep):
       G = G_dict[row][col]
       nx.set_node_attributes(G, active_area_dict[row], "area")
@@ -2979,7 +2984,7 @@ def get_Jaccard_distance_comm(G_dict, comms_dict, regions, max_neg_reso, th_list
             comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
         comm_ds = (comm_mat - comm_mat.T) / (comm_mat + comm_mat.T)
         comm_ds[(comm_mat + comm_mat.T)==0] = 0
-        for r_ind, region in enumerate(regions):
+        for region in regions:
           if comm_areas.count(region) > 1:
             indx = np.where(np.array(comm_areas)==region)[0]
             for ind1, ind2 in itertools.combinations(indx, 2):
@@ -2987,15 +2992,23 @@ def get_Jaccard_distance_comm(G_dict, comms_dict, regions, max_neg_reso, th_list
                 if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
                   if len(np.where(np.delete(comm_ds[ind1], indx))[0]) or len(np.where(np.delete(comm_ds[ind2], indx))[0]): # at least one of them has a neighbor module
                     jaccardD[region][th].append(jaccard_distance(np.where(np.delete(comm_ds[ind1], indx))[0], np.where(np.delete(comm_ds[ind2], indx))[0]))
-  return jaccardD
+        jdr = []
+        for i, j in itertools.combinations(range(len(large_comms)), 2):
+          if comm_areas[i] != comm_areas[j]:
+            indx = [i, j]
+            if len(np.where(np.delete(comm_ds[i], indx))[0]) or len(np.where(np.delete(comm_ds[j], indx))[0]): # at least one of them has a neighbor module
+              jdr.append(jaccard_distance(np.where(np.delete(comm_ds[i], indx))[0], np.where(np.delete(comm_ds[j], indx))[0]))
+        if not np.isnan(np.nanmean(jdr)):
+          jaccardD_random.append(np.nanmean(jdr))
+  return jaccardD, jaccardD_random
 
 etype = 'pos'
 # etype = 'neg'
 # etype = 'all'
-th_list = np.arange(0, 1, .05)
-jaccardD = get_Jaccard_distance_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, th_list, etype=etype)
+th_list = np.arange(.5, 1, .05)
+jaccardD, jaccardD_random = get_Jaccard_distance_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, th_list, etype=etype)
 #%%
-################################ module patterns
+################################ Jaccard_distanceVSpurity
 def get_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
     n = len(a)
@@ -3007,8 +3020,8 @@ def plot_Jaccard_distanceVSpurity(jaccardD, th_list, regions, etype='pos'):
   fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
   ax.set_ylim(0.45, 1.05)
   for r_ind, region in enumerate(regions):
-    ymean, ystd = [np.mean(jaccardD[region][r]) for r in jaccardD[region]], [np.std(jaccardD[region][r]) for r in jaccardD[region]]
-    ci = [get_confidence_interval(jaccardD[region][r], confidence=0.95) for r in jaccardD[region]]
+    ymean, ystd = [np.mean(jaccardD[region][th]) for th in jaccardD[region]], [np.std(jaccardD[region][th]) for th in jaccardD[region]]
+    ci = [get_confidence_interval(jaccardD[region][th], confidence=0.95) for th in jaccardD[region]]
     ax.errorbar(th_list, ymean, yerr=ci, label=region, color=region_colors[r_ind])
   ax.set_ylabel('Jaccard distance', fontsize=25)
   ax.xaxis.set_tick_params(labelsize=30)
@@ -3025,10 +3038,47 @@ def plot_Jaccard_distanceVSpurity(jaccardD, th_list, regions, etype='pos'):
   title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
   plt.suptitle(title, size=30)
   plt.tight_layout()
-  # plt.savefig('./plots/{}_jaccard_distance_VS_purity_threshold.pdf'.format(etype), transparent=True)
-  plt.show()
+  plt.savefig('./plots/{}_jaccard_distance_VS_purity_threshold.pdf'.format(etype), transparent=True)
+  # plt.show()
 
 plot_Jaccard_distanceVSpurity(jaccardD, th_list, visual_regions, etype=etype)
+#%%
+################################ Z score of Jaccard_distanceVSpurity
+def get_confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return ci
+
+def plot_zscore_Jaccard_distanceVSpurity(jaccardD, jaccardD_random, th_list, regions, etype='pos'):
+  fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
+  # ax.set_ylim(0.45, 1.05)
+  rm, rstd = np.nanmean(jaccardD_random), np.nanstd(jaccardD_random)
+  print(rm, rstd)
+  for r_ind, region in enumerate(regions):
+    ymean = [np.mean((jaccardD[region][th]-rm)/rstd) for th in jaccardD[region]]
+    ci = [get_confidence_interval((np.array(jaccardD[region][th])-rm)/rstd, confidence=0.95) for th in jaccardD[region]]
+    ax.errorbar(th_list, ymean, yerr=ci, label=region, color=region_colors[r_ind])
+  ax.set_ylabel('Z score of Jaccard distance', fontsize=25)
+  ax.xaxis.set_tick_params(labelsize=30)
+  ax.yaxis.set_tick_params(labelsize=30)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('Threshold on purity', fontsize=25)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, labels, title='', fontsize=11, frameon=False)
+  title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
+  plt.suptitle(title, size=30)
+  plt.tight_layout()
+  plt.savefig('./plots/{}_zscore_jaccard_distance_VS_purity_threshold.pdf'.format(etype), transparent=True)
+  # plt.show()
+
+plot_zscore_Jaccard_distanceVSpurity(jaccardD, jaccardD_random, th_list, visual_regions, etype=etype)
 #%%
 ################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
