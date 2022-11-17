@@ -1735,9 +1735,10 @@ def plot_signal_correlation_within_cross_comm_significance(df):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
     _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
-    within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
-    within_sr = within_sr + .015
-    cross_sr = cross_sr + .015
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    # within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
+    within_sr = within_sr + .005
+    cross_sr = cross_sr + .005
     annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
   plt.tight_layout()
   # plt.show()
@@ -1774,8 +1775,6 @@ def double_equal_binning_counts(x, y, numbin=20, log=False):
   else:
     bins = np.linspace(x.min(), x.max(), numbin) # linear binning
   digitized = np.digitize(x, bins) # binning based on community size
-  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
-  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
   connect = [(y[digitized == i]==1).sum() for i in range(1, len(bins))]
   disconnect = [(y[digitized == i]==0).sum() for i in range(1, len(bins))]
   return connect, disconnect
@@ -2053,7 +2052,7 @@ max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
 ################# community with Hamiltonian
 # max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
 #%%
-def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics): 
+def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics):
   num_row, num_col = len(rows), len(cols)
   fig = plt.figure(figsize=(5*num_col, 5*num_row))
   ind = 1
@@ -2588,6 +2587,7 @@ def get_module_signal_correlation_purity(signal_correlation_dict, comms_dict, ma
 signal_corr_dict, purity_dict = get_module_signal_correlation_purity(signal_correlation_dict, comms_dict, max_reso_subs)
 #%%
 ############################ Results not good!!!
+import statsmodels.api as sm
 def double_equal_binning(x, y, numbin=20, log=False):
   if log:
     bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
@@ -2609,7 +2609,7 @@ def binning_count(x, numbin=20, log=False):
 
 def plot_signal_correlation_purity(signal_corr_dict, purity_dict):
   rows, cols = get_rowcol(signal_corr_dict)
-  fig, axes = plt.subplots(1, 5, figsize=(3*5, 3), sharey=True)
+  fig, axes = plt.subplots(1, 5, figsize=(3*5, 3))
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
     x, y = [], []
     ax = axes[cs_ind]
@@ -2658,47 +2658,47 @@ def plot_signal_correlation_purity(signal_corr_dict, purity_dict):
 
 plot_signal_correlation_purity(signal_corr_dict, purity_dict)
 #%%
-def plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list):
-  rows, cols = get_rowcol(signal_corr_dict)
-  runs = len(signal_corr_dict[rows[0]][cols[0]])
-  fig, axes = plt.subplots(1, 2, figsize=(4*2, 4), sharex=True)
-  mean_signal_corr, num_module = np.zeros((len(stimulus_types)-1, len(th_list))), np.zeros((len(stimulus_types)-1, len(th_list)))
-  for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
-    x, y = [], []
-    for col in stimulus_by_type[stimulus_types.index(stimulus_type)]:
-      for row in session2keep:
-        for run in range(runs):
-          # x.append(np.mean(purity_dict[row][col][run]))
-          # y.append(np.mean(signal_corr_dict[row][col][run]))
-          x += purity_dict[row][col][run]
-          y += signal_corr_dict[row][col][run]
-    x, y = np.array(x), np.array(y)
-    for th_ind, th in enumerate(th_list):
-      inds = x>=th
-      mean_signal_corr[st_ind, th_ind] = y[inds].mean()
-      num_module[st_ind, th_ind] = inds.sum() / (runs * len(session2keep) * len(stimulus_by_type[stimulus_types.index(stimulus_type)]))
-  for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
-    axes[0].plot(th_list, mean_signal_corr[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
-    axes[1].plot(th_list, num_module[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
-  axes[0].set_ylabel('Signal correlation', fontsize=25)
-  axes[1].set_ylabel('Number of modules', fontsize=25)
-  for ax in axes:
-    ax.xaxis.set_tick_params(labelsize=30)
-    ax.yaxis.set_tick_params(labelsize=30)
-    for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('k')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.tick_params(width=1.5)
-    ax.set_xlabel('Threshold', fontsize=25)
-  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
-  plt.tight_layout()
-  # plt.savefig('./plots/signal_correlation_VSpurity_threshold.pdf', transparent=True)
-  plt.show()
+# def plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list):
+#   rows, cols = get_rowcol(signal_corr_dict)
+#   runs = len(signal_corr_dict[rows[0]][cols[0]])
+#   fig, axes = plt.subplots(1, 2, figsize=(4*2, 4), sharex=True)
+#   mean_signal_corr, num_module = np.zeros((len(stimulus_types)-1, len(th_list))), np.zeros((len(stimulus_types)-1, len(th_list)))
+#   for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
+#     x, y = [], []
+#     for col in stimulus_by_type[stimulus_types.index(stimulus_type)]:
+#       for row in session2keep:
+#         for run in range(runs):
+#           # x.append(np.mean(purity_dict[row][col][run]))
+#           # y.append(np.mean(signal_corr_dict[row][col][run]))
+#           x += purity_dict[row][col][run]
+#           y += signal_corr_dict[row][col][run]
+#     x, y = np.array(x), np.array(y)
+#     for th_ind, th in enumerate(th_list):
+#       inds = x>=th
+#       mean_signal_corr[st_ind, th_ind] = y[inds].mean()
+#       num_module[st_ind, th_ind] = inds.sum() / (runs * len(session2keep) * len(stimulus_by_type[stimulus_types.index(stimulus_type)]))
+#   for st_ind, stimulus_type in enumerate(stimulus_types[1:]):
+#     axes[0].plot(th_list, mean_signal_corr[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
+#     axes[1].plot(th_list, num_module[st_ind], label=stimulus_type, color=stimulus_type_color[stimulus_types.index(stimulus_type)])
+#   axes[0].set_ylabel('Signal correlation', fontsize=25)
+#   axes[1].set_ylabel('Number of modules', fontsize=25)
+#   for ax in axes:
+#     ax.xaxis.set_tick_params(labelsize=30)
+#     ax.yaxis.set_tick_params(labelsize=30)
+#     for axis in ['bottom', 'left']:
+#       ax.spines[axis].set_linewidth(1.5)
+#       ax.spines[axis].set_color('k')
+#     ax.spines['top'].set_visible(False)
+#     ax.spines['right'].set_visible(False)
+#     ax.tick_params(width=1.5)
+#     ax.set_xlabel('Threshold', fontsize=25)
+#   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+#   plt.tight_layout()
+#   # plt.savefig('./plots/signal_correlation_VSpurity_threshold.pdf', transparent=True)
+#   plt.show()
 
-th_list = np.arange(0, 1, 0.05)
-plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list)
+# th_list = np.arange(0, 1, 0.05)
+# plot_signal_correlation_VSpurity_threshold(signal_corr_dict, purity_dict, th_list)
 #%%
 ################################ get module CCG weights/confidence and purity
 def get_module_weight_confidence_purity(G_dict, comms_dict, max_neg_reso):
@@ -2710,6 +2710,7 @@ def get_module_weight_confidence_purity(G_dict, comms_dict, max_neg_reso):
     weight_dict[row], confidence_dict[row], purity_dict[row] = {}, {}, {}
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
       for col in combined_stimuli[cs_ind]:
+        G = G_ccg_dict[row][col]
         weight_dict[row][col], confidence_dict[row][col], purity_dict[row][col] = {}, {}, {}
         col_ind = stimulus_names.index(col)
         for run in range(metrics['Hamiltonian'].shape[-1]):
@@ -2729,7 +2730,6 @@ def get_module_weight_confidence_purity(G_dict, comms_dict, max_neg_reso):
 
 weight_dict, confidence_dict, purity_dict = get_module_weight_confidence_purity(G_ccg_dict, comms_dict, max_reso_subs)
 #%%
-############################ Results not good!!!
 def double_equal_binning(x, y, numbin=20, log=False):
   if log:
     bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
@@ -2834,7 +2834,7 @@ def plot_data_VSpurity_threshold(data_dict, purity_dict, th_list, name='weight')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
-    ax.set_xlabel('Threshold', fontsize=25)
+    ax.set_xlabel('Threshold on purity', fontsize=25)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
   plt.savefig('./plots/{}_VSpurity_threshold.pdf'.format(name), transparent=True)
@@ -2844,6 +2844,7 @@ th_list = np.arange(0, 1, 0.05)
 plot_data_VSpurity_threshold(weight_dict, purity_dict, th_list, name='weight')
 plot_data_VSpurity_threshold(confidence_dict, purity_dict, th_list, name='confidence')
 #%%
+############################ Results not good!!!
 ################################ pairwise sign similairy/difference between comms of V1 area to comms of other areas
 def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, pth, nth_list, etype='pos'):
   rows, cols = get_rowcol(G_dict)
@@ -2947,6 +2948,7 @@ def plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo
 
 plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, pth, nth_list, visual_regions, etype=etype)
 #%%
+############################ Results not good!!!
 ################################ pairwise distance metrics between comms of same area to comms of other areas, unweighted!!!
 def jaccard_distance(a, b):
   a, b = np.where(a)[0], np.where(b)[0]
@@ -3098,6 +3100,7 @@ def plot_zscore_metricVSpurity(metric, metric_random, th_list, regions, name='ja
 
 plot_zscore_metricVSpurity(metric, metric_random, pth_list, visual_regions, name=name, etype=etype)
 #%%
+############################ Results not good!!!
 ################################ pairwise Jensen Shannon distance metrics between comms of same area to comms of other areas, weighted!!!
 def get_weighted_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, direct=False, etype='pos'):
   metric, metric_random = {r:{th:[] for th in th_list} for r in regions}, []
@@ -3371,6 +3374,13 @@ start_time = time.time()
 signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list = get_signal_corr_within_cross_comm_same_area(G_ccg_dict, signal_correlation_dict, comms_dict, visual_regions, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
+def confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return m-h, m+h
+
 def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
   ax = plt.gca() if ax is None else ax
   ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
@@ -3397,14 +3407,16 @@ def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cr
   ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
+  h, l = 0.008, .005
   for r_ind, region in enumerate(regions):
     within_comm, cross_comm = df[(df.region==region)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.region==region)&(df.type=='cross community')]['signal correlation'].values.flatten()
     _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
-    within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
-    within_sr = within_sr + .015
-    cross_sr = cross_sr + .015
-    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    # within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/signal_correlation_within_cross_comm_same_area.pdf', transparent=True)
