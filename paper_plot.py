@@ -2865,7 +2865,7 @@ def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, pth, nth_
         for comm in large_comms:
           c_regions = [active_area_dict[row][node] for node in comm]
           counts = np.array([c_regions.count(r) for r in regions])
-          dominant_area = regions[np.argmax(counts / region_counts)]
+          dominant_area = regions[np.argmax(counts)]
           comm_areas.append(dominant_area)
           comm_purity.append(counts.max() / counts.sum())
         nodes2plot = large_comms
@@ -2899,9 +2899,9 @@ def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, pth, nth_
                   region_discre_oppo[region][th].append(safe_division(product[1], sum(product)))
   return region_discre_same, region_discre_oppo
 
-etype = 'pos'
+# etype = 'pos'
 # etype = 'neg'
-# etype = 'all'
+etype = 'all'
 pth = .9
 nth_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 region_discre_same, region_discre_oppo = get_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth, nth_list, etype=etype)
@@ -3019,7 +3019,7 @@ def get_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, name='ja
         for comm in large_comms:
           c_regions = [active_area_dict[row][node] for node in comm]
           counts = np.array([c_regions.count(r) for r in regions])
-          dominant_area = regions[np.argmax(counts / region_counts)]
+          dominant_area = regions[np.argmax(counts)]
           comm_areas.append(dominant_area)
           comm_purity.append(counts.max() / counts.sum())
         nodes2plot = large_comms
@@ -3099,7 +3099,6 @@ def plot_zscore_metricVSpurity(metric, metric_random, th_list, regions, name='ja
 plot_zscore_metricVSpurity(metric, metric_random, pth_list, visual_regions, name=name, etype=etype)
 #%%
 ################################ pairwise Jensen Shannon distance metrics between comms of same area to comms of other areas, weighted!!!
-
 def get_weighted_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, direct=False, etype='pos'):
   metric, metric_random = {r:{th:[] for th in th_list} for r in regions}, []
   for col in stimulus_by_type[3]: # only natural stimuli
@@ -3119,7 +3118,7 @@ def get_weighted_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list,
         for comm in large_comms:
           c_regions = [active_area_dict[row][node] for node in comm]
           counts = np.array([c_regions.count(r) for r in regions])
-          dominant_area = regions[np.argmax(counts / region_counts)]
+          dominant_area = regions[np.argmax(counts)]
           comm_areas.append(dominant_area)
           comm_purity.append(counts.max() / counts.sum())
         nodes2plot = large_comms
@@ -3160,11 +3159,11 @@ def get_weighted_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list,
           metric_random.append(np.nanmean(mrs))
   return metric, metric_random
 
-# direct = False
-direct = True
-# etype = 'pos'
+direct = False
+# direct = True
+etype = 'pos'
 # etype = 'neg'
-etype = 'all'
+# etype = 'all'
 pth_list = np.arange(.5, 1, .05)
 metric, metric_random = get_weighted_metric_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth_list, direct=direct, etype=etype)
 
@@ -3205,6 +3204,387 @@ def plot_zscore_weighted_metricVSpurity(metric, metric_random, th_list, regions,
   # plt.show()
 
 plot_zscore_weighted_metricVSpurity(metric, metric_random, pth_list, visual_regions, direct=direct, etype=etype)
+#%%
+################################ data VS area distance for pairwise modules
+def get_data_area_distance_module(G_dict, comms_dict, regions, max_neg_reso):
+  pos_density, neg_frac, area_distance = {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}
+  for col in stimulus_by_type[3]: # only natural stimuli
+    print(col)
+    col_ind = cols.index(col)
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area_dict[row], "area")
+      all_regions = [active_area_dict[row][node] for node in G.nodes()]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(len(comms_dict[row][col][0])):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        comms_list = comms_dict[row][col][max_reso]
+        comms = comms_list[run]
+        comm_areas, comm_area_distr = [], []
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          dominant_area = regions[np.argmax(counts)]
+          comm_areas.append(dominant_area)
+          comm_area_distr.append(counts / counts.sum())
+        nodes2plot = large_comms
+        pos_density_mat, neg_frac_mat = np.zeros((len(large_comms), len(large_comms))), np.zeros((len(large_comms), len(large_comms)))
+        for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+          pos_density_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (len(nodes1) * len(nodes2))
+          if (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1))):
+            neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']<0)) / (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1)))
+          else:
+            neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = -1 # for modules with no connections
+        for region in regions:
+          if comm_areas.count(region) > 1:
+            indx = np.where(np.array(comm_areas)==region)[0]
+            for ind1, ind2 in itertools.combinations(indx, 2):
+              # for th in th_list:
+              #   if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
+                  pos_density[region].append(pos_density_mat[ind1, ind2])
+                  neg_frac[region].append(neg_frac_mat[ind1, ind2]) # could be -1 for modules with no connections
+                  area_distance[region].append(distance.jensenshannon(comm_area_distr[ind1], comm_area_distr[ind2]))
+  return pos_density, neg_frac, area_distance
+
+pos_density, neg_frac, area_distance = get_data_area_distance_module(G_ccg_dict, comms_dict, visual_regions, max_reso_subs)
+#%%
+import statsmodels.api as sm
+def double_equal_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def binning_count(x, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  count = [(digitized == i).sum() for i in range(1, len(bins))]
+  return count
+
+def plot_data_area_distance(area_distance, data, regions, name='positive_density'):
+  fig, axes = plt.subplots(1, len(regions), figsize=(3.5*6, 3.5))
+  for r_ind, region in enumerate(regions):
+    x, y = area_distance[region], data[region]
+    ax = axes[r_ind]
+    ax.set_title(region_labels[r_ind], pad=30, fontsize=25)
+    x, y = np.array(x), np.array(y)
+    inds = np.where(y!=-1)
+    x, y = x[inds], y[inds]
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    count = binning_count(x, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    for i in range(len(binned_x)):
+      ax.annotate('{}'.format(count[i]), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=13)
+    table = sm.stats.Table.from_data(np.vstack((x, y)).T)
+    p_value = table.test_ordinal_association().pvalue
+    locx, locy = .4, .1
+    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    # ax.scatter(binned_x, binned_y)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    if r_ind == 0:
+      ax.set_ylabel(name.capitalize(), fontsize=30)
+    ax.set_xlabel('JS distance of areas', fontsize=25)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  plt.tight_layout()
+  plt.savefig('./plots/{}_area_distance.pdf'.format(name), transparent=True)
+  # plt.show()
+
+plot_data_area_distance(area_distance, pos_density, visual_regions, name='positive_density')
+plot_data_area_distance(area_distance, neg_frac, visual_regions, name='negative_fraction')
+#%%
+################################ Signal correlation of within/cross module per area
+def get_signal_corr_within_cross_comm_same_area(G_dict, signal_correlation_dict, comms_dict, regions, max_neg_reso):
+  rows = signal_correlation_dict.keys()
+  within_comm_dict, cross_comm_dict, rand_cross_comm_list = {row:{r:[] for r in regions} for row in rows}, {row:{r:[] for r in regions} for row in rows}, []
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())   
+    for combined_stimulus_name in ['Natural\nscenes', 'Natural\nmovies']:
+      # within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name] = [], []
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
+        for run in range(len(comms_dict[row][col][0])):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          large_comms = [comm for comm in comms if len(comm) >= 4]
+          within_comm, cross_comm = [], []
+          node_to_community = comm2partition(comms)
+          comm_areas = []
+          for comm in large_comms:
+            c_regions = [active_area_dict[row][node] for node in comm]
+            counts = np.array([c_regions.count(r) for r in regions])
+            dominant_area = regions[np.argmax(counts)]
+            comm_areas.append(dominant_area)
+          for region in regions:
+            if comm_areas.count(region) >= 1:
+              indx = np.where(np.array(comm_areas)==region)[0]
+              for ind in indx:
+                inds = np.array(list(large_comms[ind]))
+                within_comm_dict[row][region].append(np.nanmean(signal_correlation[inds[:,None], inds][np.triu_indices(len(inds), 1)].tolist()))
+            if comm_areas.count(region) > 1:
+              indx = np.where(np.array(comm_areas)==region)[0]
+              for ind1, ind2 in itertools.combinations(indx, 2):
+                inds1, inds2 = np.array(list(large_comms[ind1])), np.array(list(large_comms[ind2]))
+                cross_comm_dict[row][region].append(np.nanmean(signal_correlation[inds1[:,None], inds2].flatten().tolist()))
+
+          for nodei, nodej in itertools.combinations(node_idx, 2): # for all neurons
+            if node_to_community[nodei] != node_to_community[nodej]:
+              rand_cross_comm_list.append(signal_correlation[nodei, nodej])
+  df = pd.DataFrame()
+  for region in regions:
+    print(region)
+    for row in session2keep:
+      within_comm, cross_comm = within_comm_dict[row][region], cross_comm_dict[row][region]
+      within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([region] * len(within_comm))[:,None]), 1), columns=['signal correlation', 'type', 'region'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([region] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'type', 'region'])], ignore_index=True)
+  df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+  return df, rand_cross_comm_list
+
+start_time = time.time()
+signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list = get_signal_corr_within_cross_comm_same_area(G_ccg_dict, signal_correlation_dict, comms_dict, visual_regions, max_reso_subs)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cross_comm_list, regions):
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  barplot = sns.barplot(x='region', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
+  ax.axhline(y=np.nanmean(rand_cross_comm_list), linestyle='--', linewidth=3, color='.7')
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(range(len(regions)), region_labels, fontsize=25)
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('')
+  ax.set_ylabel('Signal correlation', fontsize=30)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  for r_ind, region in enumerate(regions):
+    within_comm, cross_comm = df[(df.region==region)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.region==region)&(df.type=='cross community')]['signal correlation'].values.flatten()
+    _, p = ztest(within_comm, cross_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
+    within_sr = within_sr + .015
+    cross_sr = cross_sr + .015
+    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/signal_correlation_within_cross_comm_same_area.pdf', transparent=True)
+
+plot_signal_correlation_within_cross_comm_same_area_significance(signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list, visual_regions)
+#%%
+################################ positive density and negative fraction of within/cross module per area
+def get_data_module_per_area(G_dict, comms_dict, regions, max_neg_reso):
+  within_pos_density, cross_pos_density, within_neg_frac, cross_neg_frac = {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}
+  rand_cross_pos_density_list, rand_cross_neg_frac_list = [], []
+  for col in stimulus_by_type[3]: # only natural stimuli
+    print(col)
+    col_ind = cols.index(col)
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area_dict[row], "area")
+      for run in range(len(comms_dict[row][col][0])):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        comms_list = comms_dict[row][col][max_reso]
+        comms = comms_list[run]
+        comm_areas = []
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          dominant_area = regions[np.argmax(counts)]
+          comm_areas.append(dominant_area)
+        nodes2plot = large_comms
+        pos_density_mat, neg_frac_mat = np.zeros((len(large_comms), len(large_comms))), np.zeros((len(large_comms), len(large_comms)))
+        for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+          pos_density_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (len(nodes1) * len(nodes2))
+          if (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1))):
+            neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']<0)) / (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1)))
+          else:
+            neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = -1 # for modules with no connections
+        for region in regions:
+          if comm_areas.count(region) >= 1:
+            inds = np.where(np.array(comm_areas)==region)[0]
+            for ind in inds:
+              within_pos_density[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w>0) / (len(large_comms[ind]) * (len(large_comms[ind])-1)))
+              # if sum(1 for _ in G.subgraph(large_comms[ind]).edges()):
+              within_neg_frac[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w<0) / sum(1 for _ in G.subgraph(large_comms[ind]).edges()))
+              # else:
+              #   within_neg_frac[region].append(-1)
+          if comm_areas.count(region) > 1:
+            indx = np.where(np.array(comm_areas)==region)[0]
+            for ind1, ind2 in itertools.combinations(indx, 2):
+              # for th in th_list:
+              #   if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
+                  cross_pos_density[region].append(pos_density_mat[ind1, ind2])
+                  cross_neg_frac[region].append(neg_frac_mat[ind1, ind2]) # could be -1 for modules with no connections
+        for commi, commj in itertools.combinations(large_comms, 2): # for all neurons
+          rand_cross_pos_density_list.append((sum(1 for e in nx.edge_boundary(G, commi, commj) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, commj, commi) if G[e[0]][e[1]]['weight']>0)) / (len(commi) * len(commj)))
+          summ = (sum(1 for _ in nx.edge_boundary(G, commi, commj)) + sum(1 for _ in nx.edge_boundary(G, commj, commi)))
+          if summ:
+            rand_cross_neg_frac_list.append((sum(1 for e in nx.edge_boundary(G, commi, commj) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, commj, commi) if G[e[0]][e[1]]['weight']<0)) / summ)
+          else:
+            rand_cross_neg_frac_list.append(-1) # for modules with no connections
+  df = pd.DataFrame()
+  for region in regions:
+    print(region)
+    within_posD, cross_posD, within_negF, cross_negF =  within_pos_density[region], cross_pos_density[region], within_neg_frac[region], cross_neg_frac[region]
+    cross_negF = [e for e in cross_negF if e != -1] # remove nan values
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_posD)[:,None], np.array(['positive density'] * len(within_posD))[:,None], np.array(['within community'] * len(within_posD))[:,None], np.array([region] * len(within_posD))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_posD)[:,None], np.array(['positive density'] * len(cross_posD))[:,None], np.array(['cross community'] * len(cross_posD))[:,None], np.array([region] * len(cross_posD))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_negF)[:,None], np.array(['negative fraction'] * len(within_negF))[:,None], np.array(['within community'] * len(within_negF))[:,None], np.array([region] * len(within_negF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_negF)[:,None], np.array(['negative fraction'] * len(cross_negF))[:,None], np.array(['cross community'] * len(cross_negF))[:,None], np.array([region] * len(cross_negF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+  df['data'] = pd.to_numeric(df['data'])
+  return df, rand_cross_pos_density_list, rand_cross_neg_frac_list
+
+start_time = time.time()
+data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list = get_data_module_per_area(G_ccg_dict, comms_dict, visual_regions, max_reso_subs)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_data_within_cross_comm_same_area_significance(df, rand_cross_pos_density_list, rand_cross_neg_frac_list, regions, name):
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  data = df[df['dtype']==name]
+  barplot = sns.barplot(x='region', y='data', hue="type", palette=palette, data=data, ax=ax, capsize=.05, width=0.6)
+  if name == 'positive density':
+    ax.axhline(y=np.nanmean(rand_cross_pos_density_list), linestyle='--', linewidth=3, color='.7')
+  else:
+    ax.axhline(y=np.nanmean([e for e in rand_cross_neg_frac_list if e != -1]), linestyle='--', linewidth=3, color='.7')
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(range(len(regions)), region_labels, fontsize=25)
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('')
+  ax.set_ylabel(name.replace('positive', 'excitatory').replace('negative', 'inhibitory').capitalize(), fontsize=30)
+  handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  ax.legend(handles, [], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=0, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  h, l = 0.008, .005
+  for r_ind, region in enumerate(regions):
+    within_comm, cross_comm = data[(data.region==region)&(data.type=='within community')]['data'].values.flatten(), data[(data.region==region)&(data.type=='cross community')]['data'].values.flatten()
+    _, p = ztest(within_comm, cross_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/{}_within_cross_comm_same_area.pdf'.format(name.replace(' ', '_')), transparent=True)
+
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list, visual_regions, name='positive density')
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list, visual_regions, name='negative fraction')
+#%%
+def confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return m-h, m+h
+
+def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+
+def plot_data_within_cross_motif_significance(df, weight='confidence'):
+  fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-1), 6))
+  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  y = 'CCG' if weight=='weight' else 'CCG Z score'
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks(range(len(combined_stimulus_names)), combined_stimulus_names, fontsize=20)
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('')
+  ax.set_ylabel('Absolute ' + ax.get_ylabel(), fontsize=30)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, ['within motif within comm', 'outside motif within comm', 'within motif cross comm', 'outside motif cross comm'], title='', bbox_to_anchor=(.3, 1.2), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  if weight == 'confidence':
+    ax.set_ylim(top=8)
+    h, l = .1, .1
+  else:
+    h, l = 0.002, .0005
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_motif_within_comm, cross_motif_within_comm, within_motif_cross_comm, cross_motif_cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif within comm')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='outside motif within comm')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif cross comm')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='outside motif cross comm')][y].values.flatten()
+    _, p = ztest(within_motif_within_comm, cross_motif_within_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_motif_within_comm)[1], confidence_interval(cross_motif_within_comm)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.22 + cs_ind, -.08 + cs_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+
+    _, p = ztest(within_motif_cross_comm, cross_motif_cross_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_motif_cross_comm)[1], confidence_interval(cross_motif_cross_comm)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, .08 + cs_ind, .22 + cs_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/{}_within_cross_motif_comm.pdf'.format(weight), transparent=True)
+
+# plot_data_within_cross_motif_significance(confidence_within_cross_motif_comm_df, weight='confidence')
+plot_data_within_cross_motif_significance(weight_within_cross_motif_comm_df, weight='weight')
 #%%
 ################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
