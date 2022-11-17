@@ -2845,10 +2845,12 @@ plot_data_VSpurity_threshold(weight_dict, purity_dict, th_list, name='weight')
 plot_data_VSpurity_threshold(confidence_dict, purity_dict, th_list, name='confidence')
 #%%
 ################################ pairwise sign similairy/difference between comms of V1 area to comms of other areas
-def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, etype='pos'):
-  region_discre_same, region_discre_oppo = {r:{th:[] for th in th_list} for r in regions}, {r:{th:[] for th in th_list} for r in regions}
+def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, pth, nth_list, etype='pos'):
+  rows, cols = get_rowcol(G_dict)
+  region_discre_same, region_discre_oppo = {r:{th:[] for th in nth_list} for r in regions}, {r:{th:[] for th in nth_list} for r in regions}
   for col in stimulus_by_type[3]: # only natural stimuli
     print(col)
+    col_ind = cols.index(col)
     for row_ind, row in enumerate(session2keep):
       G = G_dict[row][col]
       nx.set_node_attributes(G, active_area_dict[row], "area")
@@ -2858,13 +2860,14 @@ def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, 
         max_reso = max_neg_reso[row_ind, col_ind, run]
         comms_list = comms_dict[row][col][max_reso]
         comms = comms_list[run]
-        comm_areas = []
+        comm_areas, comm_purity = [], []
         large_comms = [comm for comm in comms if len(comm)>=4]
         for comm in large_comms:
           c_regions = [active_area_dict[row][node] for node in comm]
           counts = np.array([c_regions.count(r) for r in regions])
           dominant_area = regions[np.argmax(counts / region_counts)]
           comm_areas.append(dominant_area)
+          comm_purity.append(counts.max() / counts.sum())
         nodes2plot = large_comms
         comm_mat = np.zeros((len(large_comms), len(large_comms)))
         for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
@@ -2881,10 +2884,11 @@ def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, 
             indx = np.where(np.array(comm_areas)==region)[0]
             product = [0, 0]
             for ind1, ind2 in itertools.combinations(indx, 2):
-              result = np.delete(comm_ds[ind1], indx) * np.delete(comm_ds[ind2], indx)
-              product[0] += (result > 0).sum()
-              product[1] += (result < 0).sum()
-            for th in th_list:
+              if (comm_purity[ind1] >= pth) and (comm_purity[ind1] >= pth): # add constraint on purity for both modules
+                result = np.delete(comm_ds[ind1], indx) * np.delete(comm_ds[ind2], indx)
+                product[0] += (result > 0).sum()
+                product[1] += (result < 0).sum()
+            for th in nth_list:
               if sum(product) >= th:
                 if product[0] == product[1]:
                   region_discre_same[region][th].append(safe_division(product[0], sum(product)))
@@ -2895,12 +2899,13 @@ def get_DSsign_product_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, 
                   region_discre_oppo[region][th].append(safe_division(product[1], sum(product)))
   return region_discre_same, region_discre_oppo
 
-# etype = 'pos'
+etype = 'pos'
 # etype = 'neg'
-etype = 'all'
-th_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-region_discre_same, region_discre_oppo = get_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, th_list, etype=etype)
-#%%
+# etype = 'all'
+pth = .9
+nth_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+region_discre_same, region_discre_oppo = get_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth, nth_list, etype=etype)
+
 ################################ module patterns
 def get_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
@@ -2909,17 +2914,17 @@ def get_confidence_interval(data, confidence=0.95):
     ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
     return ci
 
-def plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, th_list, regions, etype='pos'):
+def plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, pth, nth_list, regions, etype='pos'):
   fig, axes = plt.subplots(1, 2, figsize=(5*2, 4), sharex=True, sharey=True)
   axes[0].set_ylim(0.45, 1.05)
   for r_ind, region in enumerate(regions):
     # axes[0].plot(th_list, [np.mean(region_discre_same[region][r]) for r in region_discre_same[region]], label=region, color=region_colors[r_ind])
     # axes[1].plot(th_list, [np.mean(region_discre_oppo[region][r]) for r in region_discre_oppo[region]], label=region, color=region_colors[r_ind])
-    ymean1, ystd1 = [np.mean(region_discre_same[region][r]) for r in region_discre_same[region]], [np.std(region_discre_same[region][r]) for r in region_discre_same[region]]
-    ymean2, ystd2 = [np.mean(region_discre_oppo[region][r]) for r in region_discre_oppo[region]], [np.std(region_discre_oppo[region][r]) for r in region_discre_oppo[region]]
-    ci1, ci2 = [get_confidence_interval(region_discre_same[region][r], confidence=0.95) for r in region_discre_same[region]], [get_confidence_interval(region_discre_oppo[region][r], confidence=0.95) for r in region_discre_oppo[region]]
-    axes[0].errorbar(th_list, ymean1, yerr=ci1, label=region, color=region_colors[r_ind])
-    axes[1].errorbar(th_list, ymean2, yerr=ci2, label=region, color=region_colors[r_ind])
+    ymean1, ystd1 = [np.mean(region_discre_same[region][th]) for th in region_discre_same[region]], [np.std(region_discre_same[region][th]) for th in region_discre_same[region]]
+    ymean2, ystd2 = [np.mean(region_discre_oppo[region][th]) for th in region_discre_oppo[region]], [np.std(region_discre_oppo[region][th]) for th in region_discre_oppo[region]]
+    ci1, ci2 = [get_confidence_interval(region_discre_same[region][th], confidence=0.95) for th in region_discre_same[region]], [get_confidence_interval(region_discre_oppo[region][th], confidence=0.95) for th in region_discre_oppo[region]]
+    axes[0].errorbar(nth_list, ymean1, yerr=ci1, label=region, color=region_colors[r_ind])
+    axes[1].errorbar(nth_list, ymean2, yerr=ci2, label=region, color=region_colors[r_ind])
   axes[0].set_ylabel('Same fraction', fontsize=25)
   axes[1].set_ylabel('Opposite fraction', fontsize=25)
   for ax in axes:
@@ -2937,22 +2942,66 @@ def plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo
   title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
   plt.suptitle(title, size=30)
   plt.tight_layout()
-  plt.savefig('./plots/{}_consistency_VS_num_threshold.pdf'.format(etype), transparent=True)
+  plt.savefig('./plots/{}_consistency_{}_VS_num_threshold.pdf'.format(etype, pth), transparent=True)
   # plt.show()
 
-plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, th_list, visual_regions, etype=etype)
+plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, pth, nth_list, visual_regions, etype=etype)
 #%%
-################################ pairwise Jaccard distance between comms of same area to comms of other areas
+################################ pairwise distance metrics between comms of same area to comms of other areas, unweighted!!!
 def jaccard_distance(a, b):
+  a, b = np.where(a)[0], np.where(b)[0]
   c = set(a).intersection(set(b))
   return 1 - float(len(c)) / (len(a) + len(b) - len(c))
 
 def jaccard_similarity(a, b):
+  a, b = np.where(a)[0], np.where(b)[0]
   c = set(a).intersection(set(b))
   return float(len(c)) / (len(a) + len(b) - len(c))
 
-def get_Jaccard_distance_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, etype='pos'):
-  jaccardD, jaccardD_random = {r:{th:[] for th in th_list} for r in regions}, []
+def DSC(a, b):
+  a, b = np.where(a)[0], np.where(b)[0]
+  c = set(a).intersection(set(b))
+  return 2 * float(len(c)) / (len(a) + len(b))
+
+def manhattan_distance(a, b):
+  a[np.where(a)], b[np.where(b)] = 1,  1
+  return distance.minkowski(a, b, 1)
+
+def euclidean_distance(a, b):
+  a[np.where(a)], b[np.where(b)] = 1,  1
+  return distance.minkowski(a, b, 2)
+
+def chebyshev_distance(a, b):
+  a[np.where(a)], b[np.where(b)] = 1,  1
+  return distance.chebyshev(a, b)
+
+def hamming_distance(a, b):
+  a[np.where(a)], b[np.where(b)] = 1,  1
+  return distance.hamming(a, b)
+
+def cosine_distance(a, b):
+  a[np.where(a)], b[np.where(b)] = 1,  1
+  return distance.cosine(a, b)
+
+def get_distance(a, b, name):
+  if name == 'jaccard':
+    m = jaccard_distance(a, b)
+  elif name == 'DSC':
+    m = DSC(a, b)
+  elif name == 'manhattan':
+    m = manhattan_distance(a, b)
+  elif name == 'euclidean':
+    m = euclidean_distance(a, b)
+  elif name == 'chebyshev':
+    m = chebyshev_distance(a, b)
+  elif name == 'hamming':
+    m = hamming_distance(a, b)
+  elif name == 'cosine':
+    m = cosine_distance(a, b)
+  return m
+
+def get_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, name='jaccard', etype='pos'):
+  metric, metric_random = {r:{th:[] for th in th_list} for r in regions}, []
   for col in stimulus_by_type[3]: # only natural stimuli
     print(col)
     col_ind = cols.index(col)
@@ -2990,59 +3039,28 @@ def get_Jaccard_distance_comm(G_dict, comms_dict, regions, max_neg_reso, th_list
             for ind1, ind2 in itertools.combinations(indx, 2):
               for th in th_list:
                 if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
-                  if len(np.where(np.delete(comm_ds[ind1], indx))[0]) or len(np.where(np.delete(comm_ds[ind2], indx))[0]): # at least one of them has a neighbor module
-                    jaccardD[region][th].append(jaccard_distance(np.where(np.delete(comm_ds[ind1], indx))[0], np.where(np.delete(comm_ds[ind2], indx))[0]))
-        jdr = []
+                  if len(np.where(np.delete(comm_ds[ind1], indx))[0]) and len(np.where(np.delete(comm_ds[ind2], indx))[0]): # at least one of them has a neighbor module
+                    a, b = np.delete(comm_ds[ind1], indx), np.delete(comm_ds[ind2], indx)
+                    metric[region][th].append(get_distance(a, b, name))
+        mrs = []
         for i, j in itertools.combinations(range(len(large_comms)), 2):
           if comm_areas[i] != comm_areas[j]:
             indx = [i, j]
-            if len(np.where(np.delete(comm_ds[i], indx))[0]) or len(np.where(np.delete(comm_ds[j], indx))[0]): # at least one of them has a neighbor module
-              jdr.append(jaccard_distance(np.where(np.delete(comm_ds[i], indx))[0], np.where(np.delete(comm_ds[j], indx))[0]))
-        if not np.isnan(np.nanmean(jdr)):
-          jaccardD_random.append(np.nanmean(jdr))
-  return jaccardD, jaccardD_random
+            if len(np.where(np.delete(comm_ds[i], indx))[0]) and len(np.where(np.delete(comm_ds[j], indx))[0]): # at least one of them has a neighbor module
+              a, b = np.delete(comm_ds[i], indx), np.delete(comm_ds[j], indx)
+              mrs.append(get_distance(a, b, name))
+        if not np.isnan(np.nanmean(mrs)):
+          metric_random.append(np.nanmean(mrs))
+  return metric, metric_random
 
-etype = 'pos'
+names = ['jaccard', 'DSC', 'manhattan', 'euclidean', 'chebyshev', 'hamming', 'cosine']
+name = names[6]
+# etype = 'pos'
 # etype = 'neg'
-# etype = 'all'
-th_list = np.arange(.5, 1, .05)
-jaccardD, jaccardD_random = get_Jaccard_distance_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, th_list, etype=etype)
-#%%
-################################ Jaccard_distanceVSpurity
-def get_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return ci
+etype = 'all'
+pth_list = np.arange(.5, 1, .05)
+metric, metric_random = get_metric_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth_list, name=name, etype=etype)
 
-def plot_Jaccard_distanceVSpurity(jaccardD, th_list, regions, etype='pos'):
-  fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
-  ax.set_ylim(0.45, 1.05)
-  for r_ind, region in enumerate(regions):
-    ymean, ystd = [np.mean(jaccardD[region][th]) for th in jaccardD[region]], [np.std(jaccardD[region][th]) for th in jaccardD[region]]
-    ci = [get_confidence_interval(jaccardD[region][th], confidence=0.95) for th in jaccardD[region]]
-    ax.errorbar(th_list, ymean, yerr=ci, label=region, color=region_colors[r_ind])
-  ax.set_ylabel('Jaccard distance', fontsize=25)
-  ax.xaxis.set_tick_params(labelsize=30)
-  ax.yaxis.set_tick_params(labelsize=30)
-  for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('k')
-  ax.spines['top'].set_visible(False)
-  ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
-  ax.set_xlabel('Threshold on purity', fontsize=25)
-  handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles, labels, title='', fontsize=11, frameon=False)
-  title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
-  plt.suptitle(title, size=30)
-  plt.tight_layout()
-  plt.savefig('./plots/{}_jaccard_distance_VS_purity_threshold.pdf'.format(etype), transparent=True)
-  # plt.show()
-
-plot_Jaccard_distanceVSpurity(jaccardD, th_list, visual_regions, etype=etype)
-#%%
 ################################ Z score of Jaccard_distanceVSpurity
 def get_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
@@ -3051,16 +3069,16 @@ def get_confidence_interval(data, confidence=0.95):
     ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
     return ci
 
-def plot_zscore_Jaccard_distanceVSpurity(jaccardD, jaccardD_random, th_list, regions, etype='pos'):
+def plot_zscore_metricVSpurity(metric, metric_random, th_list, regions, name='jaccard', etype='pos'):
   fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
   # ax.set_ylim(0.45, 1.05)
-  rm, rstd = np.nanmean(jaccardD_random), np.nanstd(jaccardD_random)
+  rm, rstd = np.nanmean(metric_random), np.nanstd(metric_random)
   print(rm, rstd)
   for r_ind, region in enumerate(regions):
-    ymean = [np.mean((jaccardD[region][th]-rm)/rstd) for th in jaccardD[region]]
-    ci = [get_confidence_interval((np.array(jaccardD[region][th])-rm)/rstd, confidence=0.95) for th in jaccardD[region]]
+    ymean = [np.mean((metric[region][th]-rm)/rstd) for th in metric[region]]
+    ci = [get_confidence_interval((np.array(metric[region][th])-rm)/rstd, confidence=0.95) for th in metric[region]]
     ax.errorbar(th_list, ymean, yerr=ci, label=region, color=region_colors[r_ind])
-  ax.set_ylabel('Z score of Jaccard distance', fontsize=25)
+  ax.set_ylabel('Z score of {}'.format(name), fontsize=25)
   ax.xaxis.set_tick_params(labelsize=30)
   ax.yaxis.set_tick_params(labelsize=30)
   for axis in ['bottom', 'left']:
@@ -3075,10 +3093,118 @@ def plot_zscore_Jaccard_distanceVSpurity(jaccardD, jaccardD_random, th_list, reg
   title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
   plt.suptitle(title, size=30)
   plt.tight_layout()
-  plt.savefig('./plots/{}_zscore_jaccard_distance_VS_purity_threshold.pdf'.format(etype), transparent=True)
+  plt.savefig('./plots/{}_zscore_{}_VS_purity_threshold.pdf'.format(etype, name), transparent=True)
   # plt.show()
 
-plot_zscore_Jaccard_distanceVSpurity(jaccardD, jaccardD_random, th_list, visual_regions, etype=etype)
+plot_zscore_metricVSpurity(metric, metric_random, pth_list, visual_regions, name=name, etype=etype)
+#%%
+################################ pairwise Jensen Shannon distance metrics between comms of same area to comms of other areas, weighted!!!
+
+def get_weighted_metric_comm(G_dict, comms_dict, regions, max_neg_reso, th_list, direct=False, etype='pos'):
+  metric, metric_random = {r:{th:[] for th in th_list} for r in regions}, []
+  for col in stimulus_by_type[3]: # only natural stimuli
+    print(col)
+    col_ind = cols.index(col)
+    for row_ind, row in enumerate(session2keep):
+      G = G_dict[row][col]
+      nx.set_node_attributes(G, active_area_dict[row], "area")
+      all_regions = [active_area_dict[row][node] for node in G.nodes()]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(metrics['Hamiltonian'].shape[-1]):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        comms_list = comms_dict[row][col][max_reso]
+        comms = comms_list[run]
+        comm_areas, comm_purity = [], []
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          dominant_area = regions[np.argmax(counts / region_counts)]
+          comm_areas.append(dominant_area)
+          comm_purity.append(counts.max() / counts.sum())
+        nodes2plot = large_comms
+        comm_mat = np.zeros((len(large_comms), len(large_comms)))
+        if direct:
+          for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+            if etype == 'pos':
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0)
+            elif etype == 'neg':
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0)
+            else:
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2))
+        else:
+          for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
+            if etype == 'pos':
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)
+            elif etype == 'neg':
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']<0)
+            else:
+              comm_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1))
+        for region in regions:
+          if comm_areas.count(region) > 1:
+            indx = np.where(np.array(comm_areas)==region)[0]
+            for ind1, ind2 in itertools.combinations(indx, 2):
+              for th in th_list:
+                if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
+                  if np.delete(comm_mat[ind1], indx).sum() and np.delete(comm_mat[ind2], indx).sum(): # at least one of them has a neighbor module
+                    a, b = np.delete(comm_mat[ind1], indx), np.delete(comm_mat[ind2], indx)
+                    metric[region][th].append(distance.jensenshannon(a/a.sum(), b/b.sum()))
+        mrs = []
+        for i, j in itertools.combinations(range(len(large_comms)), 2):
+          if comm_areas[i] != comm_areas[j]:
+            indx = [i, j]
+            if np.delete(comm_mat[i], indx).sum() and np.delete(comm_mat[j], indx).sum(): # at least one of them has a neighbor module
+              a, b = np.delete(comm_mat[i], indx), np.delete(comm_mat[j], indx)
+              mrs.append(distance.jensenshannon(a/a.sum(), b/b.sum()))
+        if not np.isnan(np.nanmean(mrs)):
+          metric_random.append(np.nanmean(mrs))
+  return metric, metric_random
+
+# direct = False
+direct = True
+# etype = 'pos'
+# etype = 'neg'
+etype = 'all'
+pth_list = np.arange(.5, 1, .05)
+metric, metric_random = get_weighted_metric_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth_list, direct=direct, etype=etype)
+
+################################ Z score of Jaccard_distanceVSpurity
+def get_confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return ci
+
+def plot_zscore_weighted_metricVSpurity(metric, metric_random, th_list, regions, direct=False, etype='pos'):
+  fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
+  # ax.set_ylim(0.45, 1.05)
+  rm, rstd = np.nanmean(metric_random), np.nanstd(metric_random)
+  print(rm, rstd)
+  for r_ind, region in enumerate(regions):
+    ymean = [np.mean((metric[region][th]-rm)/rstd) for th in metric[region]]
+    ci = [get_confidence_interval((np.array(metric[region][th])-rm)/rstd, confidence=0.95) for th in metric[region]]
+    ax.errorbar(th_list, ymean, yerr=ci, label=region, color=region_colors[r_ind])
+  ax.set_ylabel('Z score of JS distance', fontsize=25)
+  ax.xaxis.set_tick_params(labelsize=30)
+  ax.yaxis.set_tick_params(labelsize=30)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('Threshold on purity', fontsize=25)
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, labels, title='', fontsize=11, frameon=False)
+  title = '{} edges only'.format(etype) if etype != 'all' else '{} edges'.format(etype)
+  plt.suptitle(title, size=30)
+  plt.tight_layout()
+  fname = './plots/{}_zscore_JS_distance_VS_purity_threshold.pdf' if not direct else './plots/{}_zscore_direct_JS_distance_VS_purity_threshold.pdf'
+  plt.savefig(fname.format(etype), transparent=True)
+  # plt.show()
+
+plot_zscore_weighted_metricVSpurity(metric, metric_random, pth_list, visual_regions, direct=direct, etype=etype)
 #%%
 ################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
