@@ -2295,29 +2295,41 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
         else:
           G2plot[edge[0]][edge[1]]['weight'] = -1
       # node_labels = {node:node_to_community[node] for node in nodes2plot}
-      if col_ind in [1, 2, 6, 7]:
+      if cs_ind in [1]:
         Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
               node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
               node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
               edge_layout='straight', edge_layout_kwargs=dict(k=1),
               origin=(-1, -1), scale=(.8, .8),
               node_origin=np.array([.5, .5]), node_scale=np.array([3.5, 3.5]), ax=ax) # bundled, node_labels=node_labels
-      elif col_ind in [0, 4, 5]:
+      elif cs_ind in [2]:
         Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
               node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
               node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
               edge_layout='straight', edge_layout_kwargs=dict(k=1),
-              origin=(-1, -1), scale=(.8, .8),
+              origin=(-1, -1), scale=(.7, .7),
+              node_origin=np.array([-1., -1.]), node_scale=np.array([2., 2.]), ax=ax) # bundled, node_labels=node_labels
+      elif cs_ind in [3, 4, 5]:
+        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
+              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+              edge_layout='straight', edge_layout_kwargs=dict(k=1),
+              origin=(-1, -1), scale=(.9, .9),
+              node_origin=np.array([-1, -1]), node_scale=np.array([2., 2.]), ax=ax) # bundled
+      elif cs_ind in [0]:
+        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
+              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+              edge_layout='straight', edge_layout_kwargs=dict(k=1),
+              origin=(-1, -1), scale=(.9, .9),
               node_origin=np.array([-1, -1]), node_scale=np.array([2., 2.]), ax=ax) # bundled
   plt.tight_layout()
-  # plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
+  plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
   # plt.savefig('./plots/graph_topology/all_graph_topology_{}_{}.jpg'.format(row, comm_ind))
-  plt.show()
+  # plt.show()
 
-
-to_plots = [(5, 2), (6, 1), (7, 5)]
-
-row_ind, comm_ind = to_plots[-2]
+to_plots = [(5, 2), (6, 2), (7, 5)]
+row_ind, comm_ind = to_plots[2]
 plot_graph_community(G_ccg_dict, row_ind, comm_ind, comms_dict, max_reso_subs)
 
 # to_plots = [(0,0),(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0)]
@@ -2446,6 +2458,122 @@ def plot_relative_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metric
   plt.savefig('./plots/relative_Hamiltonian_{}.pdf'.format(max_method), transparent=True)
 
 plot_relative_Hamiltonian(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, metrics=metrics, max_method='subs', cc=False)
+#%%
+######################### Plot Z score of Hamiltonian as a measure of modular or not
+def arrowed_spines(
+        ax,
+        x_width_fraction=0.2,
+        x_height_fraction=0.02,
+        lw=None,
+        ohg=0.2,
+        locations=('bottom right', 'left up'),
+        **arrow_kwargs
+):
+    # set/override some default plotting parameters if required
+    arrow_kwargs.setdefault('overhang', ohg)
+    arrow_kwargs.setdefault('clip_on', False)
+    arrow_kwargs.update({'length_includes_head': True})
+
+    # axis line width
+    if lw is None:
+        # FIXME: does this still work if the left spine has been deleted?
+        lw = ax.spines['left'].get_linewidth()
+    annots = {}
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    # get width and height of axes object to compute
+    # matching arrowhead length and width
+    fig = ax.get_figure()
+    dps = fig.dpi_scale_trans.inverted()
+    bbox = ax.get_window_extent().transformed(dps)
+    width, height = bbox.width, bbox.height
+    # manual arrowhead width and length
+    hw = x_width_fraction * (ymax-ymin)
+    hl = x_height_fraction * (xmax-xmin)
+    # compute matching arrowhead length and width
+    yhw = hw/(ymax-ymin)*(xmax-xmin)* height/width
+    yhl = hl/(xmax-xmin)*(ymax-ymin)* width/height
+    # draw x and y axis
+    for loc_str in locations:
+        side, direction = loc_str.split(' ')
+        assert side in {'top', 'bottom', 'left', 'right'}, "Unsupported side"
+        assert direction in {'up', 'down', 'left', 'right'}, "Unsupported direction"
+
+        if side in {'bottom', 'top'}:
+            if direction in {'up', 'down'}:
+                raise ValueError("Only left/right arrows supported on the bottom and top")
+            dy = 0
+            head_width = hw
+            head_length = hl
+            y = ymin if side == 'bottom' else ymax
+
+            if direction == 'right':
+                x = xmin
+                dx = xmax - xmin
+            else:
+                x = xmax
+                dx = xmin - xmax
+        else:
+            if direction in {'left', 'right'}:
+                raise ValueError("Only up/downarrows supported on the left and right")
+            dx = 0
+            head_width = yhw
+            head_length = yhl
+            x = xmin if side == 'left' else xmax
+            if direction == 'up':
+                y = ymin
+                dy = ymax - ymin
+            else:
+                y = ymax
+                dy = ymin - ymax
+        annots[loc_str] = ax.arrow(x, y, dx, dy, fc='k', ec='k', lw = lw,
+                 head_width=head_width, head_length=head_length, **arrow_kwargs)
+
+    return annots
+
+def plot_zscore_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metrics=None, max_method='none', cc=False):
+  rows, cols = get_rowcol(G_dict)
+  if max_neg_reso is None:
+    max_neg_reso = np.ones((len(rows), len(cols)))
+  zscore_Hamiltonian, ps = [[] for _ in range(len(combined_stimuli))], [[] for _ in range(len(combined_stimuli))]
+  # hamiltonian, subs_Hamiltonian = [np.full([len(rows), len(cols), metrics['Hamiltonian'].shape[-1]], np.nan) for _ in range(2)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      h, rh = [], []
+      for run in range(metrics['Hamiltonian'].shape[-1]):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        h.append(metrics['Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+        rh.append(metrics['subs Hamiltonian'][row_ind, col_ind, np.where(resolution_list==max_reso)[0][0], run])
+      # return h, rh
+      # zscore_Hamiltonian[combine_stimulus(col)[0]] += ztest(h, rh)[0]
+      zscore_Hamiltonian[combine_stimulus(col)[0]].append(ztest(h, rh)[0])
+      ps[combine_stimulus(col)[0]].append(ztest(h, rh)[1])
+  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 2))
+  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH) for dH in zscore_Hamiltonian], width=.1, align='center', alpha=1., ecolor='black', color='.2', capsize=10)
+  
+  # arrowed_spines(fig, ax)
+  ax.set_xlim(-.2, 5.5)
+  ax.set_ylim(0., -50)
+
+  annots = arrowed_spines(ax, locations=['bottom right'], lw=4.)
+
+  ax.set_xticks([])
+  # ax.set_xticklabels(combined_stimulus_names, fontsize=25)
+  for axis in ['top', 'left']:
+    ax.spines[axis].set_linewidth(4.)
+    ax.spines[axis].set_color('k')
+  ax.xaxis.tick_top()
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.yaxis.set_tick_params(labelsize=50)
+  ax.set_ylabel(r'$Z_{H}$', size=60)
+  ax.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/zscore_Hamiltonian_{}.pdf'.format(max_method), transparent=True)
+
+plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, metrics=metrics, max_method='subs', cc=False)
 #%%
 ################################ Results not good!!!
 def get_strongly_functional_module(G_dict, signal_correlation_dict, comms_dict, max_neg_reso):
