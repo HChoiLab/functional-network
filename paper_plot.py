@@ -1803,7 +1803,7 @@ def save_stimuli_markers():
   marker_list = ["v", '*', 'P', 'X', 'o', 's']
   markersize_list = [40, 80, 50, 50, 42, 40]
   for cs_ind in range(len(combined_stimulus_names)-1):
-    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind+1], s=markersize_list[cs_ind+1], color='.1')
+    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind+1], s=markersize_list[cs_ind+1], color='.1', facecolors='none')
   plt.axis('off')
   plt.tight_layout()
   plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
@@ -1817,7 +1817,7 @@ def save_all_markers():
   marker_names = ['tri', 'star', 'plus', 'check', 'circ', 'square']
   for cs_ind in range(len(combined_stimulus_names)):
     fig, ax = plt.subplots(1,1, figsize=(2., .2))
-    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind], s=markersize_list[cs_ind], color='.1')
+    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind], s=markersize_list[cs_ind], color='.1', facecolors='none')
     plt.axis('off')
     plt.tight_layout()
     plt.savefig('./plots/{}.pdf'.format(marker_names[cs_ind]), transparent=True)
@@ -3086,9 +3086,9 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
   # markersize_list = [7, 10, 10, 10, 8, 6.5]
   markersize_list = [10, 13, 13, 13, 11, 9.5]
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1.)
+    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1., markerfacecolor='w')
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1.)
+    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1., markerfacecolor='w')
   axes[0].set_xscale('log')
   axes[0].set_yscale('log')
   axes[0].set_xlim(right=1)
@@ -4323,15 +4323,17 @@ def plot_weighted_coverage_purity_rand_index_markers(df, dname):
   fig, ax = plt.subplots(1, 1, figsize=(2, 3))
   data = df[df['type']==dname].groupby('combined stimulus')
   x = np.arange(len(combined_stimulus_names))
-  y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
-  err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  y = data.mean().loc[combined_stimulus_names].values.flatten()
+  err = data.std().loc[combined_stimulus_names].values.flatten()
+  # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
   # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
   
   marker_list = ["v", '*', 'P', 'X', 'o', 's']
   markersize_list = [14, 18, 14, 14, 12, 11]
   for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
-    ax.errorbar(xi, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color='.1')
+    ax.errorbar(xi, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color='.1', markerfacecolor='w')
   ax.set(xlabel=None)
   ax.xaxis.set_tick_params(length=0)
   ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
