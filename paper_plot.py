@@ -3,6 +3,56 @@
 ##############################                        ##############################
 from library import *
 
+import statsmodels.api as sm
+def confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), stats.sem(a)
+    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return m-h, m+h
+
+def get_confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    se = stats.sem(a)
+    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
+    return ci
+
+def annot_difference(star, x1, x2, y, h, lw=2.5, fontsize=14, col='k', ax=None):
+  ax = plt.gca() if ax is None else ax
+  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
+  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=fontsize)
+
+def double_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [x[digitized == i].mean() for i in range(1, len(bins))]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def double_equal_binning(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
+  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
+  return binned_x, binned_y
+
+def double_equal_binning_counts(x, y, numbin=20, log=False):
+  if log:
+    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+  else:
+    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+  digitized = np.digitize(x, bins) # binning based on community size
+  connect = [(y[digitized == i]==1).sum() for i in range(1, len(bins))]
+  disconnect = [(y[digitized == i]==0).sum() for i in range(1, len(bins))]
+  return connect, disconnect
+
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams["font.serif"] = ["Times New Roman"]
 combined_stimuli = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
@@ -1706,18 +1756,14 @@ start_time = time.time()
 signalcorr_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, signal_correlation_dict, comms_dict, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
-  ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
-
 def plot_signal_correlation_within_cross_comm_significance(df):
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(2*(len(combined_stimulus_names)-1), 6))
   palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
-  barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
+  barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.5)
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=25)
+  plt.xticks([], []) # use markers to represent stimuli!
+  # plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=30)
   ax.xaxis.set_tick_params(length=0)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
@@ -1726,59 +1772,60 @@ def plot_signal_correlation_within_cross_comm_significance(df):
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
   ax.set_xlabel('')
-  ax.set_ylabel('Signal correlation', fontsize=30)
+  ax.set_ylabel('Signal correlation', fontsize=40)
   handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0., 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0., 1.), handletextpad=0.3, loc='upper left', fontsize=35, frameon=False)
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
+  
+  maxx = 0
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  h, l = .018 * maxx, .011 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
     _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
-    # within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
-    within_sr = within_sr + .005
-    cross_sr = cross_sr + .005
-    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), .003, 2.5, ax=ax)
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.12 + cs_ind, .12 + cs_ind, max(within_sr, cross_sr), l, 2.5, 22, ax=ax)
   plt.tight_layout()
   # plt.show()
-  # plt.savefig('./plots/signal_correlation_within_cross_comm_edgesonly.pdf', transparent=True)
   plt.savefig('./plots/signal_correlation_within_cross_comm.pdf', transparent=True)
 
 plot_signal_correlation_within_cross_comm_significance(signalcorr_within_cross_comm_df)
 #%%
+def save_stimuli_markers():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  marker_list = ["v", '*', 'P', 'X', 'o', 's']
+  markersize_list = [40, 80, 50, 50, 42, 40]
+  for cs_ind in range(len(combined_stimulus_names)-1):
+    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind+1], s=markersize_list[cs_ind+1], color='.1')
+  plt.axis('off')
+  plt.tight_layout()
+  plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  # plt.show()
+
+save_stimuli_markers()
+#%%
+def save_all_markers():
+  marker_list = ["v", '*', 'P', 'X', 'o', 's']
+  markersize_list = [40, 80, 50, 50, 42, 40]
+  marker_names = ['tri', 'star', 'plus', 'check', 'circ', 'square']
+  for cs_ind in range(len(combined_stimulus_names)):
+    fig, ax = plt.subplots(1,1, figsize=(2., .2))
+    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind], s=markersize_list[cs_ind], color='.1')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig('./plots/{}.pdf'.format(marker_names[cs_ind]), transparent=True)
+    # plt.show()
+
+save_all_markers()
+#%%
 ########################## probability of being in the same module VS signal correlation
-import statsmodels.api as sm
-def double_binning(x, y, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  binned_x = [x[digitized == i].mean() for i in range(1, len(bins))]
-  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
-  return binned_x, binned_y
-
-def double_equal_binning(x, y, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
-  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
-  return binned_x, binned_y
-
-def double_equal_binning_counts(x, y, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  connect = [(y[digitized == i]==1).sum() for i in range(1, len(bins))]
-  disconnect = [(y[digitized == i]==0).sum() for i in range(1, len(bins))]
-  return connect, disconnect
-
 def plot_same_module_prob_signal_correlation(df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
   axes[0].set_ylim(top=1.2)
@@ -2029,7 +2076,7 @@ plot_signal_correlation_comm_distance(within_comm_sc, signalcorr_area_distance_d
 #   return max_reso_subs
 
 # for each community partition individually
-def get_max_dH_resolution(rows, cols, resolution_list, metrics):
+def get_max_dH_resolution_eachtrial(rows, cols, resolution_list, metrics):
   Hamiltonian, subs_Hamiltonian = metrics['Hamiltonian'], metrics['subs Hamiltonian']
   max_reso_subs = np.zeros((len(rows), len(cols), Hamiltonian.shape[-1]))
   for row_ind, row in enumerate(rows):
@@ -2048,9 +2095,22 @@ with open('metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
 
 resolution_list = np.arange(0, 2.1, 0.1)
-max_reso_subs = get_max_dH_resolution(rows, cols, resolution_list, metrics)
+max_reso_subs = get_max_dH_resolution_eachtrial(rows, cols, resolution_list, metrics)
+
 ################# community with Hamiltonian
-# max_pos_reso_subs = get_max_pos_reso(G_ccg_dict, max_reso_subs)
+def get_max_pos_reso_eachtrial(G_ccg_dict, max_neg_reso):
+  rows, cols = get_rowcol(G_ccg_dict)
+  max_pos_reso = np.zeros((len(rows), len(cols), max_neg_reso.shape[-1]))
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_ccg_dict[row][col]
+      num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
+      num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
+      for run in range(max_neg_reso.shape[-1]):
+        max_pos_reso[row_ind, col_ind, run] = abs(max_neg_reso[row_ind, col_ind, run] * num_neg / num_pos)
+  return max_pos_reso
+
+max_pos_reso_subs = get_max_pos_reso_eachtrial(G_ccg_dict, max_reso_subs)
 #%%
 def plot_Hamiltonian_resolution(rows, cols, resolution_list, metrics):
   num_row, num_col = len(rows), len(cols)
@@ -2550,10 +2610,10 @@ def plot_zscore_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metrics=
       zscore_Hamiltonian[combine_stimulus(col)[0]].append(ztest(h, rh)[0])
       ps[combine_stimulus(col)[0]].append(ztest(h, rh)[1])
   fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 2))
-  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH) for dH in zscore_Hamiltonian], width=.1, align='center', alpha=1., ecolor='black', color='.2', capsize=10)
+  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH) for dH in zscore_Hamiltonian], width=.07, align='center', alpha=1., ecolor='black', color='.2', capsize=10)
   
   # arrowed_spines(fig, ax)
-  ax.set_xlim(-.2, 5.5)
+  ax.set_xlim(-.4, 5.5)
   ax.set_ylim(0., -50)
 
   annots = arrowed_spines(ax, locations=['bottom right'], lw=4.)
@@ -2561,13 +2621,13 @@ def plot_zscore_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metrics=
   ax.set_xticks([])
   # ax.set_xticklabels(combined_stimulus_names, fontsize=25)
   for axis in ['top', 'left']:
-    ax.spines[axis].set_linewidth(4.)
+    ax.spines[axis].set_linewidth(3.)
     ax.spines[axis].set_color('k')
   ax.xaxis.tick_top()
   ax.spines['right'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
-  ax.yaxis.set_tick_params(labelsize=50)
-  ax.set_ylabel(r'$Z_{H}$', size=60)
+  ax.yaxis.set_tick_params(labelsize=30)
+  # ax.set_ylabel(r'$Z_{H}$', size=60)
   ax.invert_yaxis()
   plt.tight_layout()
   # plt.show()
@@ -3023,28 +3083,30 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
       inds = purity>=pth
       num_module2[cs_ind, pth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
   marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  markersize_list = [7, 10, 10, 10, 8, 6.5]
+  # markersize_list = [7, 10, 10, 10, 8, 6.5]
+  markersize_list = [10, 13, 13, 13, 11, 9.5]
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.3', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=.6)
+    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1.)
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.3', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=.6)
+    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1.)
   axes[0].set_xscale('log')
   axes[0].set_yscale('log')
   axes[0].set_xlim(right=1)
-  handles, labels = axes[0].get_legend_handles_labels()
-  axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
+  # handles, labels = axes[0].get_legend_handles_labels()
+  # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
+  fontsize = 20
   for ax in axes:
-    ax.set_ylabel('Number of modules', fontsize=25)
-    ax.xaxis.set_tick_params(labelsize=30)
-    ax.yaxis.set_tick_params(labelsize=30)
+    ax.set_ylabel('Number of modules', fontsize=fontsize)
+    ax.xaxis.set_tick_params(labelsize=fontsize)
+    ax.yaxis.set_tick_params(labelsize=fontsize)
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(1.5)
       ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
-  axes[0].set_xlabel('Threshold on relative size', fontsize=25)
-  axes[1].set_xlabel('Threshold on purity', fontsize=25)
+  axes[0].set_xlabel('Threshold on relative size', fontsize=fontsize)
+  axes[1].set_xlabel('Threshold on purity', fontsize=fontsize)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
   plt.savefig('./plots/num_moduleVSsize_purity.pdf', transparent=True)
@@ -3117,12 +3179,6 @@ nth_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 region_discre_same, region_discre_oppo = get_DSsign_product_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth, nth_list, etype=etype)
 
 ################################ module patterns
-def get_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return ci
 
 def plot_consistencyVSnum_neighbor_module(region_discre_same, region_discre_oppo, pth, nth_list, regions, etype='pos'):
   fig, axes = plt.subplots(1, 2, figsize=(5*2, 4), sharex=True, sharey=True)
@@ -3273,13 +3329,6 @@ pth_list = np.arange(.5, 1, .05)
 metric, metric_random = get_metric_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth_list, name=name, etype=etype)
 
 ################################ Z score of Jaccard_distanceVSpurity
-def get_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return ci
-
 def plot_zscore_metricVSpurity(metric, metric_random, th_list, regions, name='jaccard', etype='pos'):
   fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
   # ax.set_ylim(0.45, 1.05)
@@ -3380,13 +3429,6 @@ pth_list = np.arange(.5, 1, .05)
 metric, metric_random = get_weighted_metric_comm(G_ccg_dict, comms_dict, visual_regions, max_reso_subs, pth_list, direct=direct, etype=etype)
 
 ################################ Z score of Jaccard_distanceVSpurity
-def get_confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return ci
-
 def plot_zscore_weighted_metricVSpurity(metric, metric_random, th_list, regions, direct=False, etype='pos'):
   fig, ax = plt.subplots(1, 1, figsize=(6, 5), sharex=True, sharey=True)
   # ax.set_ylim(0.45, 1.05)
@@ -3583,37 +3625,35 @@ start_time = time.time()
 signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list = get_signal_corr_within_cross_comm_same_area(G_ccg_dict, signal_correlation_dict, comms_dict, visual_regions, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return m-h, m+h
-
-def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
-  ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
+def export_legend(legend, filename="./plots/within_cross_module_legend.pdf"):
+    fig  = legend.figure
+    fig.canvas.draw()
+    bbox  = legend.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    fig.savefig(filename, transparent=True, bbox_inches=bbox)
 
 def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cross_comm_list, regions):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
-  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
-  barplot = sns.barplot(x='region', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.6)
-  ax.axhline(y=np.nanmean(rand_cross_comm_list), linestyle='--', linewidth=3, color='.7')
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  palette = ['w','k']
+  barplot = sns.barplot(x='region', y='signal correlation', hue="type", hue_order=['cross community','within community'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.axhline(y=np.nanmean(rand_cross_comm_list), linestyle='--', linewidth=3, color='.2', label='cross random module')
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(regions)), region_labels, fontsize=25)
+  plt.xticks(range(len(regions)), region_labels, fontsize=30)
   ax.xaxis.set_tick_params(length=0)
   for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('0.2')
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('k')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
+  ax.tick_params(width=2.5)
   ax.set_xlabel('')
-  ax.set_ylabel('Signal correlation', fontsize=30)
+  ax.set_ylabel('')
+  # ax.set_ylabel('Signal correlation', fontsize=30)
   handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross similar module', 'cross random module'], title='', bbox_to_anchor=(0.1, .5), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  export_legend(legend)
+  ax.legend(handles, [], fontsize=0)
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
   h, l = 0.008, .005
@@ -3625,8 +3665,9 @@ def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cr
     # within_sr, cross_sr = within_comm.mean(), cross_comm.mean()
     within_sr = within_sr + h
     cross_sr = cross_sr + h
-    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
-  plt.tight_layout()
+    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  ax.invert_xaxis()
+  plt.tight_layout(rect=[0.03, 0., 1., 1])
   # plt.show()
   plt.savefig('./plots/signal_correlation_within_cross_comm_same_area.pdf', transparent=True)
 
@@ -3634,8 +3675,8 @@ plot_signal_correlation_within_cross_comm_same_area_significance(signalcorr_with
 #%%
 ################################ positive density and negative fraction of within/cross module per area
 def get_data_module_per_area(G_dict, comms_dict, regions, max_neg_reso):
-  within_pos_density, cross_pos_density, within_neg_frac, cross_neg_frac = {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}
-  rand_cross_pos_density_list, rand_cross_neg_frac_list = [], []
+  within_pos_density, cross_pos_density, within_pos_frac, cross_pos_frac, within_neg_frac, cross_neg_frac = {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}
+  rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list = [], [], []
   for col in stimulus_by_type[3]: # only natural stimuli
     print(col)
     col_ind = cols.index(col)
@@ -3654,19 +3695,24 @@ def get_data_module_per_area(G_dict, comms_dict, regions, max_neg_reso):
           dominant_area = regions[np.argmax(counts)]
           comm_areas.append(dominant_area)
         nodes2plot = large_comms
-        pos_density_mat, neg_frac_mat = np.zeros((len(large_comms), len(large_comms))), np.zeros((len(large_comms), len(large_comms)))
+        pos_density_mat, pos_frac_mat, neg_frac_mat = np.zeros((len(large_comms), len(large_comms))), np.zeros((len(large_comms), len(large_comms))), np.zeros((len(large_comms), len(large_comms)))
         for nodes1, nodes2 in itertools.permutations(nodes2plot, 2):
-          pos_density_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (len(nodes1) * len(nodes2))
+          # pos_density_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (len(nodes1) * len(nodes2)) # only positive edges
+          pos_density_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (len(nodes1) * len(nodes2)) # all edges
           if (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1))):
+            pos_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']>0)) / (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1)))
             neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = (sum(1 for e in nx.edge_boundary(G, nodes1, nodes2) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, nodes2, nodes1) if G[e[0]][e[1]]['weight']<0)) / (sum(1 for _ in nx.edge_boundary(G, nodes1, nodes2)) + sum(1 for _ in nx.edge_boundary(G, nodes2, nodes1)))
           else:
+            pos_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = -1 # for modules with no connections
             neg_frac_mat[nodes2plot.index(nodes1), nodes2plot.index(nodes2)] = -1 # for modules with no connections
         for region in regions:
           if comm_areas.count(region) >= 1:
             inds = np.where(np.array(comm_areas)==region)[0]
             for ind in inds:
-              within_pos_density[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w>0) / (len(large_comms[ind]) * (len(large_comms[ind])-1)))
+              # within_pos_density[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w>0) / (len(large_comms[ind]) * (len(large_comms[ind])-1))) # only positive edges
+              within_pos_density[region].append(G.subgraph(large_comms[ind]).number_of_edges() / (len(large_comms[ind]) * (len(large_comms[ind])-1))) # all edges
               # if sum(1 for _ in G.subgraph(large_comms[ind]).edges()):
+              within_pos_frac[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w>0) / sum(1 for _ in G.subgraph(large_comms[ind]).edges()))
               within_neg_frac[region].append(sum(1 for _, _, w in G.subgraph(large_comms[ind]).edges(data='weight') if w<0) / sum(1 for _ in G.subgraph(large_comms[ind]).edges()))
               # else:
               #   within_neg_frac[region].append(-1)
@@ -3676,62 +3722,68 @@ def get_data_module_per_area(G_dict, comms_dict, regions, max_neg_reso):
               # for th in th_list:
               #   if (comm_purity[ind1] >= th) and (comm_purity[ind2] >= th):
                   cross_pos_density[region].append(pos_density_mat[ind1, ind2])
+                  cross_pos_frac[region].append(pos_frac_mat[ind1, ind2])
                   cross_neg_frac[region].append(neg_frac_mat[ind1, ind2]) # could be -1 for modules with no connections
         for commi, commj in itertools.combinations(large_comms, 2): # for all neurons
           rand_cross_pos_density_list.append((sum(1 for e in nx.edge_boundary(G, commi, commj) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, commj, commi) if G[e[0]][e[1]]['weight']>0)) / (len(commi) * len(commj)))
           summ = (sum(1 for _ in nx.edge_boundary(G, commi, commj)) + sum(1 for _ in nx.edge_boundary(G, commj, commi)))
           if summ:
+            rand_cross_pos_frac_list.append((sum(1 for e in nx.edge_boundary(G, commi, commj) if G[e[0]][e[1]]['weight']>0) + sum(1 for e in nx.edge_boundary(G, commj, commi) if G[e[0]][e[1]]['weight']>0)) / summ)
             rand_cross_neg_frac_list.append((sum(1 for e in nx.edge_boundary(G, commi, commj) if G[e[0]][e[1]]['weight']<0) + sum(1 for e in nx.edge_boundary(G, commj, commi) if G[e[0]][e[1]]['weight']<0)) / summ)
           else:
+            rand_cross_pos_frac_list.append(-1)
             rand_cross_neg_frac_list.append(-1) # for modules with no connections
   df = pd.DataFrame()
   for region in regions:
     print(region)
-    within_posD, cross_posD, within_negF, cross_negF =  within_pos_density[region], cross_pos_density[region], within_neg_frac[region], cross_neg_frac[region]
-    cross_negF = [e for e in cross_negF if e != -1] # remove nan values
+    within_posD, cross_posD, within_posF, cross_posF, within_negF, cross_negF =  within_pos_density[region], cross_pos_density[region], within_pos_frac[region], cross_pos_frac[region], within_neg_frac[region], cross_neg_frac[region]
+    cross_posF, cross_negF = [e for e in cross_posF if e != -1], [e for e in cross_negF if e != -1] # remove nan values
     df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_posD)[:,None], np.array(['positive density'] * len(within_posD))[:,None], np.array(['within community'] * len(within_posD))[:,None], np.array([region] * len(within_posD))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
     df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_posD)[:,None], np.array(['positive density'] * len(cross_posD))[:,None], np.array(['cross community'] * len(cross_posD))[:,None], np.array([region] * len(cross_posD))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_posF)[:,None], np.array(['positive fraction'] * len(within_posF))[:,None], np.array(['within community'] * len(within_posF))[:,None], np.array([region] * len(within_posF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_posF)[:,None], np.array(['positive fraction'] * len(cross_posF))[:,None], np.array(['cross community'] * len(cross_posF))[:,None], np.array([region] * len(cross_posF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
     df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_negF)[:,None], np.array(['negative fraction'] * len(within_negF))[:,None], np.array(['within community'] * len(within_negF))[:,None], np.array([region] * len(within_negF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
     df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_negF)[:,None], np.array(['negative fraction'] * len(cross_negF))[:,None], np.array(['cross community'] * len(cross_negF))[:,None], np.array([region] * len(cross_negF))[:,None]), 1), columns=['data', 'dtype', 'type', 'region'])], ignore_index=True)
   df['data'] = pd.to_numeric(df['data'])
-  return df, rand_cross_pos_density_list, rand_cross_neg_frac_list
+  return df, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list
 
 start_time = time.time()
-data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list = get_data_module_per_area(G_ccg_dict, comms_dict, visual_regions, max_reso_subs)
+data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list = get_data_module_per_area(G_ccg_dict, comms_dict, visual_regions, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
-  ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
-
-def plot_data_within_cross_comm_same_area_significance(df, rand_cross_pos_density_list, rand_cross_neg_frac_list, regions, name):
+def plot_data_within_cross_comm_same_area_significance(df, data_list, regions, name):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
-  palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  palette = ['w','k']
   data = df[df['dtype']==name]
-  barplot = sns.barplot(x='region', y='data', hue="type", palette=palette, data=data, ax=ax, capsize=.05, width=0.6)
+  barplot = sns.barplot(x='region', y='data', hue="type", hue_order=['cross community','within community'], palette=palette, ec='k', linewidth=2., data=data, ax=ax, capsize=.05, width=0.6)
   if name == 'positive density':
-    ax.axhline(y=np.nanmean(rand_cross_pos_density_list), linestyle='--', linewidth=3, color='.7')
+    ax.axhline(y=np.nanmean(data_list), linestyle='--', linewidth=3, color='.2')
   else:
-    ax.axhline(y=np.nanmean([e for e in rand_cross_neg_frac_list if e != -1]), linestyle='--', linewidth=3, color='.7')
+    ax.axhline(y=np.nanmean([e for e in data_list if e != -1]), linestyle='--', linewidth=3, color='.2')
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xticks(range(len(regions)), region_labels, fontsize=25)
+  plt.xticks(range(len(regions)), region_labels, fontsize=30)
   ax.xaxis.set_tick_params(length=0)
   for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('0.2')
+    ax.spines[axis].set_linewidth(2.5)
+    ax.spines[axis].set_color('k')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
+  ax.tick_params(width=2.5)
   ax.set_xlabel('')
-  ax.set_ylabel(name.replace('positive', 'excitatory').replace('negative', 'inhibitory').capitalize(), fontsize=30)
+  ax.set_ylabel('')
   handles, labels = ax.get_legend_handles_labels()
-  # ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
-  ax.legend(handles, [], title='', bbox_to_anchor=(0.3, 1.), handletextpad=0.3, loc='upper left', fontsize=0, frameon=False)
+  ax.legend(handles, [], fontsize=0)
+  # ax.set_ylabel(name.replace('positive', 'excitatory').replace('negative', 'inhibitory').capitalize(), fontsize=30)
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
-  h, l = 0.008, .005
+  maxx = 0
+  for r_ind, region in enumerate(regions):
+    within_comm, cross_comm = data[(data.region==region)&(data.type=='within community')]['data'].values.flatten(), data[(data.region==region)&(data.type=='cross community')]['data'].values.flatten()
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  h, l = .018 * maxx, .011 * maxx
   for r_ind, region in enumerate(regions):
     within_comm, cross_comm = data[(data.region==region)&(data.type=='within community')]['data'].values.flatten(), data[(data.region==region)&(data.type=='cross community')]['data'].values.flatten()
     _, p = ztest(within_comm, cross_comm, value=0)
@@ -3739,26 +3791,16 @@ def plot_data_within_cross_comm_same_area_significance(df, rand_cross_pos_densit
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     within_sr = within_sr + h
     cross_sr = cross_sr + h
-    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+    annot_difference(diff_star, -.15 + r_ind, .15 + r_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  ax.invert_xaxis()
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/{}_within_cross_comm_same_area.pdf'.format(name.replace(' ', '_')), transparent=True)
 
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list, visual_regions, name='positive density')
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, rand_cross_neg_frac_list, visual_regions, name='negative fraction')
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, visual_regions, name='positive density')
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_frac_list, visual_regions, name='positive fraction')
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_neg_frac_list, visual_regions, name='negative fraction')
 #%%
-def confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return m-h, m+h
-
-def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
-  ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
-
 def plot_data_within_cross_motif_significance(df, weight='confidence'):
   fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-1), 6))
   palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
@@ -3799,7 +3841,7 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
     within_sr, cross_sr = confidence_interval(within_motif_cross_comm)[1], confidence_interval(cross_motif_cross_comm)[1]
     within_sr = within_sr + h
     cross_sr = cross_sr + h
-    annot_difference(diff_star, .08 + cs_ind, .22 + cs_ind, max(within_sr, cross_sr), l, 2.5, ax=ax)
+    annot_difference(diff_star, .08 + cs_ind, .22 + cs_ind, max(within_sr, cross_sr), l, 2.5, 22, ax=ax)
   plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/{}_within_cross_motif_comm.pdf'.format(weight), transparent=True)
@@ -4227,10 +4269,8 @@ def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, 
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity')
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='coverage')
 #%%
-def get_purity_coverage_ri(G_dict, area_dict, regions, max_pos_reso=None, max_neg_reso=None):
+def get_purity_coverage_ri(G_dict, area_dict, regions, max_neg_reso=None):
   rows, cols = get_rowcol(G_dict)
-  if max_pos_reso is None:
-    max_pos_reso = np.ones((len(rows), len(cols)))
   if max_neg_reso is None:
     max_neg_reso = np.ones((len(rows), len(cols)))
   df = pd.DataFrame()
@@ -4241,16 +4281,17 @@ def get_purity_coverage_ri(G_dict, area_dict, regions, max_pos_reso=None, max_ne
       data = {}
       G = G_dict[row][col].copy()
       node_area = area_dict[row]
-      max_reso = max_neg_reso[row_ind][col_ind]
-      comms_list = comms_dict[row][col][max_reso]
       all_regions = [node_area[node] for node in sorted(G.nodes())]
       region_counts = np.array([all_regions.count(r) for r in regions])
-      for comms in comms_list: # 100 repeats
-        sizes = [len(comm) for comm in comms]
-        for comm, size in zip(comms, sizes):
-          c_regions = [node_area[node] for node in comm]
+      for run in range(len(comms_dict[row][col][0])):
+        max_reso = max_neg_reso[row_ind, col_ind, run]
+        comms_list = comms_dict[row][col][max_reso]
+        comms = comms_list[run]
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
           counts = np.array([c_regions.count(r) for r in regions])
-          assert len(c_regions) == size == counts.sum()
+          size = counts.sum()
           purity = counts.max() / size
           coverage = (counts / region_counts).max()
           if size in data:
@@ -4258,12 +4299,7 @@ def get_purity_coverage_ri(G_dict, area_dict, regions, max_pos_reso=None, max_ne
             data[size][1].append(coverage)
           else:
             data[size] = [[purity], [coverage]]
-        c_size, c_purity, c_coverage = [k for k,v in data.items() if k >= 4], [v[0] for k,v in data.items() if k >= 4], [v[1] for k,v in data.items() if k >= 4]
-        # first average for comms with same size
-        # c_size = np.array(c_size) / sum(c_size)
-        # w_purity_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_purity)]))
-        # w_coverage_col.append(sum([cs * np.mean(cp) for cs, cp in zip(c_size, c_coverage)]))
-        # average cross all comms
+        c_size, c_purity, c_coverage = [k for k,v in data.items()], [v[0] for k,v in data.items()], [v[1] for k,v in data.items()]
         all_size = np.repeat(c_size, [len(p) for p in c_purity])
         c_size = all_size / sum(all_size)
         w_purity_col.append(sum([cs * cp for cs, cp in zip(c_size, [p for ps in c_purity for p in ps])]))
@@ -4280,7 +4316,83 @@ def get_purity_coverage_ri(G_dict, area_dict, regions, max_pos_reso=None, max_ne
   df['data'] = pd.to_numeric(df['data'])
   return df
 
-purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_regions, max_pos_reso=max_pos_reso_config, max_neg_reso=max_reso_config)
+purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_regions, max_neg_reso=max_reso_subs)
+#%%
+################# plot weighted purity and rand index across stimuli with different markers
+def plot_weighted_coverage_purity_rand_index_markers(df, dname):
+  fig, ax = plt.subplots(1, 1, figsize=(2, 3))
+  data = df[df['type']==dname].groupby('combined stimulus')
+  x = np.arange(len(combined_stimulus_names))
+  y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
+  # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
+  
+  marker_list = ["v", '*', 'P', 'X', 'o', 's']
+  markersize_list = [14, 18, 14, 14, 12, 11]
+  for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+    ax.errorbar(xi, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color='.1')
+  ax.set(xlabel=None)
+  ax.xaxis.set_tick_params(length=0)
+  ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
+  # ax.invert_yaxis()
+  ax.set_xticks([])
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/{}_markers.pdf'.format(dname.replace(' ', '_')), transparent=True)
+  # plt.show()
+
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted coverage')
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
+#%%
+################# plot weighted purity and rand index across stimuli
+def plot_weighted_purity_coverage_rand_index(df):
+  fig, axes = plt.subplots(1, 3, figsize=(20, 2))
+  dnames = ['weighted coverage', 'weighted purity', 'rand index']
+  # axes[0].set_yticks(range(len(combined_stimulus_names)))
+  # axes[0].set_yticklabels(labels=combined_stimulus_names)
+  # axes[0].yaxis.set_tick_params(labelsize=25, rotation=90)
+  for d_ind, dname in enumerate(dnames):
+    ax = axes[d_ind]
+    data = df[df['type']==dname].groupby('combined stimulus')
+    x = data.mean().loc[combined_stimulus_names].values.flatten()
+    err = data.std().loc[combined_stimulus_names].values.flatten()
+    # print(x)
+    # print(err)
+    y = np.arange(len(combined_stimulus_names))
+    # ax.scatter(x, y, s=150,color=combined_stimulus_colors)
+    for xi, yi, erri, ci in zip(x, y, err, combined_stimulus_colors):
+      ax.errorbar(xi, yi, xerr=erri, fmt="o", ms=12, linewidth=2.,color=ci)
+    ax.set(ylabel=None)
+    ax.yaxis.set_tick_params(length=0)
+    ax.set_ylim(-.8, len(combined_stimulus_names)-.2)
+    ax.invert_yaxis()
+    ax.set_yticks([])
+    ax.xaxis.set_tick_params(labelsize=24)
+  # nolinebreak = [name.replace('\n', ' ') for name in combined_stimulus_names]
+  # plt.yticks(ticks=, labels=, fontsize=25, rotation=90, va='center')
+  # plt.xticks(fontsize=20)
+  # plt.ylabel(y)
+    ax.set_xlabel('')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/purity_coverage_ri.pdf', transparent=True)
+  # plt.show()
+
+plot_weighted_purity_coverage_rand_index(purity_coverage_ri_df)
 #%%
 ################# plot weighted purity and rand index across stimuli
 def plot_weighted_purity_coverage_rand_index(df):
@@ -5002,18 +5114,6 @@ sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '3
 confidence_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, comms_dict, max_reso_subs, sig_motif_types, weight='confidence')
 weight_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, comms_dict, max_reso_subs, sig_motif_types, weight='weight')
 #%%
-def confidence_interval(data, confidence=0.95):
-    a = 1.0 * np.array(data)
-    n = len(a)
-    m, se = np.mean(a), stats.sem(a)
-    h = se * stats.t.ppf((1 + confidence) / 2., n-1)
-    return m-h, m+h
-
-def annot_difference(star, x1, x2, y, h, lw=2.5, col='k', ax=None):
-  ax = plt.gca() if ax is None else ax
-  ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=lw, c=col)
-  ax.text((x1+x2)*.5, y+h, star, ha='center', va='bottom', color=col, fontsize=14)
-
 def plot_data_within_cross_motif_significance(df, weight='confidence'):
   fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-1), 6))
   palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
