@@ -2293,6 +2293,56 @@ def box_modular_structure_Hamiltonian_comms(G_dict, resolution_list, max_neg_res
 
 box_modular_structure_Hamiltonian_comms(G_ccg_dict, resolution_list, max_neg_reso=max_reso_subs, comms_dict=comms_dict, metrics=metrics, max_method='subs', cc=False)
 #%%
+######################### find the partition with two modules for AM during natural stimuli
+good_comm_inds = []
+for comm_ind in range(50):
+  print(comm_ind)
+  row = session_ids[7]
+  stimuli = stimulus_names[-3:]
+  col = stimuli[0]
+  col_ind = stimulus_names.index(col)
+  # ax.set_title(combined_stimulus_name, fontsize=25)
+  G = G_ccg_dict[row][col]
+  nx.set_node_attributes(G, active_area_dict[row], "area")
+  max_reso = max_reso_subs[row_ind][col_ind][comm_ind]
+  comms_list = comms_dict[row][col][max_reso]
+  comms = comms_list[comm_ind]
+  comms = [comm for comm in comms if len(comm)>=4] # only plot large communities
+  node_to_community = comm2partition(comms)
+  between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+  comms2plot = get_unique_elements(between_community_edges.keys())
+  dominant_areas = []
+  for ind in comms2plot:
+    comm = comms[ind]
+    c_regions = [active_area_dict[row][node] for node in comm]
+    # _, counts = np.unique(c_regions, return_counts=True)
+    counts = np.array([c_regions.count(r) for r in visual_regions])
+    dominant_areas.append(visual_regions[np.argmax(counts)])
+  if dominant_areas.count('VISam') > 1:
+    col = stimuli[-1]
+    # for col in stimuli[1:]:
+    col_ind = stimulus_names.index(col)
+    G = G_ccg_dict[row][col]
+    nx.set_node_attributes(G, active_area_dict[row], "area")
+    max_reso = max_reso_subs[row_ind][col_ind][comm_ind]
+    comms_list = comms_dict[row][col][max_reso]
+    comms = comms_list[comm_ind]
+    comms = [comm for comm in comms if len(comm)>=4] # only plot large communities
+    node_to_community = comm2partition(comms)
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    dominant_areas = []
+    for ind in comms2plot:
+      comm = comms[ind]
+      c_regions = [active_area_dict[row][node] for node in comm]
+      # _, counts = np.unique(c_regions, return_counts=True)
+      counts = np.array([c_regions.count(r) for r in visual_regions])
+      dominant_areas.append(visual_regions[np.argmax(counts)])
+    if dominant_areas.count('VISam') > 1:
+      good_comm_inds.append(comm_ind)
+      # break
+print(good_comm_inds)
+#%%
 ############ find nodes and comms with at least one between community edge
 def get_unique_elements(nested_list):
     return list(set(flatten_list(nested_list)))
@@ -2318,11 +2368,13 @@ def _find_between_community_edges(edges, node_to_community):
 
   return between_community_edges
 
-def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
+def plot_graph_community(G_dict, row_ind, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
   fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(12*len(combined_stimuli), 12))
+  comm_inds = [49, 5, 5, 34, 26, 34]
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    comm_ind = comm_inds[cs_ind]
     col = combined_stimuli[cs_ind][-1]
     ax = axes[cs_ind]
     col_ind = cols.index(col)
@@ -2333,11 +2385,15 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
     max_reso = max_neg_reso[row_ind][col_ind][comm_ind]
     comms_list = comms_dict[row][col][max_reso]
     comms = comms_list[comm_ind]
-    comms = [comm for comm in comms if len(comm)>=4] # only plot large communities
+    if col_ind >= 3:
+      th = 6
+    else:
+      th = 4
+    comms = [comm for comm in comms if len(comm)>=th] # only plot large communities
     node_to_community = comm2partition(comms)
-    # between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
-    # comms2plot = get_unique_elements(between_community_edges.keys())
-    comms2plot = range(len(comms))
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    # comms2plot = range(len(comms))
     nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
     node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
     print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
@@ -2356,50 +2412,28 @@ def plot_graph_community(G_dict, row_ind, comm_ind, comms_dict, max_neg_reso):
           G2plot[edge[0]][edge[1]]['weight'] = -1
       # node_labels = {node:node_to_community[node] for node in nodes2plot}
       if cs_ind in [1]:
-        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-              edge_layout='straight', edge_layout_kwargs=dict(k=1),
-              origin=(-1, -1), scale=(.8, .8),
-              node_origin=np.array([.5, .5]), node_scale=np.array([3.5, 3.5]), ax=ax) # bundled, node_labels=node_labels
+        origin, scale, node_origin, node_scale=(-1, -1), (.8, .8), np.array([.5, .5]), np.array([3.5, 3.5])
       elif cs_ind in [2]:
-        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-              edge_layout='straight', edge_layout_kwargs=dict(k=1),
-              origin=(-1, -1), scale=(.7, .7),
-              node_origin=np.array([-1., -1.]), node_scale=np.array([2., 2.]), ax=ax) # bundled, node_labels=node_labels
+        origin, scale, node_origin, node_scale=(-1, -1), (.7, .7), np.array([-1., -1.]), np.array([2., 2.])
       elif cs_ind in [3, 4, 5]:
-        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-              edge_layout='straight', edge_layout_kwargs=dict(k=1),
-              origin=(-1, -1), scale=(.9, .9),
-              node_origin=np.array([-1, -1]), node_scale=np.array([2., 2.]), ax=ax) # bundled
+        origin, scale, node_origin, node_scale=(-1, -1), (.9, .9), np.array([-1., -1.]), np.array([2., 2.])
       elif cs_ind in [0]:
-        Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
-              node_color=node_color, node_edge_width=0, node_alpha=1., edge_alpha=0.4,
-              node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
-              edge_layout='straight', edge_layout_kwargs=dict(k=1),
-              origin=(-1, -1), scale=(.9, .9),
-              node_origin=np.array([-1, -1]), node_scale=np.array([2., 2.]), ax=ax) # bundled
+        origin, scale, node_origin, node_scale=(-1, -1), (.9, .9), np.array([-1., -1.]), np.array([2., 2.])
+
+      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+            node_color=node_color, node_edge_width=0.5, node_alpha=1., edge_alpha=0.4,
+            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+            edge_layout='straight', edge_layout_kwargs=dict(k=1), node_edge_color='k',
+            origin=origin, scale=scale, node_origin=node_origin, node_scale=node_scale, ax=ax) # bundled, node_labels=node_labels
   plt.tight_layout()
-  plt.savefig('./plots/all_graph_topology_{}_{}.pdf'.format(row, comm_ind), transparent=True)
-  # plt.savefig('./plots/graph_topology/all_graph_topology_{}_{}.jpg'.format(row, comm_ind))
+  plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
+  # plt.savefig('./plots/graph_topology/all_graph_topology_{}.jpg'.format(row))
   # plt.show()
 
-to_plots = [(5, 2), (6, 2), (7, 5)]
-row_ind, comm_ind = to_plots[2]
-plot_graph_community(G_ccg_dict, row_ind, comm_ind, comms_dict, max_reso_subs)
-
-# to_plots = [(0,0),(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0)]
-# start_time = time.time()
-# for row_ind, comm_ind in to_plots:
-# # for row_ind in range(8):
-# #   for comm_ind in range(5):
-#     print(row_ind, comm_ind)
-#     plot_graph_community(G_ccg_dict, row_ind, comm_ind, comms_dict, max_reso_subs)
-# print("--- %s minutes" % ((time.time() - start_time)/60))
+# to_plots = [(7, 5)]
+# to_plots = [(5, 2), (6, 2), (7, 49)]
+# row_ind, comm_ind = to_plots[2]
+plot_graph_community(G_ccg_dict, 7, comms_dict, max_reso_subs)
 #%%
 ######################### Plot relative Hamiltonian as a measure of modular or not
 def arrowed_spines(
@@ -2482,11 +2516,11 @@ def plot_relative_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metric
   for row_ind, row in enumerate(rows):
     print(row)
     for col_ind, col in enumerate(cols):
-      origin_G = G_dict[row][col].copy()
-      if cc:
-        G = get_lcc(origin_G)
-      else:
-        G = origin_G
+      # origin_G = G_dict[row][col].copy()
+      # if cc:
+      #   G = get_lcc(origin_G)
+      # else:
+      #   G = origin_G
       h, rh = [], []
       for run in range(metrics['Hamiltonian'].shape[-1]):
         max_reso = max_neg_reso[row_ind, col_ind, run]
@@ -2609,7 +2643,7 @@ def plot_zscore_Hamiltonian(G_dict, resolution_list, max_neg_reso=None, metrics=
       # zscore_Hamiltonian[combine_stimulus(col)[0]] += ztest(h, rh)[0]
       zscore_Hamiltonian[combine_stimulus(col)[0]].append(ztest(h, rh)[0])
       ps[combine_stimulus(col)[0]].append(ztest(h, rh)[1])
-  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 2))
+  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 1.2))
   ax.bar(range(len(combined_stimulus_names)), [np.mean(dH) for dH in zscore_Hamiltonian], width=.07, align='center', alpha=1., ecolor='black', color='.2', capsize=10)
   
   # arrowed_spines(fig, ax)
@@ -3114,6 +3148,144 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
 
 sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0, 1, 0.05)
 plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_list)
+#%%
+################################ get module size and purity for each area
+def get_module_size_purity_each_area(G_dict, comms_dict, max_neg_reso, regions):
+  rows, cols = get_rowcol(G_dict)
+  runs = len(comms_dict[rows[0]][cols[0]][0])
+  size_dict, purity_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    size_dict[row], purity_dict[row] = {region:{run:[] for run in range(runs)} for region in regions}, {region:{run:[] for run in range(runs)} for region in regions}
+    for combined_stimulus_name in combined_stimulus_names[-2:]:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      for col in combined_stimuli[cs_ind]:
+        G = G_ccg_dict[row][col]
+        col_ind = stimulus_names.index(col)
+        for run in range(runs):
+          max_reso = max_neg_reso[row_ind, col_ind, run]
+          comms_list = comms_dict[row][col][max_reso]
+          comms = comms_list[run]
+          comms = [comm for comm in comms if len(comm) >= 4]
+          for comm in comms:
+            c_regions = [active_area[node] for node in comm]
+            # _, counts = np.unique(c_regions, return_counts=True)
+            counts = np.array([c_regions.count(r) for r in regions])
+            dominant_area = regions[np.argmax(counts)]
+            if G.subgraph(comm).number_of_edges():
+              size_dict[row][dominant_area][run].append(len(comm) / G.number_of_nodes()) # relative size
+              purity_dict[row][dominant_area][run].append(counts.max() / counts.sum())
+  return size_dict, purity_dict
+
+size_dict, purity_dict = get_module_size_purity_each_area(G_ccg_dict, comms_dict, max_reso_subs, visual_regions)
+#%%
+def plot_num_module_VSpurity_threshold_each_area(size_dict, purity_dict, regions, sth_list, pth_list):
+  rows = list(purity_dict.keys())
+  runs = len(purity_dict[rows[0]][regions[0]])
+  print(runs)
+  fig, axes = plt.subplots(1, 2, figsize=(5*2, 4))
+  num_module1, num_module2 = np.zeros((len(regions), len(sth_list))), np.zeros((len(regions), len(pth_list)))
+  for r_ind, region in enumerate(regions):
+    size, purity = [], []
+    for row in session2keep:
+      for run in range(runs):
+        # purity.append(np.mean(purity_dict[row][col][run]))
+        size += size_dict[row][region][run]
+        purity += purity_dict[row][region][run]
+    size, purity = np.array(size), np.array(purity)
+    for sth_ind, sth in enumerate(sth_list):
+      inds = size>=sth
+      num_module1[r_ind, sth_ind] = inds.sum() / (runs * len(session2keep) * 3) # 3 is number of natural stimuli
+    for pth_ind, pth in enumerate(pth_list):
+      inds = purity>=pth
+      num_module2[r_ind, pth_ind] = inds.sum() / (runs * len(session2keep) * 3) # 3 is number of natural stimuli
+  for r_ind, region in enumerate(regions):
+    axes[0].plot(sth_list, num_module1[r_ind], label=region, color=region_colors[r_ind], marker='.', markersize=12, alpha=1.)
+  for r_ind, region in enumerate(regions):
+    axes[1].plot(pth_list, num_module2[r_ind], label=region, color=region_colors[r_ind], marker='.', markersize=12, alpha=1.)
+  axes[0].set_xscale('log')
+  axes[0].set_yscale('log')
+  axes[0].set_xlim(right=1)
+  axes[1].set_xlim(right=1)
+  # handles, labels = axes[0].get_legend_handles_labels()
+  # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
+  fontsize = 20
+  for ax in axes:
+    ax.set_ylabel('Number of modules', fontsize=fontsize)
+    ax.xaxis.set_tick_params(labelsize=fontsize)
+    ax.yaxis.set_tick_params(labelsize=fontsize)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+  axes[0].set_xlabel('Threshold on relative size', fontsize=fontsize)
+  axes[1].set_xlabel('Threshold on purity', fontsize=fontsize)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  plt.savefig('./plots/num_moduleVSsize_purity_each_area.pdf', transparent=True)
+  # plt.show()
+
+sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0.5, 1, 0.025)
+plot_num_module_VSpurity_threshold_each_area(size_dict, purity_dict, visual_regions, sth_list, pth_list)
+#%%
+def plot_purity_hist_each_area(size_dict, purity_dict, regions):
+  rows = list(purity_dict.keys())
+  runs = len(purity_dict[rows[0]][regions[0]])
+  fig, axes = plt.subplots(1, 2, figsize=(5*2, 4))
+  size_dist, purity_dist = [[] for _ in range(len(regions))], [[] for _ in range(len(regions))]
+  df1, df2 = pd.DataFrame(), pd.DataFrame()
+  for r_ind, region in enumerate(regions):
+    size, purity = [], []
+    for row in session2keep:
+      for run in range(runs):
+        # purity.append(np.mean(purity_dict[row][col][run]))
+        size += size_dict[row][region][run]
+        purity += purity_dict[row][region][run]
+    df1 = pd.concat([df1, pd.DataFrame(np.concatenate((np.array(size)[:,None], np.array([region] * len(size))[:,None]), 1), columns=['size', 'region'])], ignore_index=True)
+    df2 = pd.concat([df2, pd.DataFrame(np.concatenate((np.array(purity)[:,None], np.array([region] * len(purity))[:,None]), 1), columns=['purity', 'region'])], ignore_index=True)
+  df1['size'] = pd.to_numeric(df1['size'])
+  df2['purity'] = pd.to_numeric(df2['purity'])
+
+  sns.histplot(
+      data=df1, x="size", hue="region", hue_order=regions,
+      log_scale=True, element="step", fill=False,
+      cumulative=True, stat="density", common_norm=False, ax=axes[0]
+  )
+  sns.histplot(
+      data=df2, x="purity", hue="region", hue_order=regions,
+      log_scale=True, element="step", fill=False,
+      cumulative=True, stat="density", common_norm=False, ax=axes[1]
+  )
+
+  # sns.histplot(data=df1, x="size", hue="region", hue_order=regions, ax=axes[0], palette=region_colors, multiple="stack")
+  # sns.histplot(data=df2, x="purity", hue="region", hue_order=regions, ax=axes[1], palette=region_colors, multiple="stack")
+  axes[0].set_xscale('log')
+  axes[0].set_yscale('log')
+  axes[0].set_xlim(right=1)
+
+  # fontsize = 20
+  # for ax in axes:
+  #   ax.set_ylabel('Number of modules', fontsize=fontsize)
+  #   ax.xaxis.set_tick_params(labelsize=fontsize)
+  #   ax.yaxis.set_tick_params(labelsize=fontsize)
+  #   for axis in ['bottom', 'left']:
+  #     ax.spines[axis].set_linewidth(1.5)
+  #     ax.spines[axis].set_color('k')
+  #   ax.spines['top'].set_visible(False)
+  #   ax.spines['right'].set_visible(False)
+  #   ax.tick_params(width=1.5)
+  # axes[0].set_xlabel('Threshold on relative size', fontsize=fontsize)
+  # axes[1].set_xlabel('Threshold on purity', fontsize=fontsize)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  # plt.savefig('./plots/num_moduleVSsize_purity_each_area.pdf', transparent=True)
+  plt.show()
+
+sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0, 1, 0.05)
+plot_purity_hist_each_area(size_dict, purity_dict, visual_regions)
 #%%
 ############################ Results not good!!!
 ################################ pairwise sign similairy/difference between comms of V1 area to comms of other areas
@@ -3631,6 +3803,22 @@ def export_legend(legend, filename="./plots/within_cross_module_legend.pdf"):
     bbox  = legend.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
     fig.savefig(filename, transparent=True, bbox_inches=bbox)
 
+def save_within_cross_random_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  palette = ['k','w']
+  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.axhline(y=1, linestyle='--', linewidth=3, color='.2', label='cross random module')
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross within-area module', 'cross random module'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend)
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_within_cross_random_legend()
+#%%
 def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cross_comm_list, regions):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
@@ -3651,8 +3839,6 @@ def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cr
   ax.set_ylabel('')
   # ax.set_ylabel('Signal correlation', fontsize=30)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross similar module', 'cross random module'], title='', bbox_to_anchor=(0.1, .5), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
-  export_legend(legend)
   ax.legend(handles, [], fontsize=0)
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
