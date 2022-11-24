@@ -2,6 +2,8 @@
 ############################## figure for publication ##############################
 ##############################                        ##############################
 from library import *
+stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
+marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
 
 import statsmodels.api as sm
 def confidence_interval(data, confidence=0.95):
@@ -324,8 +326,8 @@ plot_multi_best_ccg_smoothed(neg_h_indx, neg_h_file, sign='neg')
 #%%
 def plot_best_ccg(h_indx, h_file, ind, sign='pos', window=100, scalebar=False):
   pcolor = 'firebrick' if sign == 'pos' else 'blue'
-  linewidth = 3.
-  fig, axes = plt.subplots(1, 2, figsize=(10*2, 4), sharex=True, sharey=True)
+  linewidth = 4.
+  fig, axes = plt.subplots(1, 2, figsize=(16*2, 4), sharex=True, sharey=True)
   row_a, row_b = h_indx[ind]
   file = h_file[ind]
   try: 
@@ -373,7 +375,12 @@ def plot_best_ccg(h_indx, h_file, ind, sign='pos', window=100, scalebar=False):
     axes[0].add_artist(scalebar)
   axes[0].set_axis_off()
   axes[1].set_axis_off()
-  # plt.tight_layout()
+  plt.tight_layout()
+  plt.subplots_adjust(left=0.,
+                    bottom=0.,
+                    right=1.,
+                    top=1.,
+                    wspace=1.2)
   plt.savefig('./plots/best_ccg_{}_{}.pdf'.format(sign, ind), transparent=True)
   # plt.show()
 
@@ -635,23 +642,23 @@ def plot_new_ex_in_bar(G_dict, density=False):
     df['density'] = df['number of connections']
   else:
     y = 'number of connections'
-  fig = plt.figure(figsize=(6, 5))
+  fig = plt.figure(figsize=(8, 5))
   # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
   # ax = sns.barplot(x='stimulus', y=y, hue="type", data=df, palette=['white', 'grey'], edgecolor=".5")
   barcolors = ['firebrick', 'navy']
-  ax = sns.barplot(x="stimulus", y=y, hue="type",  data=df, palette=barcolors, errorbar="sd",  edgecolor="black", errcolor="black", errwidth=1.5, capsize = 0.1, alpha=0.5)
+  ax = sns.barplot(x="stimulus", y=y, hue="type",  data=df, palette=barcolors, errorbar="sd",  edgecolor="black", errcolor="black", errwidth=1.5, capsize = 0.1, alpha=0.5) #, width=.6
   sns.stripplot(x="stimulus", y=y, hue="type", palette=barcolors, data=df, dodge=True, alpha=0.6, ax=ax)
   # remove extra legend handles
   handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.7, 1.), loc='upper left', fontsize=20, frameon=False)
+  ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.7, 1.), loc='upper left', fontsize=28, frameon=False)
   # plt.setp(ax.get_legend().get_texts()) #, weight='bold'
   
-  plt.yticks(fontsize=18) #,  weight='bold'
+  plt.yticks(fontsize=25) #,  weight='bold'
   plt.ylabel(y.capitalize())
-  ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=30,color='k') #, weight='bold'
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(2.5)
-    ax.spines[axis].set_color('0.2')
+    ax.spines[axis].set_color('k')
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
@@ -737,8 +744,6 @@ def plot_ex_in_bar(G_dict, measure, n, density=False):
 ######################## excitaroty link VS inhibitory link box
 plot_ex_in_bar(S_ccg_dict, measure, n, density=False)
 #%%
-stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
-marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
 ######################### new scatter plots
 def scatter_dataVSdensity_new(G_dict, area_dict, regions, name='intra'):
   rows, cols = get_rowcol(G_dict)
@@ -1978,25 +1983,22 @@ def save_stimuli_markers():
   for cs_ind in range(len(combined_stimulus_names)-1):
     ax.scatter(cs_ind, 0, marker=marker_list[cs_ind+1], s=markersize_list[cs_ind+1], color='.1', facecolors='none')
   plt.axis('off')
-  plt.tight_layout()
+  # plt.tight_layout()
   plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   # plt.show()
 
 save_stimuli_markers()
 #%%
-def save_all_markers():
-  marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  markersize_list = [40, 80, 50, 50, 42, 40]
-  marker_names = ['tri', 'star', 'plus', 'check', 'circ', 'square']
-  for cs_ind in range(len(combined_stimulus_names)):
-    fig, ax = plt.subplots(1,1, figsize=(2., .2))
-    ax.scatter(cs_ind, 0, marker=marker_list[cs_ind], s=markersize_list[cs_ind], color='.1', facecolors='none')
+def save_markers():
+  for combined_stimulus_name in combined_stimulus_names:
+    fig, ax = plt.subplots(1,1, figsize=(.5, .5))
+    ax.scatter(0, 0, marker=stimulus2marker[combined_stimulus_name], s=8*marker_size_dict[stimulus2marker[combined_stimulus_name]], color='.1', facecolors='none', linewidth=.7)
     plt.axis('off')
     plt.tight_layout()
-    plt.savefig('./plots/{}.pdf'.format(marker_names[cs_ind]), transparent=True)
+    plt.savefig('./plots/{}.pdf'.format(combined_stimulus_name.replace('\n', '_')), transparent=True)
     # plt.show()
 
-save_all_markers()
+save_markers()
 #%%
 ########################## probability of being in the same module VS signal correlation
 def plot_same_module_prob_signal_correlation(df):
