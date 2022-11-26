@@ -4,8 +4,16 @@
 from library import *
 stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
 marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
+scatter_size_dict = {'v':10, '*':17, 'P':13, 'X':13, 'o':11, 's':10, 'D':9, 'p':13, '>':12, r'$\clubsuit$':16}
+error_size_dict = {'v':10, '*':24, 'P':16, 'X':16, 'o':11, 's':9., 'D':9, 'p':12, '>':13, r'$\clubsuit$':22}
 
 import statsmodels.api as sm
+def export_legend(legend, filename):
+    fig  = legend.figure
+    fig.canvas.draw()
+    bbox  = legend.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    fig.savefig(filename, transparent=True, bbox_inches=bbox)
+
 def confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)
     n = len(a)
@@ -2161,30 +2169,40 @@ def get_pos_neg_connectionp_signalcorr(G_dict, signal_correlation_dict):
               else:
                 neg_disconnect.append(scorr)
               # OR gate
-              pos, neg = False, False
-            #   for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
-            #     if w > 0:
-            #       pos = True
-            #     if w < 0:
-            #       neg = True
-            #   if pos:
-            #     pos_connect.append(scorr)
-            #   else:
-            #     pos_disconnect.append(scorr)
-            #   if neg:
-            #     neg_connect.append(scorr)
-            #   else:
-            #     neg_disconnect.append(scorr)
-            # else:
-            #   pos_disconnect.append(scorr)
-            #   neg_disconnect.append(scorr)
+              # pos, neg = False, False
+              # for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
+              #   if w > 0:
+              #     pos = True
+              #   if w < 0:
+              #     neg = True
+              # if pos:
+              #   pos_connect.append(scorr)
+              # else:
+              #   pos_disconnect.append(scorr)
+              # if neg:
+              #   neg_connect.append(scorr)
+              # else:
+              #   neg_disconnect.append(scorr)
+            else:
+              pos_disconnect.append(scorr)
+              neg_disconnect.append(scorr)
         # Add bootstrapping to create more datapoints
-
         bs_size, repetition = 100, 100
         pos_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(pos_connect, bs_size, replace = True) for _ in range(repetition)]), axis=1).tolist()
         pos_disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(pos_disconnect, bs_size, replace = True) for _ in range(repetition)]), axis=1).tolist()
         neg_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(neg_connect, bs_size, replace = True) for _ in range(repetition)]), axis=1).tolist()
         neg_disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(neg_disconnect, bs_size, replace = True) for _ in range(repetition)]), axis=1).tolist()
+
+        # pos_connect_dict[row][combined_stimulus_name].append(np.mean(pos_connect))
+        # pos_disconnect_dict[row][combined_stimulus_name].append(np.mean(pos_disconnect))
+        # neg_connect_dict[row][combined_stimulus_name].append(np.mean(neg_connect))
+        # neg_disconnect_dict[row][combined_stimulus_name].append(np.mean(neg_disconnect))
+
+        # pos_connect_dict[row][combined_stimulus_name] += pos_connect
+        # pos_disconnect_dict[row][combined_stimulus_name] += pos_disconnect
+        # neg_connect_dict[row][combined_stimulus_name] += neg_connect
+        # neg_disconnect_dict[row][combined_stimulus_name] += neg_disconnect
+
         # pos_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(pos_connect, len(pos_connect), replace = True) for _ in range(repetition)]), axis=1).tolist()
         # pos_disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(pos_disconnect, len(pos_disconnect), replace = True) for _ in range(repetition)]), axis=1).tolist()
         # neg_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(neg_connect, len(neg_connect), replace = True) for _ in range(repetition)]), axis=1).tolist()
@@ -2207,19 +2225,100 @@ start_time = time.time()
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df = get_pos_neg_connectionp_signalcorr(G_ccg_dict, signal_correlation_dict)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
+########################################## get positive and negative connection probability VS signal correlation in a different way!!!
+def get_pos_neg_connectionp_signalcorr_new(G_dict, signal_correlation_dict):
+  rows = signal_correlation_dict.keys()
+  pos_connect_dict, neg_connect_dict, signal_corr_dict = {row:{csn:[] for csn in combined_stimulus_names[1:]} for row in rows}, {row:{csn:[] for csn in combined_stimulus_names[1:]} for row in rows}, {row:{csn:[] for csn in combined_stimulus_names[1:]} for row in rows}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      pos_connect, neg_connect, signal_corr = [], [], []
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col]
+        
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if not np.isnan(scorr):
+            signal_corr.append(scorr)
+            if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)):
+              # AND gate
+              ws = []
+              for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
+                ws.append(w)
+              if (np.array(ws) > 0).all():
+                pos_connect.append(1)
+              else:
+                pos_connect.append(0)
+              if (np.array(ws) < 0).all():
+                neg_connect.append(1)
+              else:
+                neg_connect.append(0)
+              # OR gate
+              # pos, neg = False, False
+              # for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
+              #   if w > 0:
+              #     pos = True
+              #   if w < 0:
+              #     neg = True
+              # if pos:
+              #   pos_connect.append(scorr)
+              # else:
+              #   pos_disconnect.append(scorr)
+              # if neg:
+              #   neg_connect.append(scorr)
+              # else:
+              #   neg_disconnect.append(scorr)
+            else:
+              pos_connect.append(0)
+              neg_connect.append(0)
+      signal_corr_dict[row][combined_stimulus_name].append(np.mean(signal_corr))
+      pos_connect_dict[row][combined_stimulus_name].append(np.mean(pos_connect))
+      neg_connect_dict[row][combined_stimulus_name].append(np.mean(neg_connect))
+
+      # bs_size, repetition = 100, 100
+      # np.random.seed(2020)
+      # pos_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(pos_connect, len(pos_connect), replace=True) for _ in range(repetition)]), axis=1).tolist()
+      # np.random.seed(2020)
+      # neg_connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(neg_connect, len(neg_connect), replace=True) for _ in range(repetition)]), axis=1).tolist()
+      # np.random.seed(2020)
+      # signal_corr_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(signal_corr, len(signal_corr), replace=True) for _ in range(repetition)]), axis=1).tolist()
+  pos_df, neg_df = pd.DataFrame(), pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names[1:]:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      pos_connect, neg_connect, signal_corr = pos_connect_dict[row][combined_stimulus_name], neg_connect_dict[row][combined_stimulus_name], signal_corr_dict[row][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      pos_df = pd.concat([pos_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(pos_connect)[:,None], np.array([combined_stimulus_name] * len(pos_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+      neg_df = pd.concat([neg_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(neg_connect)[:,None], np.array([combined_stimulus_name] * len(neg_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus'])], ignore_index=True)
+  pos_df['signal correlation'] = pd.to_numeric(pos_df['signal correlation'])
+  pos_df['type'] = pd.to_numeric(pos_df['type'])
+  neg_df['signal correlation'] = pd.to_numeric(neg_df['signal correlation'])
+  neg_df['type'] = pd.to_numeric(neg_df['type'])
+  return pos_df, neg_df
+
+start_time = time.time()
+pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df = get_pos_neg_connectionp_signalcorr_new(G_ccg_dict, signal_correlation_dict)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
 def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5)) #
   axes[0].set_ylim(top = 1.2)
+  # axes[0].set_ylim(top = .1)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
     data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
 
     data.insert(0, 'probability of connection', 0)
-    # data.loc[:, 'probability of same module'] = 0
     data.loc[data['type']=='connected','probability of connection'] = 1
     # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['signal correlation'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['type'].values.flatten()
 
     # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
     numbin = 6
@@ -2227,14 +2326,14 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
     for i in range(len(binned_x)):
-      
       ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=26)
       # ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
     xy = np.vstack((x, y)).T
     table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
-    p_value = table.test_ordinal_association().pvalue
+    p_value = table.test_nominal_association().pvalue
+    # p_value = table.test_ordinal_association().pvalue
     if dname == 'pos':
-      locx, locy = .2, .8  
+      locx, locy = .2, .8
     else: 
       locx, locy = .6, .9
     ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
@@ -2253,8 +2352,8 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
     # ax.set_xlabel('Signal correlation', fontsize=25)
 
   plt.tight_layout(rect=[.01, 0, 1, 1])
-  # plt.show()
-  plt.savefig('./plots/{}_connectionp_signal_correlation.pdf'.format(dname), transparent=True)
+  plt.show()
+  # plt.savefig('./plots/{}_connectionp_signal_correlation.pdf'.format(dname), transparent=True)
 
 plot_pos_neg_connectionp_signal_correlation(pos_connectionp_signalcorr_df, 'pos')
 plot_pos_neg_connectionp_signal_correlation(neg_connectionp_signalcorr_df, 'neg')
@@ -2646,6 +2745,26 @@ for comm_ind in range(50):
       good_comm_inds.append(comm_ind)
       # break
 print(good_comm_inds)
+#%%
+############ save topology legend
+
+def save_region_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  df = pd.DataFrame([[0,0,0],[0,0,1],[0,0,2],[0,0,3],[0,0,4],[0,0,5]], columns=['x', 'y', 'type'])
+  barplot = sns.scatterplot(x='x', y='y', hue="type", palette=region_colors, data=df, ax=ax)
+  handles, labels = ax.get_legend_handles_labels()
+  for handle in handles:
+    handle.set_edgecolor("k")
+    handle.set_linewidth(1.5)
+  legend = ax.legend(handles, region_labels, title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False)
+  for handle in legend.legendHandles:
+    handle.set_sizes([200.0])
+  plt.axis('off')
+  export_legend(legend, './plots/region_legend.pdf')
+  plt.tight_layout()
+  plt.show()
+
+save_region_legend()
 #%%
 ############ find nodes and comms with at least one between community edge
 def get_unique_elements(nested_list):
@@ -3379,16 +3498,14 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
     for pth_ind, pth in enumerate(pth_list):
       inds = purity>=pth
       num_module2[cs_ind, pth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
-  marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  # markersize_list = [7, 10, 10, 10, 8, 6.5]
-  markersize_list = [10, 13, 13, 13, 11, 9.5]
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1., markerfacecolor='w')
+    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=marker_list[cs_ind], markersize=markersize_list[cs_ind], alpha=1., markerfacecolor='w')
+    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
   axes[0].set_xscale('log')
   axes[0].set_yscale('log')
   axes[0].set_xlim(right=1)
+  axes[1].set_xlim(right=1)
   # handles, labels = axes[0].get_legend_handles_labels()
   # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
   fontsize = 20
@@ -4048,12 +4165,6 @@ start_time = time.time()
 signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list = get_signal_corr_within_cross_comm_same_area(G_ccg_dict, signal_correlation_dict, comms_dict, visual_regions, max_reso_subs)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def export_legend(legend, filename):
-    fig  = legend.figure
-    fig.canvas.draw()
-    bbox  = legend.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-    fig.savefig(filename, transparent=True, bbox_inches=bbox)
-
 def save_within_cross_random_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = ['k','w']
@@ -4735,17 +4846,16 @@ def plot_weighted_coverage_purity_rand_index_markers(df, dname):
   fig, ax = plt.subplots(1, 1, figsize=(2, 3))
   data = df[df['type']==dname].groupby('combined stimulus')
   x = np.arange(len(combined_stimulus_names))
-  y = data.mean().loc[combined_stimulus_names].values.flatten()
-  err = data.std().loc[combined_stimulus_names].values.flatten()
+  y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
   # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
   
-  marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  markersize_list = [14, 18, 14, 14, 12, 11]
   for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
-    ax.errorbar(xi, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color='.1', markerfacecolor='w')
+    ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+    ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
   ax.set(xlabel=None)
   ax.xaxis.set_tick_params(length=0)
   ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
@@ -5692,10 +5802,7 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   motif_types = TRIAD_NAMES[3:]
   motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
   
-  color = '.1'
-  marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  markersize_list = [10, 13, 13, 13, 11, 9.5]
-  
+  color = '.1' 
   # palette = [plt.cm.tab20(i) for i in range(13)]
   palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
   rows, cols = get_rowcol(G_dict)
@@ -5718,7 +5825,8 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
     X += x
     Y += y
     # ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=.9, linewidths=2)
-    ax.scatter(x, y, ec='.1', fc='none', marker=marker_list[cs_ind], s=6*markersize_list[cs_ind], alpha=.9, linewidths=2)
+    ax.scatter(x, y, ec='.1', fc='none', marker=stimulus2marker[combined_stimulus_name], s=10*marker_size_dict[stimulus2marker[combined_stimulus_name]], alpha=.9, linewidths=1.5)
+    # ax.scatter(x, y, ec='.1', fc='none', marker=marker_list[cs_ind], s=6*markersize_list[cs_ind], alpha=.9, linewidths=2)
   
   X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
   X, Y = np.array(X), np.array(Y)
@@ -5734,7 +5842,7 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   ax.xaxis.set_tick_params(labelsize=25)
   ax.yaxis.set_tick_params(labelsize=25)
   plt.xlabel('Density')
-  ylabel = 'Significance' # 'Absolute Z score'
+  ylabel = 'Motif significance' # 'Absolute Z score'
   plt.xscale('log')
   plt.ylabel(ylabel)
   ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
@@ -5989,8 +6097,6 @@ def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mty
       if not df[(df.type==signed_motif_type) & (df.stimulus==combined_stimulus_name)].shape[0]:
         df = pd.concat([df, pd.DataFrame(np.array([[0, signed_motif_type, combined_stimulus_name]]), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
   df['probability'] = pd.to_numeric(df['probability'])
-  marker_list = ["v", '*', 'P', 'X', 'o', 's']
-  markersize_list = [10, 13, 13, 13, 11, 9.5]
   for mt_ind, signed_motif_type in enumerate(signed_motif_types):
     data = df[df.type==signed_motif_type].groupby('stimulus')
     x = np.arange(len(combined_stimulus_names))
@@ -6002,7 +6108,9 @@ def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mty
     # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
     for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
       if yi:
-        ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color=palette[mt_ind])
+        # ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color=palette[mt_ind])
+        ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=' ', linewidth=2.,color=palette[mt_ind], zorder=1)
+        ax.scatter(xi + .13 * mt_ind, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color=palette[mt_ind], zorder=2)
   
   ax.set(xlabel=None)
   ax.xaxis.set_tick_params(length=0)
