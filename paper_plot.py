@@ -2239,43 +2239,43 @@ def get_pos_neg_connectionp_signalcorr_new(G_dict, signal_correlation_dict):
       pos_connect, neg_connect, signal_corr = [], [], []
       for col in combined_stimuli[cs_ind]:
         G = G_dict[row][col]
-        
         for nodei, nodej in itertools.combinations(node_idx, 2):
           scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
           if not np.isnan(scorr):
-            signal_corr.append(scorr)
+            # signal_corr.append(scorr)
             if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)):
+              signal_corr.append(scorr)
               # AND gate
-              ws = []
+              # ws = []
+              # for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
+              #   ws.append(w)
+              # if (np.array(ws) > 0).all():
+              #   pos_connect.append(1)
+              # else:
+              #   pos_connect.append(0)
+              # if (np.array(ws) < 0).all():
+              #   neg_connect.append(1)
+              # else:
+              #   neg_connect.append(0)
+              # OR gate
+              pos, neg = False, False
               for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
-                ws.append(w)
-              if (np.array(ws) > 0).all():
+                if w > 0:
+                  pos = True
+                if w < 0:
+                  neg = True
+              if pos:
                 pos_connect.append(1)
               else:
                 pos_connect.append(0)
-              if (np.array(ws) < 0).all():
+              if neg:
                 neg_connect.append(1)
               else:
                 neg_connect.append(0)
-              # OR gate
-              # pos, neg = False, False
-              # for _, _ ,w in G.subgraph([nodei, nodej]).edges(data='weight'):
-              #   if w > 0:
-              #     pos = True
-              #   if w < 0:
-              #     neg = True
-              # if pos:
-              #   pos_connect.append(scorr)
-              # else:
-              #   pos_disconnect.append(scorr)
-              # if neg:
-              #   neg_connect.append(scorr)
-              # else:
-              #   neg_disconnect.append(scorr)
-            else:
-              pos_connect.append(0)
-              neg_connect.append(0)
-      # signal_corr_dict[row][combined_stimulus_name].append(np.mean(signal_corr))
+            # else: # with else, it mesures connection probability for ex/in, without else, measures probability of a connection being ex/in
+            #   pos_connect.append(0)
+            #   neg_connect.append(0)
+      # signal_corr_dict[row][combined_stimulus_name].append(np.mean(signal_corr)) # mean does not work for nominal variable!!!
       # pos_connect_dict[row][combined_stimulus_name].append(np.mean(pos_connect))
       # neg_connect_dict[row][combined_stimulus_name].append(np.mean(neg_connect))
 
@@ -2309,8 +2309,8 @@ pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df = get_pos_neg_conne
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
-  # for row in session2keep:
-  #   print(row)
+  for row in session2keep:
+    print(row)
     fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #, sharey=True
     # axes[0].set_ylim(top = 1.2)
     # if dname == 'pos':
@@ -2320,8 +2320,9 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
     # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
     for cs_ind in range(len(axes)):
       ax = axes[cs_ind]
-      data = df[(df.stimulus==combined_stimulus_names[cs_ind+1])].copy() # & (df.session==row)
-
+      data = df[(df.stimulus==combined_stimulus_names[cs_ind+1]) & (df.session==row)].copy() # 
+      
+      # Old version, bootstrapping for connected sigcorr and disconnected sigcorr separately
       # data.insert(0, 'probability of connection', 0)
       # data.loc[data['type']=='connected','probability of connection'] = 1
       # # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
@@ -2330,21 +2331,29 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
       x, y = data['signal correlation'].values.flatten(), data['type'].values.flatten()
 
       # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
-      numbin = 6
+      numbin = 5
       binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
       connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
       ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
       for i in range(len(binned_x)):
         ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=26)
         # ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
-      xy = np.vstack((x, y)).T
-      table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)], shift_zeros=False)
-      # p_value = table.test_nominal_association().pvalue
+      # No binning, directly do Cochran–Armitage test, will lead to NAN value if too many data points!!!
+      # xy = np.vstack((x, y)).T
+      # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)], shift_zeros=False)
+      # # p_value = table.test_nominal_association().pvalue
+      # p_value = table.test_ordinal_association().pvalue
+      
+      # First binning, then do Cochran–Armitage test
+      dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+      table = sm.stats.Table(dff)
       p_value = table.test_ordinal_association().pvalue
+      
+      # p_value = CA_test(xy)
       if dname == 'pos':
-        locx, locy = .2, .8
+        locx, locy = .9, .1
       else:
-        locx, locy = .6, .9
+        locx, locy = .9, .1
       ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
           verticalalignment='center', transform=ax.transAxes, fontsize=25)
       ax.xaxis.set_tick_params(labelsize=30)
@@ -2361,8 +2370,12 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
       # ax.set_xlabel('Signal correlation', fontsize=25)
 
     plt.tight_layout(rect=[.01, 0, 1, 1])
-    plt.show()
-  # plt.savefig('./plots/{}_connectionp_signal_correlation.pdf'.format(dname), transparent=True)
+    # plt.show()
+    # plt.savefig('./plots/{}_mean_connectionp_signal_corr.pdf'.  format(dname), transparent=True)
+    # plt.savefig('./plots/{}_connectionp_signal_corr_{}.pdf'.format(dname, row), transparent=True)
+    # plt.savefig('./plots/{}_connectionp_signal_corr.pdf'.format(dname), transparent=True)
+    plt.savefig('./plots/{}_connection_probability_signal_corr_{}.pdf'.format(dname, row), transparent=True)
+    # plt.savefig('./plots/{}_connection_probability_signal_corr.pdf'.format(dname), transparent=True)
 
 plot_pos_neg_connectionp_signal_correlation(pos_connectionp_signalcorr_df, 'pos')
 plot_pos_neg_connectionp_signal_correlation(neg_connectionp_signalcorr_df, 'neg')
