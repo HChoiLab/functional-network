@@ -1847,12 +1847,12 @@ def get_signal_correlation(G_dict, resolution):
 start_time = time.time()
 resolution = 0.001
 signal_correlation_dict = get_signal_correlation(G_ccg_dict, resolution)
-a_file = open('signal_correlation_dict.pkl', 'wb')
+a_file = open('./files/signal_correlation_dict.pkl', 'wb')
 pickle.dump(signal_correlation_dict, a_file)
 a_file.close()
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-with open('signal_correlation_dict.pkl', 'rb') as f:
+with open('./files/signal_correlation_dict.pkl', 'rb') as f:
   signal_correlation_dict = pickle.load(f)
 #%%
 ########################################## get signal correlation for within/cross community VS stimulus
@@ -2514,9 +2514,9 @@ def get_max_dH_resolution_eachtrial(rows, cols, resolution_list, metrics):
   return max_reso_subs
 
 rows, cols = get_rowcol(G_ccg_dict)
-with open('comms_dict.pkl', 'rb') as f:
+with open('./files/comms_dict.pkl', 'rb') as f:
   comms_dict = pickle.load(f)
-with open('metrics.pkl', 'rb') as f:
+with open('./files/metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
 
 resolution_list = np.arange(0, 2.1, 0.1)
@@ -2768,8 +2768,7 @@ for comm_ind in range(50):
       # break
 print(good_comm_inds)
 #%%
-############ save topology legend
-
+############ save region legend for topology plots
 def save_region_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   df = pd.DataFrame([[0,0,0],[0,0,1],[0,0,2],[0,0,3],[0,0,4],[0,0,5]], columns=['x', 'y', 'type'])
@@ -5477,25 +5476,25 @@ p_signed_pair_func = {
 plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, log=True)
 #%%
 ######################## signed motif detection
-with open('intensity_dict.pkl', 'rb') as f:
+with open('./files/intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
-with open('coherence_dict.pkl', 'rb') as f:
+with open('./files/coherence_dict.pkl', 'rb') as f:
   coherence_dict = pickle.load(f)
-with open('gnm_baseline_intensity_dict.pkl', 'rb') as f:
+with open('./files/gnm_baseline_intensity_dict.pkl', 'rb') as f:
   gnm_baseline_intensity_dict = pickle.load(f)
-with open('gnm_baseline_coherence_dict.pkl', 'rb') as f:
+with open('./files/gnm_baseline_coherence_dict.pkl', 'rb') as f:
   gnm_baseline_coherence_dict = pickle.load(f)
-with open('baseline_intensity_dict.pkl', 'rb') as f:
+with open('./files/baseline_intensity_dict.pkl', 'rb') as f:
   baseline_intensity_dict = pickle.load(f)
-with open('baseline_coherence_dict.pkl', 'rb') as f:
+with open('./files/baseline_coherence_dict.pkl', 'rb') as f:
   baseline_coherence_dict = pickle.load(f)
-with open('unibi_baseline_intensity_dict.pkl', 'rb') as f:
+with open('./files/unibi_baseline_intensity_dict.pkl', 'rb') as f:
   unibi_baseline_intensity_dict = pickle.load(f)
-with open('unibi_baseline_coherence_dict.pkl', 'rb') as f:
+with open('./files/unibi_baseline_coherence_dict.pkl', 'rb') as f:
   unibi_baseline_coherence_dict = pickle.load(f)
-with open('sunibi_baseline_intensity_dict.pkl', 'rb') as f:
+with open('./files/sunibi_baseline_intensity_dict.pkl', 'rb') as f:
   sunibi_baseline_intensity_dict = pickle.load(f)
-with open('sunibi_baseline_coherence_dict.pkl', 'rb') as f:
+with open('./files/sunibi_baseline_coherence_dict.pkl', 'rb') as f:
   sunibi_baseline_coherence_dict = pickle.load(f)
 # %%
 ################## average intensity across session
