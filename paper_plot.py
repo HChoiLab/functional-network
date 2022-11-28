@@ -3542,7 +3542,7 @@ size_dict, purity_dict = get_module_size_purity(G_ccg_dict, comms_dict, max_reso
 def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_list):
   rows, cols = get_rowcol(purity_dict)
   runs = len(purity_dict[rows[0]][cols[0]])
-  fig, axes = plt.subplots(1, 2, figsize=(5*2, 4))
+  fig, axes = plt.subplots(1, 2, figsize=(5*2, 4), sharey=True)
   num_module1, num_module2 = np.zeros((len(combined_stimulus_names), len(sth_list))), np.zeros((len(combined_stimulus_names), len(pth_list)))
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     size, purity = [], []
@@ -3564,15 +3564,26 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
     axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
-  axes[0].set_xscale('log')
-  axes[0].set_yscale('log')
   axes[0].set_xlim(right=1)
   axes[1].set_xlim(right=1)
-  # handles, labels = axes[0].get_legend_handles_labels()
-  # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
+  axins = inset_axes(axes[0], loc='upper right', width="65%", height="65%")
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    axins.plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]]/1.54, alpha=1., markerfacecolor='w')
+  
   fontsize = 20
+  axins.set_xscale('log')
+  axins.set_yscale('log')
+  axins.set_xlim(right=1)
+  axins.xaxis.set_tick_params(labelsize=fontsize)
+  axins.yaxis.set_tick_params(labelsize=fontsize)
+  for axis in ['bottom', 'left']:
+    axins.spines[axis].set_linewidth(1.5)
+    axins.spines[axis].set_color('k')
+  axins.spines['top'].set_visible(False)
+  axins.spines['right'].set_visible(False)
+  axins.tick_params(width=1.5)
+  axes[0].set_ylabel('Number of modules', fontsize=fontsize)
   for ax in axes:
-    ax.set_ylabel('Number of modules', fontsize=fontsize)
     ax.xaxis.set_tick_params(labelsize=fontsize)
     ax.yaxis.set_tick_params(labelsize=fontsize)
     for axis in ['bottom', 'left']:
@@ -3585,7 +3596,7 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
   axes[1].set_xlabel('Threshold on purity', fontsize=fontsize)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
-  plt.savefig('./plots/num_moduleVSsize_purity.pdf', transparent=True)
+  plt.savefig('./plots/num_moduleVSsize_purity_inset.pdf', transparent=True)
   # plt.show()
 
 sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0, 1, 0.05)
@@ -3596,28 +3607,28 @@ def plot_num_module_VSpurity_threshold_error(size_dict, purity_dict, sth_list, p
   rows, cols = get_rowcol(purity_dict)
   runs = len(purity_dict[rows[0]][cols[0]])
   fig, axes = plt.subplots(1, 2, figsize=(5*2, 4))
-  num_module1, num_module2 = [np.zeros((len(combined_stimulus_names), len(session2keep), len(sth_list))) for _ in range(2)]
+  num_module1, num_module2 = [np.zeros((len(combined_stimulus_names), len(session2keep)*runs, len(sth_list))) for _ in range(2)]
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     for row_ind, row in enumerate(session2keep):
-      size, purity = [], []
-      for col in combined_stimuli[cs_ind]:
-        for run in range(runs):
+      for run in range(runs):
+        size, purity = [], []
+        for col in combined_stimuli[cs_ind]:
           # purity.append(np.mean(purity_dict[row][col][run]))
           size += size_dict[row][col][run]
           purity += purity_dict[row][col][run]
-      size, purity = np.array(size), np.array(purity)
-      for sth_ind, sth in enumerate(sth_list):
-        inds = size>=sth
-        num_module1[cs_ind, row_ind, sth_ind] = inds.sum() / (runs * len(combined_stimuli[cs_ind]))
-      for pth_ind, pth in enumerate(pth_list):
-        inds = purity>=pth
-        num_module2[cs_ind, row_ind, pth_ind] = inds.sum() / (runs * len(combined_stimuli[cs_ind]))
+        size, purity = np.array(size), np.array(purity)
+        for sth_ind, sth in enumerate(sth_list):
+          inds = size>=sth
+          num_module1[cs_ind, row_ind*runs+run, sth_ind] = inds.sum() / (len(combined_stimuli[cs_ind]))
+        for pth_ind, pth in enumerate(pth_list):
+          inds = purity>=pth
+          num_module2[cs_ind, row_ind*runs+run, pth_ind] = inds.sum() / (len(combined_stimuli[cs_ind]))
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[0].errorbar(sth_list, num_module1[cs_ind].mean(0), yerr=num_module1[cs_ind].std(0), fmt=' ', linewidth=1.,color='.1', zorder=1)
+    axes[0].errorbar(sth_list, num_module1[cs_ind].mean(0), yerr=get_confidence_interval(num_module1[cs_ind]), fmt=' ', linewidth=1.,color='.1', zorder=1)
     axes[0].plot(sth_list, num_module1[cs_ind].mean(0), marker=' ', linewidth=2.,color='.1', zorder=1)
     axes[0].scatter(sth_list, num_module1[cs_ind].mean(0), marker=stimulus2marker[combined_stimulus_name], s=10*error_size_dict[stimulus2marker[combined_stimulus_name]], linewidth=1.,color='k', facecolor='white', zorder=2)
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[1].errorbar(pth_list, num_module2[cs_ind].mean(0), yerr=num_module2[cs_ind].std(0), fmt=' ', linewidth=1.,color='.1', zorder=1)
+    axes[1].errorbar(pth_list, num_module2[cs_ind].mean(0), yerr=get_confidence_interval(num_module2[cs_ind]), fmt=' ', linewidth=1.,color='.1', zorder=1)
     axes[1].plot(pth_list, num_module2[cs_ind].mean(0), marker=' ', linewidth=2.,color='.1', zorder=1)
     axes[1].scatter(pth_list, num_module2[cs_ind].mean(0), marker=stimulus2marker[combined_stimulus_name], s=10*error_size_dict[stimulus2marker[combined_stimulus_name]], linewidth=1.,color='k', facecolor='white', zorder=2)
   
@@ -4334,7 +4345,7 @@ def save_within_cross_random_legend():
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   ax.axhline(y=1, linestyle='--', linewidth=3, color='.2', label='cross random module')
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross within-area module', 'cross between-area module'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross module (within area)', 'cross module (cross area)'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
   plt.axis('off')
   export_legend(legend, './plots/within_cross_random_module_legend.pdf')
   plt.tight_layout()
@@ -4343,6 +4354,7 @@ def save_within_cross_random_legend():
 
 save_within_cross_random_legend()
 #%%
+############################ check why not consistent with plot_data_within_cross_comm_same_area_significance!!!
 # def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cross_comm_list, regions):
 #   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 6))
 #   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
