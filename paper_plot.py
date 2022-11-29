@@ -5649,7 +5649,6 @@ with open('./files/sunibi_baseline_intensity_dict.pkl', 'rb') as f:
   sunibi_baseline_intensity_dict = pickle.load(f)
 with open('./files/sunibi_baseline_coherence_dict.pkl', 'rb') as f:
   sunibi_baseline_coherence_dict = pickle.load(f)
-# %%
 ################## average intensity across session
 ################## first Z score, then average
 num_baseline = 200
@@ -5768,12 +5767,101 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
     annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
   plt.tight_layout(rect=[.02, -.03, 1, 1])
 
-  plt.tight_layout()
+  # plt.tight_layout()
   # plt.show()
   plt.savefig('./plots/{}_within_cross_motif.pdf'.format(weight), transparent=True)
 
 plot_data_within_cross_motif_significance(confidence_within_cross_motif_df, weight='confidence')
 plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
+#%%
+################## plot signal correlation difference between within motif/other neurons
+def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correlation_dict):
+  rows, cols = get_rowcol(G_dict)
+  within_motif_dict, cross_motif_dict = {}, {}
+  for row_ind, row in enumerate(rows):
+    print(row)
+    within_motif_dict[row], cross_motif_dict[row] = {}, {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        print(col)
+        within_motif_dict[row][col], cross_motif_dict[row][col] = [], []
+        G = G_dict[row][col]
+        signal_corr = signal_correlation_dict[row][combined_stimulus_name]
+        motifs_by_type = find_triads(G) # faster
+        other_edges = set(list(G.edges()))
+        for signed_motif_type in signed_motif_types:
+          motif_type = signed_motif_type.replace('+', '').replace('-', '')
+          motifs = motifs_by_type[motif_type]
+          for motif in motifs:
+            smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
+            if smotif_type == signed_motif_type:
+              within_signal_corr = [signal_corr[e] for e in motif.edges() if not np.isnan(signal_corr[e])]
+              if len(within_signal_corr):
+                within_motif_dict[row][col] += within_signal_corr
+              other_edges -= set(list(motif.edges()))
+        for e in other_edges:
+          if not np.isnan(signal_corr[e]):
+            cross_motif_dict[row][col].append(signal_corr[e])
+  df = pd.DataFrame()
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+      for row in session2keep:
+        within_motif, cross_motif = within_motif_dict[row][col], cross_motif_dict[row][col]
+        # within_motif, cross_motif = [e for e in within_motif if not np.isnan(e)], [e for e in cross_motif if not np.isnan(e)] # remove nan values
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within motif'] * len(within_motif))[:,None], np.array([combined_stimulus_name] * len(within_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_motif)[:,None], np.array(['otherwise'] * len(cross_motif))[:,None], np.array([combined_stimulus_name] * len(cross_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus'])], ignore_index=True)
+  df['signal_corr'] = pd.to_numeric(df['signal_corr'])
+  return df
+
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+signal_corr_within_cross_motif_df = get_signalcorr_within_cross_motif(G_ccg_dict, sig_motif_types, signal_correlation_dict)
+#%%
+def plot_signalcorr_within_cross_motif_significance(df):
+  fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
+  df = df.set_index('stimulus')
+  df = df.loc[combined_stimulus_names[1:]]
+  df.reset_index(inplace=True)
+  palette = ['k','w']
+  y = 'signal_corr'
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks([], []) # use markers to represent stimuli!
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2)
+  ax.set_xlabel('')
+  ax.set_ylabel('Signal correlation', fontsize=40) #'Absolute ' + 
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend([], [], fontsize=0)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+
+  maxx = 0
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  h, l = .05 * maxx, .05 * maxx
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    _, p = ztest(within_motif, cross_motif, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  plt.tight_layout(rect=[.02, -.03, 1, 1])
+
+  # plt.tight_layout()
+  plt.show()
+  # plt.savefig('./plots/signalcorr_within_cross_motif.pdf', transparent=True)
+
+plot_signalcorr_within_cross_motif_significance(signal_corr_within_cross_motif_df)
 #%%
 ################## plot weight/confidence difference between within motif/other neurons
 def get_data_inside_outside_motif_comm(G_dict, comms_dict, max_neg_reso, signed_motif_types, weight='confidence'):
@@ -6016,7 +6104,7 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   ax.xaxis.set_tick_params(labelsize=25)
   ax.yaxis.set_tick_params(labelsize=25)
   plt.xlabel('Density')
-  ylabel = 'Motif significance' # 'Absolute Z score'
+  ylabel = 'Absolute motif significance' # 'Absolute Z score'
   plt.xscale('log')
   plt.ylabel(ylabel)
   ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
@@ -6027,7 +6115,7 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
-  plt.tight_layout()
+  plt.tight_layout(rect=[0, 0, 1, .9])
   # plt.show()
   plt.savefig(f'./plots/mean_Zscore_density.pdf', transparent=True)
 
