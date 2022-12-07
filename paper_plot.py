@@ -78,7 +78,7 @@ stimulus_type_color = ['#8dd3c7', '#fee391', '#bc80bd', '#fb8072']
 stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ngrating', 
               'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
 region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
-region_colors = ['#b3de69', '#fdb462', '#80b1d3', '#fccde5', '#d9d9d9', '#bebada']
+region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#d9d9d9', '#fccde5', '#bebada']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
 model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
 
@@ -160,7 +160,7 @@ def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_b
   #### add horizontal band
   band_pos = areas_start_pos + [areas_start_pos[-1]+areas_num[-1]]
   xgmin, xgmax=.045, .955
-  alpha_list = [.2, .2, .2, .4, .6, .35]
+  alpha_list = [.2, .2, .2, .6, .4, .5]
   for loc1, loc2 in zip(band_pos[:-1], band_pos[1:]):
     # for i in range(len(s_locs_frac)-1):
     #   xmin, xmax = s_locs_frac[i] * (xgmax-xgmin) + xgmin, s_locs_frac[i+1] * (xgmax-xgmin) + xgmin
@@ -468,7 +468,8 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   cmap = colors.ListedColormap(region_colors)
   bounds = [-.5,.5,1.5,2.5,3.5,4.5,5.5]
   norm = colors.BoundaryNorm(bounds, cmap.N)
-  colors_transparency = colors.ListedColormap([transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.5) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.9) for c_ind, color in enumerate(region_colors)])
+  alpha_list = [.35, .35, .35, .9, .5, .6]
+  colors_transparency = colors.ListedColormap([transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=alpha_list[c_ind]) for c_ind, color in enumerate(region_colors)])
   fig = plt.figure(figsize=(10, 10)) 
   gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
           wspace=0.0, hspace=0.0, top=1, bottom=0.001, left=0., right=.999)
@@ -2350,8 +2351,8 @@ pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df = get_pos_neg_conne
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
-  for row in session2keep:
-    print(row)
+  # for row in session2keep:
+  #   print(row)
     fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #, sharey=True
     # axes[0].set_ylim(top = 1.2)
     # if dname == 'pos':
@@ -2361,7 +2362,7 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
     # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
     for cs_ind in range(len(axes)):
       ax = axes[cs_ind]
-      data = df[(df.stimulus==combined_stimulus_names[cs_ind+1]) & (df.session==row)].copy() # 
+      data = df[(df.stimulus==combined_stimulus_names[cs_ind+1])].copy() #  & (df.session==row)
       
       # Old version, bootstrapping for connected sigcorr and disconnected sigcorr separately
       # data.insert(0, 'probability of connection', 0)
@@ -2415,11 +2416,56 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos'):
     # plt.savefig('./plots/{}_mean_connectionp_signal_corr.pdf'.  format(dname), transparent=True)
     # plt.savefig('./plots/{}_connectionp_signal_corr_{}.pdf'.format(dname, row), transparent=True)
     # plt.savefig('./plots/{}_connectionp_signal_corr.pdf'.format(dname), transparent=True)
-    plt.savefig('./plots/{}_connection_probability_signal_corr_{}.pdf'.format(dname, row), transparent=True)
-    # plt.savefig('./plots/{}_connection_probability_signal_corr.pdf'.format(dname), transparent=True)
+    
+    # plt.savefig('./plots/{}_connection_probability_signal_corr_{}.pdf'.format(dname, row), transparent=True)
+    plt.savefig('./plots/{}_connection_probability_signal_corr.pdf'.format(dname), transparent=True)
 
 plot_pos_neg_connectionp_signal_correlation(pos_connectionp_signalcorr_df, 'pos')
 plot_pos_neg_connectionp_signal_correlation(neg_connectionp_signalcorr_df, 'neg')
+#%%
+########################################## plot signal correlation distribution for ex/in
+#%%
+def plot_pos_neg_signal_correlation_distri(pos_df, neg_df):
+  # for row in session2keep:
+  #   print(row)
+    df = pd.DataFrame()
+    fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #, sharey=True
+    for cs_ind in range(len(axes)):
+      ax = axes[cs_ind]
+      pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+1]) & (pos_df.type==1)].copy() #  & (df.session==row)
+      neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+1]) & (neg_df.type==1)].copy() #  & (df.session==row)
+
+      pos_x, neg_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten()
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(pos_x)[:,None], np.array(['excitatory'] * len(pos_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(neg_x)[:,None], np.array(['inhibitory'] * len(neg_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
+      df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+      # sns.histplot(data=df, x='signal correlation', hue='type', stat='probability', common_norm=False, ax=ax, palette="coolwarm_r")
+      sns.kdeplot(data=df, x='signal correlation', hue='type', common_norm=False, ax=ax, palette="coolwarm_r")
+      
+      ax.xaxis.set_tick_params(labelsize=30)
+      ax.yaxis.set_tick_params(labelsize=30)
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(2.5)
+        ax.spines[axis].set_color('k')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=2.5)
+      ax.set_ylabel([], fontsize=0)
+      
+      ax.set_xlabel('Signal correlation', fontsize=25)
+      
+      handles, labels = ax.get_legend_handles_labels()
+      if cs_ind == 0:
+        ax.legend(handles, labels, title='', bbox_to_anchor=(.5, 1.1), loc='upper left', fontsize=15, frameon=False)
+      else:
+        ax.legend().set_visible(False)
+
+    plt.tight_layout(rect=[.01, 0, 1, 1])
+    # plt.show()
+    # plt.savefig('./plots/hist_signal_corr_posneg.pdf', transparent=True)
+    plt.savefig('./plots/distri_signal_corr_posneg.pdf', transparent=True)
+
+plot_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df)
 #%%
 # Results not good!!!
 ########################################## get signal correlation VS area distance between communities
