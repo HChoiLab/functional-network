@@ -3558,78 +3558,99 @@ plot_data_VSpurity_threshold(weight_dict, purity_dict, th_list, name='weight')
 plot_data_VSpurity_threshold(confidence_dict, purity_dict, th_list, name='confidence')
 #%%
 ################################ get module size and purity
-def get_module_size_purity(G_dict, comms_dict, max_neg_reso):
+def get_module_size_coverage_purity(G_dict, regions, comms_dict, max_neg_reso):
   rows, cols = get_rowcol(G_dict)
-  size_dict, purity_dict = {}, {}
+  runs = metrics['Hamiltonian'].shape[-1]
+  size_dict, coverage_dict, purity_dict = [{row:{col:{run:[] for run in range(runs)} for col in cols} for row in rows} for _ in range(3)]
   for row_ind, row in enumerate(rows):
     print(row)
     active_area = active_area_dict[row]
-    size_dict[row], purity_dict[row] = {}, {}
+    # size_dict[row], purity_dict[row] = {}, {}
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
       for col in combined_stimuli[cs_ind]:
         G = G_ccg_dict[row][col]
-        size_dict[row][col], purity_dict[row][col] = {}, {}
+        all_regions = [active_area[node] for node in G.nodes()]
+        region_counts = np.array([all_regions.count(r) for r in regions])
+        # size_dict[row][col], purity_dict[row][col] = {}, {}
         col_ind = stimulus_names.index(col)
         for run in range(metrics['Hamiltonian'].shape[-1]):
-          size_dict[row][col][run], purity_dict[row][col][run] = [], []
+          # size_dict[row][col][run], purity_dict[row][col][run] = [], []
           max_reso = max_neg_reso[row_ind, col_ind, run]
           comms_list = comms_dict[row][col][max_reso]
           comms = comms_list[run]
           comms = [comm for comm in comms if len(comm) >= 4]
           for comm in comms:
             c_regions = [active_area[node] for node in comm]
-            _, counts = np.unique(c_regions, return_counts=True)
+            counts = np.array([c_regions.count(r) for r in regions])
             if G.subgraph(comm).number_of_edges():
               size_dict[row][col][run].append(len(comm) / G.number_of_nodes()) # relative size
+              coverage_dict[row][col][run].append((counts / region_counts).max())
               purity_dict[row][col][run].append(counts.max() / counts.sum())
-  return size_dict, purity_dict
+  return size_dict, coverage_dict, purity_dict
 
-size_dict, purity_dict = get_module_size_purity(G_ccg_dict, comms_dict, max_reso_subs)
+size_dict, coverage_dict, purity_dict = get_module_size_coverage_purity(G_ccg_dict, visual_regions, comms_dict, max_reso_subs)
 #%%
 ########################### merge data points from all mice into one distribution
-def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_list):
+def plot_num_module_VSpurity_threshold(size_dict, coverage_dict, purity_dict, sth_list_lin, sth_list_log, cth_list_lin, cth_list_log, pth_list):
   rows, cols = get_rowcol(purity_dict)
   runs = len(purity_dict[rows[0]][cols[0]])
-  fig, axes = plt.subplots(1, 2, figsize=(5*2, 4), sharey=True)
-  num_module1, num_module2 = np.zeros((len(combined_stimulus_names), len(sth_list))), np.zeros((len(combined_stimulus_names), len(pth_list)))
+  fig, axes = plt.subplots(1, 3, figsize=(5*3, 4), sharex=True, sharey=True)
+  num_module1_lin, num_module1_log, num_module2_lin, num_module2_log, num_module3 = np.zeros((len(combined_stimulus_names), len(sth_list_lin))), np.zeros((len(combined_stimulus_names), len(sth_list_log))), np.zeros((len(combined_stimulus_names), len(cth_list_lin))), np.zeros((len(combined_stimulus_names), len(cth_list_log))), np.zeros((len(combined_stimulus_names), len(pth_list)))
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    size, purity = [], []
+    size, coverage, purity = [], [], []
     for col in combined_stimuli[cs_ind]:
       for row in session2keep:
         for run in range(runs):
           # purity.append(np.mean(purity_dict[row][col][run]))
           size += size_dict[row][col][run]
+          coverage += coverage_dict[row][col][run]
           purity += purity_dict[row][col][run]
-    size, purity = np.array(size), np.array(purity)
-    for sth_ind, sth in enumerate(sth_list):
+    size, coverage, purity = np.array(size), np.array(coverage), np.array(purity)
+    for sth_ind, sth in enumerate(sth_list_lin):
       inds = size>=sth
-      num_module1[cs_ind, sth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
+      num_module1_lin[cs_ind, sth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
+    for sth_ind, sth in enumerate(sth_list_log):
+      inds = size>=sth
+      num_module1_log[cs_ind, sth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
+    for cth_ind, cth in enumerate(cth_list_lin):
+      inds = coverage>=cth
+      num_module2_lin[cs_ind, cth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
+    for cth_ind, cth in enumerate(cth_list_log):
+      inds = coverage>=cth
+      num_module2_log[cs_ind, cth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
     for pth_ind, pth in enumerate(pth_list):
       inds = purity>=pth
-      num_module2[cs_ind, pth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
+      num_module3[cs_ind, pth_ind] = inds.sum() / (runs * len(session2keep) * len(combined_stimuli[cs_ind]))
   # dotted line
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[0].plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
+    axes[0].plot(sth_list_lin, num_module1_lin[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axes[1].plot(pth_list, num_module2[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
+    axes[1].plot(cth_list_lin, num_module2_lin[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    axes[2].plot(pth_list, num_module3[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
   axes[0].set_xlim(right=1)
   axes[1].set_xlim(right=1)
-  axins = inset_axes(axes[0], loc='upper right', width="65%", height="65%")
+  axes[2].set_xlim(right=1)
+  axins0 = inset_axes(axes[0], loc='upper right', width="75%", height="65%")
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    axins.plot(sth_list, num_module1[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]]/1.54, alpha=1., markerfacecolor='w')
-  
+    axins0.plot(sth_list_log, num_module1_log[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]]/1.54, alpha=1., markerfacecolor='w')
+  axins1 = inset_axes(axes[1], loc='upper right', width="60%", height="65%")
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    axins1.plot(cth_list_log, num_module2_log[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]]/1.54, alpha=1., markerfacecolor='w')
   fontsize = 20
-  axins.set_xscale('log')
-  axins.set_yscale('log')
-  axins.set_xlim(right=1)
-  axins.xaxis.set_tick_params(labelsize=fontsize)
-  axins.yaxis.set_tick_params(labelsize=fontsize)
-  for axis in ['bottom', 'left']:
-    axins.spines[axis].set_linewidth(1.5)
-    axins.spines[axis].set_color('k')
-  axins.spines['top'].set_visible(False)
-  axins.spines['right'].set_visible(False)
-  axins.tick_params(width=1.5)
+  for axins in [axins0, axins1]:
+    axins.set_xscale('log')
+    axins.set_yscale('log')
+    axins.set_xlim(right=1.1)
+    axins.xaxis.set_tick_params(labelsize=fontsize)
+    axins.yaxis.set_tick_params(labelsize=fontsize)
+    for axis in ['bottom', 'left']:
+      axins.spines[axis].set_linewidth(1.5)
+      axins.spines[axis].set_color('k')
+    axins.spines['top'].set_visible(False)
+    axins.spines['right'].set_visible(False)
+    axins.tick_params(width=1.5)
+  # axins1.set_xlim(left=np.power(10, -1.4))
   axes[0].set_ylabel('Number of modules', fontsize=fontsize)
   for ax in axes:
     ax.xaxis.set_tick_params(labelsize=fontsize)
@@ -3640,15 +3661,16 @@ def plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_lis
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
-  axes[0].set_xlabel('Threshold on relative size', fontsize=fontsize)
-  axes[1].set_xlabel('Threshold on purity', fontsize=fontsize)
+  axes[0].set_xlabel('Threshold on normalized size', fontsize=fontsize)
+  axes[1].set_xlabel('Threshold on coverage', fontsize=fontsize)
+  axes[2].set_xlabel('Threshold on purity', fontsize=fontsize)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
-  plt.savefig('./plots/num_moduleVSsize_purity_inset.pdf', transparent=True)
+  plt.savefig('./plots/num_moduleVSsize_coverage_purity_inset.pdf', transparent=True)
   # plt.show()
 
-sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0, 1, 0.05)
-plot_num_module_VSpurity_threshold(size_dict, purity_dict, sth_list, pth_list)
+sth_list_lin, sth_list_log, cth_list_lin, cth_list_log, pth_list = np.linspace(np.power(10, -1.9), np.power(10, -0.02), 20), np.logspace(-1.9, -0.02, 20), np.linspace(np.power(10, -1.9), np.power(10, -0.02), 20), np.logspace(-1.3, -0.02, 20), np.arange(0, 1, 0.05)
+plot_num_module_VSpurity_threshold(size_dict, coverage_dict, purity_dict, sth_list_lin, sth_list_log, cth_list_lin, cth_list_log, pth_list)
 #%%
 ########################### average across trials for each mouse with errorbars
 def plot_num_module_VSpurity_threshold_error(size_dict, purity_dict, sth_list, pth_list):
