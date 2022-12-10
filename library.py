@@ -55,6 +55,8 @@ import gurobipy as gp
 from bisect import bisect
 import holoviews as hv
 from holoviews import opts, dim
+import multiprocessing
+from itertools import repeat
 from allensdk.brain_observatory.ecephys.ecephys_project_cache import EcephysProjectCache
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -2274,7 +2276,7 @@ def get_Hamiltonian(G, weight='weight', pos_resolution=1, neg_resolution=1, comm
 
 def get_random_Hamiltonian(G, num_rewire, algorithm, weight='weight', pos_resolution=1, neg_resolution=1):
   random_Hamiltonian = np.zeros(num_rewire)
-  random_Gs = random_graph_generator(G, num_rewire, algorithm=algorithm)
+  random_Gs = random_graph_generator(G, num_rewire, algorithm=algorithm, disable=True)
   for random_ind, random_G in enumerate(random_Gs):
     random_Hamiltonian[random_ind] = get_Hamiltonian(random_G, weight=weight, pos_resolution=pos_resolution, neg_resolution=neg_resolution)
   return random_Hamiltonian
@@ -2282,29 +2284,79 @@ def get_random_Hamiltonian(G, num_rewire, algorithm, weight='weight', pos_resolu
 def comms_Hamiltonian_resolution(G_dict, resolution_list, num_repeat, num_rewire, cc=False):
   rows, cols = get_rowcol(G_dict)
   comms_dict = {}
-  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), num_repeat], np.nan)
-  gnm_Hamiltonian, config_Hamiltonian = [np.full([len(rows), len(cols), len(resolution_list), num_rewire], np.nan) for _ in range(2)]
+  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), len(resolution_list), num_repeat], np.nan)
+  subs_Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), len(resolution_list), num_rewire], np.nan)
   for row_ind, row in enumerate(rows):
     comms_dict[row] = {}
     for col_ind, col in enumerate(cols):
       comms_dict[row][col] = {}
-      G = G_dict[row][col].copy() if col in G_dict[row] else nx.DiGraph()
+      G = G_dict[row][col].copy()
       if cc:
         G = get_lcc(G)
-      num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
-      num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
-      for resolution_ind, resolution in enumerate(resolution_list):
-        print(row, col, round(resolution, 2))
-        pos_resolution = abs(resolution * num_neg / num_pos)
-        comms_dict[row][col][resolution] = []
+      # num_pos = sum([w for i,j,w in G.edges.data('weight') if w > 0])
+      # num_neg = sum([w for i,j,w in G.edges.data('weight') if w < 0])
+      # for resolution_ind, resolution in enumerate(resolution_list):
+      #   pos_resolution = round(resolution, 2)
+      #   for resolution_ind, resolution in enumerate(resolution_list):
+      #     neg_resolution = round(resolution, 2)
+      print(row, col)
+      for pos_reso, neg_reso in tqdm(itertools.product(resolution_list, resolution_list), total=len(resolution_list)**2):
+        pos_ind, neg_ind = list(resolution_list).index(pos_reso), list(resolution_list).index(neg_reso)
+        pos_reso, neg_reso = round(pos_reso, 2), round(neg_reso, 2)
+        comms_dict[row][col][pos_reso, neg_reso] = []
         for repeat in range(num_repeat):
-          comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
-          comms_dict[row][col][resolution].append(comms)
-          Hamiltonian[row_ind, col_ind, resolution_ind, repeat] = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution, comms=comms)
-        gnm_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='Gnm', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)
-        config_Hamiltonian[row_ind, col_ind, resolution_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='directed_configuration_model', weight='weight', pos_resolution=pos_resolution, neg_resolution=resolution)   
-  metrics = {'Hamiltonian':Hamiltonian, 'Gnm Hamiltonian':gnm_Hamiltonian, 'configuration model Hamiltonian':config_Hamiltonian}
+          comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_reso, neg_resolution=neg_reso)
+          comms_dict[row][col][pos_reso, neg_reso].append(comms)
+          Hamiltonian[row_ind, col_ind, pos_ind, neg_ind, repeat] = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_reso, neg_resolution=neg_reso, comms=comms)
+        subs_Hamiltonian[row_ind, col_ind, pos_ind, neg_ind] = get_random_Hamiltonian(G.copy(), num_rewire, algorithm='signed_uni_bi_swap', weight='weight', pos_resolution=pos_reso, neg_resolution=neg_reso)  
+  metrics = {'Hamiltonian':Hamiltonian, 'subs Hamiltonian':subs_Hamiltonian}
   return comms_dict, metrics
+
+# multithread for H
+def get_comms_H(G, pos_reso, neg_reso, repeat):
+  comms = signed_louvain_communities(G.copy(), weight='weight', pos_resolution=pos_reso, neg_resolution=neg_reso)
+  H = get_Hamiltonian(G.copy(), weight='weight', pos_resolution=pos_reso, neg_resolution=neg_reso, comms=comms) 
+  return comms, H
+
+def comms_Hamiltonian_resolution_multithread(G_dict, resolution_list, num_repeat, num_worker=4, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  comms_dict = {}
+  Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), len(resolution_list), num_repeat], np.nan)
+  pool = multiprocessing.Pool(num_worker)
+  for row_ind, row in enumerate(rows):
+    comms_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      comms_dict[row][col] = {}
+      G = G_dict[row][col].copy()
+      if cc:
+        G = get_lcc(G)
+      print(row, col)
+      for pos_reso, neg_reso in tqdm(itertools.product(resolution_list, resolution_list), total=len(resolution_list)**2):
+        pos_ind, neg_ind = resolution_list.index(pos_reso), resolution_list.index(neg_reso)
+        comms_, H_ = zip(*pool.starmap(get_comms_H, zip(repeat(G), repeat(pos_reso), repeat(neg_reso), range(num_repeat))))
+        comms_dict[row][col][pos_reso, neg_reso] = list(comms_)
+        Hamiltonian[row_ind, col_ind, pos_ind, neg_ind] = list(H_)
+  return comms_dict, Hamiltonian
+
+def get_random_Hamiltonian_multithread(G_dict, resolution_list, num_rewire, num_worker=4, cc=False):
+  rows, cols = get_rowcol(G_dict)
+  comms_dict = {}
+  subs_Hamiltonian = np.full([len(rows), len(cols), len(resolution_list), len(resolution_list), num_rewire], np.nan)
+  pool = multiprocessing.Pool(num_worker)
+  for row_ind, row in enumerate(rows):
+    comms_dict[row] = {}
+    for col_ind, col in enumerate(cols):
+      comms_dict[row][col] = {}
+      G = G_dict[row][col].copy()
+      if cc:
+        G = get_lcc(G)
+      print(row, col)
+      random_Gs = list(pool.starmap(random_graph_generator_multi_thread, zip(repeat(G), range(num_rewire))))
+      for pos_reso, neg_reso in tqdm(itertools.product(resolution_list, resolution_list), total=len(resolution_list)**2):
+        pos_ind, neg_ind = resolution_list.index(pos_reso), resolution_list.index(neg_reso)
+        _, H_ = zip(*pool.starmap(get_comms_H, zip(random_Gs, repeat(pos_reso), repeat(neg_reso), repeat(0))))
+        subs_Hamiltonian[row_ind, col_ind, pos_ind, neg_ind] = list(H_)
+  return subs_Hamiltonian
 
 def get_max_dH_resolution(rows, cols, resolution_list, metrics): 
   max_reso_gnm, max_reso_config = np.zeros((len(rows), len(cols))), np.zeros((len(rows), len(cols)))
@@ -3079,7 +3131,7 @@ def distribution_community_size_mean(comms_dict, measure, n, max_neg_reso=None, 
 def remove_common(a, b):
   return list(set(a).difference(b)), list(set(b).difference(a))
 
-def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=False, Q=100):
+def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=False, Q=100, disable=False):
   origin_G = input_G.copy()
   if cc:
     origin_G = get_lcc(origin_G)
@@ -3100,7 +3152,7 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
   elif algorithm in ['Gnm', 'configuration_model', 'directed_configuration_model']:
     node_idx = sorted(origin_G.nodes())
     mapping = {i:node_idx[i] for i in range(len(node_idx))}
-  for num in tqdm(range(num_rewire)):
+  for num in tqdm(range(num_rewire), disable=disable):
     if algorithm == 'Gnm':
       n, m = origin_G.number_of_nodes(), origin_G.number_of_edges()
       G = nx.gnm_random_graph(n, m, seed=None, directed=True)
@@ -3294,6 +3346,77 @@ def random_graph_generator(input_G, num_rewire, algorithm, weight='weight', cc=F
   # for random_G in random_graphs: # test if signed pair distribution is the same
   #   print(np.isclose(count_signed_pair_connection_p(random_G, weight='confidence'), count_signed_pair_connection_p(origin_G, weight='confidence')).all())
   return random_graphs
+
+def random_graph_generator_multi_thread(input_G, repeat, weight='weight', cc=False, Q=100):
+  # only for signed_uni_bi_swap model
+  origin_G = input_G.copy()
+  if cc:
+    origin_G = get_lcc(origin_G)
+  weight_dict = nx.get_edge_attributes(origin_G, weight)
+  weights = list(weight_dict.values())
+  random_graphs = []
+  nswap = Q*origin_G.number_of_edges()
+  max_tries = 1e75
+  keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
+  cdf = nx.utils.cumulative_distribution(out_degrees)  # cdf of degree
+  discrete_sequence = nx.utils.discrete_sequence
+  # swap u->v, x->y to u->y, x->v, u<->v, x<->y to u<->y, x<->v, with signed edge distri preserved
+  G = origin_G.copy()
+  n_tries = 0
+  swapcount = 0
+  while swapcount < nswap:
+    (ui, xi) = discrete_sequence(2, cdistribution=cdf, seed=None)
+    if ui == xi:
+      continue  # same source, skip
+    u = keys[ui]  # convert index to label
+    x = keys[xi]
+    # choose target uniformly from neighbors
+    u_neigh, x_neigh = list(G[u]), list(G[x])
+    if x in u_neigh:
+      u_neigh.remove(x) # avoid self loop
+    if u in x_neigh:
+      x_neigh.remove(u) # avoid self loop
+    u_neigh, x_neigh = remove_common(u_neigh, x_neigh) # avoid existed edge
+    if (not len(u_neigh)) or (not len(x_neigh)):
+      continue
+    ns = list(itertools.product(u_neigh, x_neigh))
+    np.random.shuffle(ns)
+    for v, y in ns:
+      # for uni edges, they do not form new bidirectional edges
+      # for bi edges, they can be switched
+      if (u not in G[y]) and (x not in G[v]):
+        # unidirectional edges
+        if (u not in G[v]) and (x not in G[y]):
+          edge2remove = [(u, v), (x, y)]
+          ews = [G.get_edge_data(*e)[weight] for e in edge2remove]
+          np.random.shuffle(ews)
+          edge2add = [(u, y, ews[0]), (x, v, ews[1])]
+          G.add_weighted_edges_from((edge2add), weight=weight)
+          G.remove_edges_from(edge2remove)
+          swapcount += 1
+          break
+        # bidirectional edges
+        elif (u in G[v]) and (x in G[y]):
+          edge2remove = [(u, v), (v, u), (x, y), (y, x)]
+          ews = [(G[u][v][weight],G[v][u][weight]), (G[x][y][weight], G[y][x][weight])]
+          np.random.shuffle(ews)
+          edge2add = [(u, y, ews[0][0]), (y, u, ews[0][1]), (x, v, ews[1][0]), (v, x, ews[1][1])]
+          G.add_weighted_edges_from((edge2add), weight=weight)
+          G.remove_edges_from(edge2remove)
+          swapcount += 2
+          break
+        else:
+          continue
+      else:
+        continue
+    if n_tries >= max_tries:
+      e = (
+        f"Maximum number of swap attempts ({n_tries}) exceeded "
+        f"before desired swaps achieved ({nswap})."
+      )
+      raise nx.NetworkXAlgorithmError(e)
+    n_tries += 1
+  return G
 
 def get_modularity(G, weight='weight', resolution=1, comms=None):
   if comms == None:
