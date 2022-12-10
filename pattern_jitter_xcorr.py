@@ -1889,14 +1889,25 @@ plot_pos_neg_box(S_ccg_dict, measure, n, density=False)
 # %%
 ################## save community partitions and modularity/Hamiltonian VS resolution
 start_time = time.time()
-num_rewire = 10
+num_worker = 7
+num_repeat = 200
 resolution_list = np.arange(0, 2.1, 0.1)
-# comms_dict, metrics = comms_modularity_resolution(G_ccg_dict, resolution_list, num_rewire)
-comms_dict, metrics = comms_Hamiltonian_resolution(G_ccg_dict, resolution_list, num_rewire)
-with open('comms_dict.pkl', 'wb') as f:
+resolution_list = [round(reso, 2) for reso in resolution_list]
+comms_dict, Hamiltonian = comms_Hamiltonian_resolution_multithread(G_ccg_dict, resolution_list, num_repeat, num_worker, False)
+with open('./files/comms_dict.pkl', 'wb') as f:
   pickle.dump(comms_dict, f)
-with open('metrics.pkl', 'wb') as f:
-  pickle.dump(metrics, f)
+with open('./files/Hamiltonian.npy', 'wb') as f:
+  np.save(f, Hamiltonian)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+start_time = time.time()
+num_worker = 8
+num_rewire = 200
+resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
+subs_Hamiltonian = get_random_Hamiltonian_multithread(G_ccg_dict, resolution_list, num_rewire, num_worker, False)
+with open('./files/subs_Hamiltonian.npy', 'wb') as f:
+  np.save(f, subs_Hamiltonian)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 ################# get optimal resolution that maximizes delta H
