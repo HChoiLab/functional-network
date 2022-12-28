@@ -107,7 +107,8 @@ stimulus_type_color = ['#8dd3c7', '#fee391', '#bc80bd', '#fb8072']
 stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ngrating', 
               'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
 region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
-region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#d9d9d9', '#fccde5', '#bebada']
+# region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#d9d9d9', '#fccde5', '#bebada']
+region_colors = ['#d9e9b5', '#c0d8e9', '#fed3a1', '#c3c3c3', '#fad3e4', '#bebada']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
 model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
 
@@ -136,6 +137,30 @@ pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
 ####################### Figure 1 #######################
 ########################################################
 #%%
+####################### Plot stimulus
+from allensdk.core.brain_observatory_cache import BrainObservatoryCache
+data_directory = './data/ecephys_cache_dir'
+manifest_path = os.path.join(data_directory, "manifest.json")
+# cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+boc =  BrainObservatoryCache(manifest_file=manifest_path)
+data_set = boc.get_ophys_experiment_data(501498760)
+
+# read in the natural movie one clip
+movie = data_set.get_stimulus_template('natural_movie_one')
+#%%
+# display a random frame for reference
+frame = 430
+plt.imshow(movie[frame,:,:], cmap='gray')
+plt.axis('off')
+plt.title('frame %d' % frame)
+plt.show()
+frame = 430
+plt.imsave('./plots/natural_movie_one_frame_{}.jpg'.format(frame), movie[frame,:,:], cmap='gray')
+# %%
+scenes = data_set.get_stimulus_template('natural_scenes')
+ind = 30
+plt.imsave('./plots/natural_scene_ind_{}.jpg'.format(ind), scenes[ind,:,:], cmap='gray')
+#%%
 ####################### raster plot
 def get_raster_data(mouse_id, s_lengths, blank_width=50):
   # stimulus_id = 6
@@ -159,7 +184,7 @@ def get_raster_data(mouse_id, s_lengths, blank_width=50):
   return total_sequence, areas_num, areas_start_pos, sequence_by_area
 
 mouse_id = 6
-s_lengths  = [800, 250, 250, 250, 250, 1000]
+s_lengths  = [800, 250, 370, 250, 250, 1000]
 blank_width = 50
 total_sequence, areas_num, areas_start_pos, sequence_by_area = get_raster_data(mouse_id, s_lengths, blank_width)
 # %%
@@ -171,7 +196,7 @@ def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_b
   lineoffsets2 = 1
   linelengths2 = 2.
   # create a horizontal plot
-  fig = plt.figure(figsize=(16, 5))
+  fig = plt.figure(figsize=(16.5, 6))
   plt.eventplot(spike_pos, colors='k', lineoffsets=lineoffsets2,
                       linelengths=linelengths2) # colors=colors1
   for ind, t_pos in enumerate(text_pos):
@@ -189,14 +214,14 @@ def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_b
   #### add horizontal band
   band_pos = areas_start_pos + [areas_start_pos[-1]+areas_num[-1]]
   xgmin, xgmax=.045, .955
-  alpha_list = [.2, .2, .2, .6, .4, .5]
+  alpha_list = [.4, .4, .4, .6, .5, .6]
   for loc1, loc2 in zip(band_pos[:-1], band_pos[1:]):
     # for i in range(len(s_locs_frac)-1):
     #   xmin, xmax = s_locs_frac[i] * (xgmax-xgmin) + xgmin, s_locs_frac[i+1] * (xgmax-xgmin) + xgmin
     for scale1, scale2 in zip(s_loc_frac1, s_loc_frac2):
       xmin, xmax = scale1 * (xgmax-xgmin) + xgmin, scale2 * (xgmax-xgmin) + xgmin
+      # plt.gca().axhspan(loc1, loc2, xmin=xmin, xmax=xmax, facecolor=region_colors[areas_start_pos.index(loc1)], alpha=alpha)
       plt.gca().axhspan(loc1, loc2, xmin=xmin, xmax=xmax, facecolor=region_colors[areas_start_pos.index(loc1)], alpha=alpha_list[areas_start_pos.index(loc1)])
-    # plt.gca().axhspan(loc1, loc2, xmin=xgmin, xmax=xgmax, facecolor=region_colors[areas_start_pos.index(loc1)], alpha=0.2)
   #### add box
   # for stimulus_ind in range(len(stimulus2plot)):
   #   plt.gca().add_patch(Rectangle((s_loc1[stimulus_ind]/1000,0),(s_lengths[stimulus_ind]-1)/1000,sorted_sample_seq.shape[0],linewidth=4,edgecolor='k',alpha=.3,facecolor='none')) # region_colors[region_ind]
@@ -471,6 +496,7 @@ def get_connectivity_data(G_dict, row_ind, col_ind):
 row_ind, col_ind = 5, 7
 ccg_zscore, ccg_value = get_connectivity_data(G_ccg_dict, row_ind, col_ind)
 #%%
+###################### plot connectivity matrix from left to right, from bottom to up
 def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight=None, ratio=15):
   rows, cols = get_rowcol(G_dict)
   row, col = rows[row_ind], cols[col_ind]
@@ -485,19 +511,23 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
       if active_area[node] == region:
         ordered_nodes.append(node)
         region_size[r_ind] += 1
-  A = nx.to_numpy_array(G, nodelist=ordered_nodes, weight='weight')
+  A = nx.to_numpy_array(G, nodelist=ordered_nodes, weight='weight').T
   areas = [active_area[node] for node in ordered_nodes]
   areas_num = [(np.array(areas)==a).sum() for a in visual_regions]
+  rareas_num = [(np.array(areas)==a).sum() for a in visual_regions[::-1]]
   area_inds = [0] + np.cumsum(areas_num).tolist()
-  areas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
-  text_pos = [s + (areas_num[areas_start_pos.index(s)] - 1) / 2 for s in areas_start_pos]
+  r_area_inds = ([0]+np.cumsum(rareas_num)[:-1].tolist())[::-1] # low to high from left to right
+  vareas_start_pos = list(np.insert(np.cumsum(areas_num)[:-1], 0, 0))
+  vtext_pos = [s + (areas_num[vareas_start_pos.index(s)] - 1) / 2 for s in vareas_start_pos]
+  hareas_start_pos = list(np.insert(np.cumsum(rareas_num)[:-1], 0, 0))
+  htext_pos = [s + (rareas_num[hareas_start_pos.index(s)] - 1) / 2 for s in hareas_start_pos]
   region_bar = []
   for r_ind in range(len(visual_regions)):
     region_bar += [r_ind] * int(region_size[r_ind])
   cmap = colors.ListedColormap(region_colors)
   bounds = [-.5,.5,1.5,2.5,3.5,4.5,5.5]
   norm = colors.BoundaryNorm(bounds, cmap.N)
-  alpha_list = [.35, .35, .35, .9, .5, .6]
+  alpha_list = [.6, .6, .6, .6, .6, .6]
   colors_transparency = colors.ListedColormap([transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=alpha_list[c_ind]) for c_ind, color in enumerate(region_colors)])
   fig = plt.figure(figsize=(10, 10)) 
   gs = gridspec.GridSpec(nrow, ncol, width_ratios=[1, ratio-1], height_ratios=[1, ratio-1],
@@ -505,7 +535,8 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   ax= plt.subplot(gs[0,1])
   ax.set_xticklabels([])
   ax.set_yticklabels([])
-  ax.imshow(np.repeat(np.array(region_bar)[None,:],len(region_bar)//ratio, 0), cmap=colors_transparency, norm=norm)
+  # reverse order, low to high from left to right
+  ax.imshow(np.repeat(np.array(region_bar[::-1])[None,:],len(region_bar)//ratio, 0), cmap=colors_transparency, norm=norm)
   ax.set_xticks([])
   ax.set_yticks([])
   # divider = make_axes_locatable(ax)
@@ -516,8 +547,8 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   ax.spines['bottom'].set_visible(False)
   ax.spines['left'].set_visible(False)
 
-  for ind, t_pos in enumerate(text_pos):
-    ax.text(t_pos, 8, region_labels[ind], va='center', ha='center', size=30, color='k')
+  for ind, t_pos in enumerate(htext_pos):
+    ax.text(t_pos, 6.7, region_labels[len(region_labels)-ind-1], va='center', ha='center', size=30, color='k')
   ax= plt.subplot(gs[1,0])
   ax.set_xticklabels([])
   ax.set_yticklabels([])
@@ -527,8 +558,8 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   # divider = make_axes_locatable(ax)
   # cax = divider.append_axes("top", size="3%", pad=0.2)
   # cax.axis('off')
-  for ind, t_pos in enumerate(text_pos):
-    ax.text(8, t_pos, region_labels[ind], va='center', ha='center', size=30, color='k', rotation=90)
+  for ind, t_pos in enumerate(vtext_pos):
+    ax.text(6.7, t_pos, region_labels[ind], va='center', ha='center', size=30, color='k', rotation=90)
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.spines['bottom'].set_visible(False)
@@ -540,21 +571,23 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   nodes = sorted(active_area.keys())
   node2idx = {node:nodes.index(node) for node in nodes}
   if weight is None:
-    mat = A
+    mat = np.flip(A, 1) # from left to right
     vmin = np.percentile(mat[mat<0], 20)
-    vmax = np.percentile(mat[mat>0], 80)
+    vmax = np.percentile(mat[mat>0], 85)
   elif weight=='confidence':
     indx = np.array(cortical_inds[row])
     mat = ccg_zscore[indx[:,None], indx]
     reordered_nodes = np.array([node2idx[node] for node in ordered_nodes])
     mat = mat[reordered_nodes[:,None], reordered_nodes]
+    mat = np.flip(mat, 1) # from left to right
     vmin = np.percentile(mat[mat<0], .5)
-    vmax = np.percentile(mat[mat>0], 99.5)
+    vmax = np.percentile(mat[mat>0], 99.2)
   elif weight=='weight':
     indx = np.array(cortical_inds[row])
     mat = ccg_value[indx[:,None], indx]
     reordered_nodes = np.array([node2idx[node] for node in ordered_nodes])
     mat = mat[reordered_nodes[:,None], reordered_nodes]
+    mat = np.flip(mat, 1) # from left to right
     vmin = np.percentile(mat[mat<0], 2)
     vmax = np.percentile(mat[mat>0], 98)
   cmap = plt.cm.coolwarm
@@ -575,7 +608,7 @@ def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, cc
   else:
     ec = '.8'
   for region_ind in range(len(visual_regions)):
-    ax.add_patch(Rectangle((area_inds[region_ind],area_inds[region_ind]),areas_num[region_ind]-1,areas_num[region_ind]-1,linewidth=5,edgecolor=ec,alpha=.6,facecolor='none')) # region_colors[region_ind]
+    ax.add_patch(Rectangle((r_area_inds[region_ind],area_inds[region_ind]),areas_num[region_ind]-1,areas_num[region_ind]-1,linewidth=5,edgecolor=ec,alpha=.6,facecolor='none')) # region_colors[region_ind]
   ax.set_xticks([])
   ax.set_yticks([])
   # plt.tight_layout()
@@ -2780,8 +2813,8 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
   return pos_df, neg_df, dis_df
 
 start_time = time.time()
-pairtype = 'all'
-# pairtype = 'connected'
+# pairtype = 'all'
+pairtype = 'connected'
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
@@ -2881,15 +2914,12 @@ def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
       ax.spines['top'].set_visible(False)
       ax.spines['right'].set_visible(False)
       ax.tick_params(width=2.5)
+      ax.set_xlabel([], fontsize=0)
       ax.set_ylabel([], fontsize=0)
-      
-      ax.set_xlabel('Signal correlation', fontsize=25)
+      # ax.set_xlabel('Signal correlation', fontsize=25)
       
       handles, labels = ax.get_legend_handles_labels()
-      if cs_ind == 0:
-        ax.legend(handles, labels, title='', bbox_to_anchor=(.5, 1.1), loc='upper left', fontsize=15, frameon=False)
-      else:
-        ax.legend().set_visible(False)
+      ax.legend().set_visible(False)
 
     plt.tight_layout(rect=[.01, 0, 1, 1])
     # plt.show()
@@ -2897,6 +2927,21 @@ def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
     plt.savefig('./plots/distri_signal_corr_posnegdis.pdf', transparent=True)
 
 plot_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df)
+#%%
+def save_distr_signalcorr_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  ax.plot([0,1], [0,0],color='grey', label='disconnected', markersize=10, alpha=.8, linewidth=2)
+  ax.plot([0,1], [0,0],color='b', label='inhibitory', markersize=10, alpha=.8, linewidth=2)
+  ax.plot([0,1], [0,0],color='r', label='excitatory', markersize=10, alpha=.8, linewidth=2)
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles, ['disconnected', 'inhibitory', 'excitatory'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=3) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend, './plots/distr_signalcorr_legend.pdf')
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_distr_signalcorr_legend()
 #%%
 # Results not good!!!
 ########################################## get signal correlation VS area distance between communities
@@ -5038,6 +5083,7 @@ plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighte
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
 #%%
+# Figure S4
 # Z score between signal correlation distributions of pos, neg and disconnected neuron pairs
 # correlation coefficient between w_purity and Z score is neg_dis=0.72 > pos_dis=0.52 > pos_neg=0.29, unsigned connected_dis = 0.53
 def get_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_correlation_dict, pairtype):
@@ -5131,7 +5177,7 @@ def plot_signalcorrVSwpurity_markers(wpurity_df, z_sc, pairtype='neg_dis'):
   X, Y = np.array(X), np.array(Y)
   slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
   line = slope*X+intercept
-  locx, locy = .4, .8
+  locx, locy = .4, .83
   text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
   ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
   ax.text(locx, locy, text, horizontalalignment='center',
@@ -5139,7 +5185,7 @@ def plot_signalcorrVSwpurity_markers(wpurity_df, z_sc, pairtype='neg_dis'):
   ax.xaxis.set_tick_params(labelsize=20)
   ax.yaxis.set_tick_params(labelsize=20)
   ax.set_xlabel('Weighted purity', fontsize=22)
-  ax.set_ylabel('Z score of signal correlation', fontsize=22)
+  ax.set_ylabel(r'$Z_{sc}$', fontsize=22)
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('k')
@@ -5602,7 +5648,7 @@ with open('./files/sunibi_baseline_coherence_dict.pkl', 'rb') as f:
 ################## first Z score, then average
 num_baseline = 200
 whole_df1, mean_df1, signed_motif_types1 = get_intensity_zscore(intensity_dict, coherence_dict, gnm_baseline_intensity_dict, gnm_baseline_coherence_dict, num_baseline=num_baseline) # Gnm
-whole_df2, mean_df2, signed_motif_types2 = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100) # directed double edge swap
+whole_df2, mean_df2, signed_motif_types2 = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=num_baseline) # directed double edge swap
 whole_df3, mean_df3, signed_motif_types3 = get_intensity_zscore(intensity_dict, coherence_dict, unibi_baseline_intensity_dict, unibi_baseline_coherence_dict, num_baseline=num_baseline) # uni bi edge preserved
 whole_df4, mean_df4, signed_motif_types4 = get_intensity_zscore(intensity_dict, coherence_dict, sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict, num_baseline=num_baseline) # signed uni bi edge preserved
 whole_df1['signed motif type'] = whole_df1['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
@@ -6054,14 +6100,13 @@ def plot_zscore_allmotif_lollipop(df, model_name):
       ax.set_ylim(-13, 23)
   plt.tight_layout()
   figname = './plots/zscore_all_motifs_lollipop_{}.pdf'.format(model_name.replace(' ', '_'))
-  # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
   plt.savefig(figname, transparent=True)
   # plt.show()
 
 # plot_zscore_allmotif_lollipop(whole_df)
 dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
 # for df_ind, df in enumerate(dfs):
-df_ind = 3
+df_ind = 0
 plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 #%%
 def scatter_ZscoreVSdensity(origin_df, G_dict):
