@@ -108,9 +108,9 @@ stimulus_labels = ['Resting\nstate', 'Dark\nflash', 'Light\nflash', 'Drifting\ng
               'Static\ngrating', 'Natural\nscenes', 'Natural\nmovie 1', 'Natural\nmovie 3']
 region_labels = ['AM', 'PM', 'AL', 'RL', 'LM', 'V1']
 # region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#d9d9d9', '#fccde5', '#bebada']
-region_colors = ['#d9e9b5', '#c0d8e9', '#fed3a1', '#c3c3c3', '#fad3e4', '#bebada']
+region_colors = ['#d9e9b5', '#c0d8e9', '#fed3a1', '#c3c3c3', '#fad3e4', '#cec5f2']
 TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
-model_names = [u'Erdős-Rényi model', 'Degree preserving model', 'Pair preserving model', 'Signed pair preserving model']
+model_names = [u'Erdős-Rényi model', 'Degree-preserving model', 'Pair-preserving model', 'Signed-pair-preserving model']
 
 area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
 cortical_inds = get_cortical_inds(active_area_dict, visual_regions)
@@ -214,7 +214,7 @@ def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_b
   #### add horizontal band
   band_pos = areas_start_pos + [areas_start_pos[-1]+areas_num[-1]]
   xgmin, xgmax=.045, .955
-  alpha_list = [.4, .4, .4, .6, .5, .6]
+  alpha_list = [.4, .4, .4, .6, .5, .5]
   for loc1, loc2 in zip(band_pos[:-1], band_pos[1:]):
     # for i in range(len(s_locs_frac)-1):
     #   xmin, xmax = s_locs_frac[i] * (xgmax-xgmin) + xgmin, s_locs_frac[i+1] * (xgmax-xgmin) + xgmin
@@ -622,7 +622,7 @@ plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, cc
 # plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='confidence', ratio=ratio)
 # plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='weight', ratio=ratio)
 #%%
-# Figure S1 A
+# Figure S1C
 def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   rows, cols = get_rowcol(G_dict)
   num_row, num_col = len(session2keep), len(cols)
@@ -659,13 +659,13 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
   plt.xticks(fontsize=18) #, weight='bold'
   plt.yticks(fontsize=18) # , weight='bold'
-  name2label = {'offset':'time lag', 'duration':'duration', 'delay':'delay'}
+  name2label = {'offset':r'$\tau$', 'duration':r'$D$', 'delay':r'$\tau+D$'}
   plt.xlabel('Within-area {} (ms)'.format(name2label[name]))
   ylabel = 'Cross-area {} (ms)'.format(name2label[name])
   plt.ylabel(ylabel)
   # plt.title(name, fontsize=25)
-  ax.set_xlabel(ax.get_xlabel(), fontsize=20,color='k') #, weight='bold'
-  ax.set_ylabel(ax.get_ylabel(), fontsize=20,color='k') #, weight='bold'
+  ax.set_xlabel(ax.get_xlabel(), fontsize=20, color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=20, color='k') #, weight='bold'
   for axis in ['bottom', 'left']:
     ax.spines[axis].set_linewidth(1.5)
     ax.spines[axis].set_color('0.2')
@@ -682,10 +682,8 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
 
 plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, False)
 # plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, True)
-#%%
 plot_intra_inter_scatter_G(S_ccg_dict, 'offset', active_area_dict, False)
 # plot_intra_inter_scatter_G(S_ccg_dict, 'offset', active_area_dict, True)
-#%%
 plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, False)
 # plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, True)
 #%%
@@ -2103,7 +2101,7 @@ def find_comminds_plot(G_dict, comms_dict):
       # break
 dgrat_good_comm_inds, sgrat_good_comm_inds, nscene_good_comm_inds, nmovie_good_comm_inds = find_comminds_plot(G_ccg_dict, best_comms_dict)
 #%%
-# Figure 2 A
+# Figure 2A
 def plot_graph_community(G_dict, row_ind, best_comms_dict):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -2190,7 +2188,7 @@ def save_region_legend():
 
 save_region_legend()
 #%%
-# Figure 2 A
+# Figure 2A
 ######################### Plot Z score of Hamiltonian as a measure of modular or not
 def arrowed_spines(
         ax,
@@ -2428,7 +2426,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 # signal_correlation = np.corrcoef(FR_condition)
 # np.fill_diagonal(signal_correlation, np.nan)
 #%%
-# Figure 2 C
+# Figure 3A
 ########################################## get signal correlation for within/cross community VS stimulus
 def get_within_cross_comm(G_dict, signal_correlation_dict, comms_dict, pair_type='all'):
   rows = list(signal_correlation_dict.keys())
@@ -2494,7 +2492,7 @@ def save_within_cross_module_legend():
 
 save_within_cross_module_legend()
 #%%
-# Figure 2 C
+# Figure 3A
 ######################### merge all pairs from different mice into one distribution
 def plot_signal_correlation_within_cross_comm_significance(df, pair_type='all'):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
@@ -2813,8 +2811,8 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
   return pos_df, neg_df, dis_df
 
 start_time = time.time()
-# pairtype = 'all'
-pairtype = 'connected'
+pairtype = 'all'
+# pairtype = 'connected'
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
@@ -2887,11 +2885,12 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos',pairtype='connec
 plot_pos_neg_connectionp_signal_correlation(pos_connectionp_signalcorr_df, 'pos', pairtype=pairtype)
 plot_pos_neg_connectionp_signal_correlation(neg_connectionp_signalcorr_df, 'neg', pairtype=pairtype)
 #%%
+# Figure 1G
 ########################################## plot signal correlation distribution for ex/in
 def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
   # for row in session2keep:
   #   print(row)
-    fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #, sharey=True
+    fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 3)) #, sharey=True
     for cs_ind in range(len(axes)):
       ax = axes[cs_ind]
       pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+1]) & (pos_df.type==1)].copy() #  & (df.session==row)
@@ -2917,8 +2916,7 @@ def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
       ax.set_xlabel([], fontsize=0)
       ax.set_ylabel([], fontsize=0)
       # ax.set_xlabel('Signal correlation', fontsize=25)
-      
-      handles, labels = ax.get_legend_handles_labels()
+      # handles, labels = ax.get_legend_handles_labels()
       ax.legend().set_visible(False)
 
     plt.tight_layout(rect=[.01, 0, 1, 1])
@@ -3438,7 +3436,7 @@ th_list = np.arange(0, 1, 0.05)
 plot_data_VSpurity_threshold(weight_dict, purity_dict, th_list, name='weight')
 plot_data_VSpurity_threshold(confidence_dict, purity_dict, th_list, name='confidence')
 #%%
-# Figure 2 D
+# Figure 3B
 ################################ get module size and purity
 def get_module_size_coverage_purity(G_dict, regions, best_comms_dict):
   rows, cols = get_rowcol(G_dict)
@@ -3470,7 +3468,7 @@ def get_module_size_coverage_purity(G_dict, regions, best_comms_dict):
 
 size_dict, coverage_dict, purity_dict = get_module_size_coverage_purity(G_ccg_dict, visual_regions, best_comms_dict)
 #%%
-# Figure 2 D
+# Figure 3D
 ########################### merge data points from all mice into one distribution
 def plot_num_module_VSpurity_threshold(size_dict, coverage_dict, purity_dict, sth_list_lin, sth_list_log, cth_list_lin, cth_list_log, pth_list):
   rows, cols = get_rowcol(purity_dict)
@@ -3610,6 +3608,7 @@ def plot_num_module_VSpurity_threshold_error(size_dict, purity_dict, sth_list, p
 sth_list, pth_list = np.logspace(-2.4, -0.187, 20), np.arange(0, 1, 0.05)
 plot_num_module_VSpurity_threshold_error(size_dict, purity_dict, sth_list, pth_list)
 #%%
+# Figure 3C
 ################################ get module size and purity for all stimuli separately for area
 def get_module_size_coverage_purity_areawise(G_dict, regions, comms_dict):
   rows, cols = get_rowcol(G_dict)
@@ -3642,8 +3641,10 @@ def get_module_size_coverage_purity_areawise(G_dict, regions, comms_dict):
 
 size_dict, coverage_dict, purity_dict = get_module_size_coverage_purity_areawise(G_ccg_dict, visual_regions, best_comms_dict)
 #%%
+# Figure 3C
 ########################### plot number of modules for all stimuli areawise
 def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
+  region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#c3c3c3', '#fccde5', '#cec5f2']
   rows, cols = get_rowcol(purity_dict)
   runs = len(purity_dict[rows[0]][cols[0]])
   fig, axes = plt.subplots(1, 6, figsize=(4*6, 4), sharex=True, sharey=True)
@@ -3664,7 +3665,7 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
       ax.plot(pth_list, num_module[cs_ind], label=combined_stimulus_name, color=region_colors[5-r_ind], marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]]/1.2, alpha=1., markerfacecolor='w')
     ax.set_xlim(right=1)
-    ax.set_title(region_labels[5-r_ind], fontsize=30)
+    ax.set_title(region_labels[5-r_ind], fontsize=24)
   
   fontsize = 20
   axes[0].set_ylabel('Number of modules', fontsize=fontsize)
@@ -3677,7 +3678,8 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
-    ax.set_xlabel('Threshold on purity', fontsize=fontsize)
+    ax.set_xlabel('')
+    # ax.set_xlabel('Threshold on purity', fontsize=fontsize)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
   plt.savefig('./plots/num_moduleVSpurity_areawise.pdf', transparent=True)
@@ -3686,9 +3688,9 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
 pth_list = np.arange(0, 1, 0.05)
 plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, visual_regions)
 #%%
-# Figure 2 F
+# Figure 3D
 ################################ get module size and purity for each area
-def get_module_size_purity_each_area(G_dict, best_comms_dict, regions):
+def get_module_size_purity_each_area(G_dict, best_comms_dict, regions, combined_stimulus_name):
   rows, cols = get_rowcol(G_dict)
   runs = len(best_comms_dict[rows[0]][cols[0]])
   size_dict, purity_dict = {}, {}
@@ -3696,87 +3698,47 @@ def get_module_size_purity_each_area(G_dict, best_comms_dict, regions):
     print(row)
     active_area = active_area_dict[row]
     size_dict[row], purity_dict[row] = {region:{run:[] for run in range(runs)} for region in regions}, {region:{run:[] for run in range(runs)} for region in regions}
-    for combined_stimulus_name in combined_stimulus_names[-2:]:
-      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
-      for col in combined_stimuli[cs_ind]:
-        G = G_ccg_dict[row][col]
-        col_ind = stimulus_names.index(col)
-        for run in range(runs):
-          comms_list = best_comms_dict[row][col]
-          comms = comms_list[run]
-          comms = [comm for comm in comms if len(comm) >= 4]
-          for comm in comms:
-            c_regions = [active_area[node] for node in comm]
-            # _, counts = np.unique(c_regions, return_counts=True)
-            counts = np.array([c_regions.count(r) for r in regions])
-            dominant_area = regions[np.argmax(counts)]
-            if G.subgraph(comm).number_of_edges():
-              size_dict[row][dominant_area][run].append(len(comm) / G.number_of_nodes()) # relative size
-              purity_dict[row][dominant_area][run].append(counts.max() / counts.sum())
+    cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+    for col in combined_stimuli[cs_ind]:
+      G = G_ccg_dict[row][col]
+      # col_ind = stimulus_names.index(col)
+      comms_list = best_comms_dict[row][col]
+      for run in range(runs):
+        comms = comms_list[run]
+        comms = [comm for comm in comms if len(comm) >= 4]
+        for comm in comms:
+          c_regions = [active_area[node] for node in comm]
+          # _, counts = np.unique(c_regions, return_counts=True)
+          counts = np.array([c_regions.count(r) for r in regions])
+          dominant_area = regions[np.argmax(counts)]
+          if G.subgraph(comm).number_of_edges():
+            size_dict[row][dominant_area][run].append(len(comm) / G.number_of_nodes()) # relative size
+            purity_dict[row][dominant_area][run].append(counts.max() / counts.sum())
   return size_dict, purity_dict
 
-size_dict, purity_dict = get_module_size_purity_each_area(G_ccg_dict, best_comms_dict, visual_regions)
+combined_stimulus_name = 'Natural\nscenes'
+# combined_stimulus_name = 'Natural\nmovies'
+size_dict, purity_dict = get_module_size_purity_each_area(G_ccg_dict, best_comms_dict, visual_regions, combined_stimulus_name)
 #%%
-# ########################### merge data points from all mice into one distribution for each area
-# def plot_num_module_VSpurity_threshold_each_area(purity_dict, regions, pth_list):
-#   rows = list(purity_dict.keys())
-#   runs = len(purity_dict[rows[0]][regions[0]])
-#   print(runs)
-#   fig, ax = plt.subplots(1, 1, figsize=(5, 4))
-#   num_module = np.zeros((len(regions), len(pth_list), len(session2keep) * runs))
-#   for r_ind, region in enumerate(regions):
-#     for row_ind, row in enumerate(session2keep):
-#       for run in range(runs):
-#         purity = np.array(purity_dict[row][region][run])
-#         for pth_ind, pth in enumerate(pth_list):
-#           inds = purity>=pth
-#           num_module[r_ind, pth_ind, row_ind*runs+run] = inds.sum() / 3 # 3 is number of natural stimuli
-#   for r_ind, region in enumerate(regions):
-#     ax.errorbar(pth_list, num_module[r_ind].mean(-1), yerr=get_confidence_interval(num_module[r_ind].T).T, fmt=' ', linewidth=2.,color=region_colors[r_ind], alpha=.8, zorder=6-r_ind)
-#     ax.plot(pth_list, num_module[r_ind].mean(-1), label=region, color=region_colors[r_ind], marker='.', markersize=15, alpha=1., zorder=6-r_ind)
-#   ax.set_xlim(right=1)
-#   # handles, labels = axes[0].get_legend_handles_labels()
-#   # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
-#   fontsize = 20
-#   ax.set_ylabel('Number of modules', fontsize=fontsize)
-#   ax.xaxis.set_tick_params(labelsize=fontsize)
-#   ax.yaxis.set_tick_params(labelsize=fontsize)
-#   for axis in ['bottom', 'left']:
-#     ax.spines[axis].set_linewidth(1.5)
-#     ax.spines[axis].set_color('k')
-#   ax.spines['top'].set_visible(False)
-#   ax.spines['right'].set_visible(False)
-#   ax.tick_params(width=1.5)
-#   ax.set_xlabel('Threshold on purity', fontsize=fontsize)
-#   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
-#   plt.tight_layout()
-#   plt.savefig('./plots/num_moduleVSsize_purity_all_error_each_area.pdf', transparent=True)
-#   # plt.show()
-
-# pth_list = np.arange(0.5, 1, 0.025)
-# plot_num_module_VSpurity_threshold_each_area(purity_dict, visual_regions, pth_list)
-#%%
-# Figure 2 F
-########################### average across trials for each mouse with errorbars
-def plot_num_module_VSpurity_threshold_error_each_area(purity_dict, regions, pth_list):
+# Figure 3E,F
+########################### merge data points from all mice into one distribution for each area
+def plot_num_module_VSpurity_threshold_each_area(purity_dict, regions, pth_list, combined_stimulus_name):
   rows = list(purity_dict.keys())
   runs = len(purity_dict[rows[0]][regions[0]])
   print(runs)
   fig, ax = plt.subplots(1, 1, figsize=(5, 4))
-  num_module = np.zeros((len(regions), len(session2keep), len(pth_list)))
+  num_module = np.zeros((len(regions), len(pth_list), len(session2keep) * runs))
+  cs_ind = combined_stimulus_names.index(combined_stimulus_name)
   for r_ind, region in enumerate(regions):
     for row_ind, row in enumerate(session2keep):
-      purity = []
       for run in range(runs):
-        purity += purity_dict[row][region][run]
-      purity = np.array(purity)
-      for pth_ind, pth in enumerate(pth_list):
-        inds = purity>=pth
-        num_module[r_ind, row_ind, pth_ind] = inds.sum() / (runs * 3) # 3 is number of natural stimuli
+        purity = np.array(purity_dict[row][region][run])
+        for pth_ind, pth in enumerate(pth_list):
+          inds = purity>=pth
+          num_module[r_ind, pth_ind, row_ind*runs+run] = inds.sum() / len(combined_stimuli[cs_ind]) # number of natural stimuli
   for r_ind, region in enumerate(regions):
-    # ax.plot(pth_list, num_module[r_ind], label=region, color=region_colors[r_ind], marker='.', markersize=15, alpha=1.)
-    ax.errorbar(pth_list, num_module[r_ind].mean(0), yerr=get_confidence_interval(num_module[r_ind]), fmt=' ', linewidth=2.,color=region_colors[r_ind], zorder=1)
-    ax.plot(pth_list, num_module[r_ind].mean(0), color=region_colors[r_ind], marker='.', markersize=15, alpha=1., zorder=2)
+    ax.errorbar(pth_list, num_module[r_ind].mean(-1), yerr=get_confidence_interval(num_module[r_ind].T).T, fmt=' ', linewidth=2.,color=region_colors[r_ind], alpha=.8, zorder=6-r_ind)
+    ax.plot(pth_list, num_module[r_ind].mean(-1), label=region, color=region_colors[r_ind], marker='.', markersize=15, alpha=1., zorder=6-r_ind)
   ax.set_xlim(right=1)
   # handles, labels = axes[0].get_legend_handles_labels()
   # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
@@ -3791,14 +3753,57 @@ def plot_num_module_VSpurity_threshold_error_each_area(purity_dict, regions, pth
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
   ax.set_xlabel('Threshold on purity', fontsize=fontsize)
-  
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
   plt.tight_layout()
-  plt.savefig('./plots/num_moduleVSsize_purity_mouse_error_each_area.pdf', transparent=True)
+  plt.savefig('./plots/num_moduleVSsize_purity_all_error_each_area_{}.pdf'.format(combined_stimulus_name.replace('\n', '_')), transparent=True)
   # plt.show()
 
 pth_list = np.arange(0.5, 1, 0.025)
-plot_num_module_VSpurity_threshold_error_each_area(purity_dict, visual_regions, pth_list)
+plot_num_module_VSpurity_threshold_each_area(purity_dict, visual_regions, pth_list, combined_stimulus_name)
+# #%%
+# ########################### average across trials for each mouse with errorbars
+# def plot_num_module_VSpurity_threshold_error_each_area(purity_dict, regions, pth_list, combined_stimulus_name):
+#   rows = list(purity_dict.keys())
+#   runs = len(purity_dict[rows[0]][regions[0]])
+#   print(runs)
+#   fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+#   num_module = np.zeros((len(regions), len(session2keep), len(pth_list)))
+#   cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+#   for r_ind, region in enumerate(regions):
+#     for row_ind, row in enumerate(session2keep):
+#       purity = []
+#       for run in range(runs):
+#         purity += purity_dict[row][region][run]
+#       purity = np.array(purity)
+#       for pth_ind, pth in enumerate(pth_list):
+#         inds = purity>=pth
+#         num_module[r_ind, row_ind, pth_ind] = inds.sum() / (runs * len(combined_stimuli[cs_ind])) # number of natural stimuli
+#   for r_ind, region in enumerate(regions):
+#     # ax.plot(pth_list, num_module[r_ind], label=region, color=region_colors[r_ind], marker='.', markersize=15, alpha=1.)
+#     ax.errorbar(pth_list, num_module[r_ind].mean(0), yerr=get_confidence_interval(num_module[r_ind]), fmt=' ', linewidth=2.,color=region_colors[r_ind], zorder=1)
+#     ax.plot(pth_list, num_module[r_ind].mean(0), color=region_colors[r_ind], marker='.', markersize=15, alpha=1., zorder=2)
+#   ax.set_xlim(right=1)
+#   # handles, labels = axes[0].get_legend_handles_labels()
+#   # axes[0].legend(handles, [label.replace('\n', ' ') for label in labels], title='', fontsize=14, frameon=False)
+#   fontsize = 20
+#   ax.set_ylabel('Number of modules', fontsize=fontsize)
+#   ax.xaxis.set_tick_params(labelsize=fontsize)
+#   ax.yaxis.set_tick_params(labelsize=fontsize)
+#   for axis in ['bottom', 'left']:
+#     ax.spines[axis].set_linewidth(1.5)
+#     ax.spines[axis].set_color('k')
+#   ax.spines['top'].set_visible(False)
+#   ax.spines['right'].set_visible(False)
+#   ax.tick_params(width=1.5)
+#   ax.set_xlabel('Threshold on purity', fontsize=fontsize)
+  
+#   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+#   plt.tight_layout()
+#   plt.savefig('./plots/num_moduleVSsize_purity_mouse_error_each_area_{}.pdf'.format(combined_stimulus_name.replace('\n', '_')), transparent=True)
+#   # plt.show()
+
+# pth_list = np.arange(0.5, 1, 0.025)
+# plot_num_module_VSpurity_threshold_error_each_area(purity_dict, visual_regions, pth_list, combined_stimulus_name)
 #%%
 def plot_purity_hist_each_area(size_dict, purity_dict, regions):
   rows = list(purity_dict.keys())
@@ -4364,22 +4369,7 @@ plot_data_area_distance(area_distance, neg_frac, visual_regions, name='negative_
 # start_time = time.time()
 # signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list = get_signal_corr_within_cross_comm_same_area(G_ccg_dict, signal_correlation_dict, best_comms_dict, visual_regions)
 # print("--- %s minutes" % ((time.time() - start_time)/60))
-#%%
-def save_within_cross_random_legend():
-  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
-  palette = ['k','w']
-  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
-  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
-  ax.axhline(y=1, linestyle='--', linewidth=3, color='.2', label='cross random module')
-  handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross module (within area)', 'cross module (cross area)'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
-  plt.axis('off')
-  export_legend(legend, './plots/within_cross_random_module_legend.pdf')
-  plt.tight_layout()
-  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
-  plt.show()
 
-save_within_cross_random_legend()
 #%%
 ############################ check why not consistent with plot_data_within_cross_comm_same_area_significance!!!
 # def plot_signal_correlation_within_cross_comm_same_area_significance(df, rand_cross_comm_list, regions):
@@ -4422,12 +4412,31 @@ save_within_cross_random_legend()
 
 # plot_signal_correlation_within_cross_comm_same_area_significance(signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list, visual_regions)
 #%%
-# Figure 2 G
+# Figure 3E,F
+def save_within_cross_random_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  palette = ['k','w']
+  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.axhline(y=1, linestyle='--', linewidth=3, color='.2', label='cross random module')
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross module (within area)', 'cross module (cross area)'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=3) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend, './plots/within_cross_random_module_legend.pdf')
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_within_cross_random_legend()
+#%%
+# Figure 3E,F
 ################################ positive density and negative fraction of within/cross module per area
-def get_data_module_per_area(G_dict, comms_dict, regions):
+def get_data_module_per_area(G_dict, comms_dict, regions, combined_stimulus_name):
   within_comm_dict, cross_comm_dict, within_pos_density, cross_pos_density, within_pos_frac, cross_pos_frac, within_neg_frac, cross_neg_frac = {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}, {r:[] for r in regions}
   rand_cross_comm_list, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list = [], [], [], []
-  for col in stimulus_by_type[3]: # only natural stimuli
+  cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+  for col in combined_stimuli[cs_ind]:
+  # for col in stimulus_by_type[3]: # only natural stimuli
     print(col)
     col_ind = cols.index(col)
     for row_ind, row in enumerate(session2keep):
@@ -4511,11 +4520,13 @@ def get_data_module_per_area(G_dict, comms_dict, regions):
   return df, rand_cross_comm_list, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list
 
 start_time = time.time()
-data_within_cross_comm_same_area_df, rand_cross_comm_list, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list = get_data_module_per_area(G_ccg_dict, best_comms_dict, visual_regions)
+# combined_stimulus_name = 'Natural\nscenes'
+combined_stimulus_name = 'Natural\nmovies'
+data_within_cross_comm_same_area_df, rand_cross_comm_list, rand_cross_pos_density_list, rand_cross_pos_frac_list, rand_cross_neg_frac_list = get_data_module_per_area(G_ccg_dict, best_comms_dict, visual_regions, combined_stimulus_name)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-# Figure 2 G
-def plot_data_within_cross_comm_same_area_significance(df, data_list, regions, name):
+# Figure 3E,F
+def plot_data_within_cross_comm_same_area_significance(df, data_list, regions, name, combined_stimulus_name):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.3*(len(combined_stimulus_names)-1), 4))
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   palette = ['w','k']
@@ -4567,12 +4578,12 @@ def plot_data_within_cross_comm_same_area_significance(df, data_list, regions, n
   ax.invert_xaxis()
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/{}_within_cross_comm_same_area.pdf'.format(name.replace(' ', '_')), transparent=True)
+  plt.savefig('./plots/{}_within_cross_comm_same_area_{}.pdf'.format(name.replace(' ', '_'), combined_stimulus_name.replace('\n', '_')), transparent=True)
 
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_comm_list, visual_regions, name='signal correlation')
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, visual_regions, name='positive density')
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_frac_list, visual_regions, name='positive fraction')
-plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_neg_frac_list, visual_regions, name='negative fraction')
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_comm_list, visual_regions, name='signal correlation', combined_stimulus_name=combined_stimulus_name)
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_density_list, visual_regions, name='positive density', combined_stimulus_name=combined_stimulus_name)
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_pos_frac_list, visual_regions, name='positive fraction', combined_stimulus_name=combined_stimulus_name)
+plot_data_within_cross_comm_same_area_significance(data_within_cross_comm_same_area_df, rand_cross_neg_frac_list, visual_regions, name='negative fraction', combined_stimulus_name=combined_stimulus_name)
 #%%
 ################################ directionality score between communities
 def plot_directionality_score_comm(G_dict, row_ind, comms_dict, max_neg_reso, etype='pos'):
@@ -4999,7 +5010,7 @@ def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, 
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity')
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='coverage')
 #%%
-# Figure 2 B
+# Figure 2C
 def get_purity_coverage_ri(G_dict, area_dict, regions, best_comms_dict):
   rows, cols = get_rowcol(G_dict)
   df = pd.DataFrame()
@@ -5046,10 +5057,10 @@ def get_purity_coverage_ri(G_dict, area_dict, regions, best_comms_dict):
 
 purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_regions, best_comms_dict)
 #%%
-# Figure 2 B
+# Figure 2C
 ################# plot weighted purity and rand index across stimuli with different markers
 def plot_weighted_coverage_purity_rand_index_markers(df, dname):
-  fig, ax = plt.subplots(1, 1, figsize=(2, 3))
+  fig, ax = plt.subplots(1, 1, figsize=(3, 2.5))
   data = df[df['type']==dname].groupby('combined stimulus')
   x = np.arange(len(combined_stimulus_names))
   y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
@@ -5061,7 +5072,7 @@ def plot_weighted_coverage_purity_rand_index_markers(df, dname):
   
   for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
     ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
-    ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+    ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=15*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
   ax.set(xlabel=None)
   ax.xaxis.set_tick_params(length=0)
   ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
@@ -5524,7 +5535,7 @@ def plot_heatmap_region_community(comms_dict, area_dict, regions, max_neg_reso):
 
 plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_reso=max_reso_config)
 # %%
-####################### Figure 3 #######################
+####################### Figure 4 #######################
 ########################################################
 #%%
 ################## relative count of signed node pairs
@@ -7530,7 +7541,7 @@ def plot_dataVSepsilon(data, epsilon_list, regions, name):
 plot_dataVSepsilon(step2convergence, epsilon_list, visual_regions, name='steps to convergence')
 plot_dataVSepsilon(region_frac, epsilon_list, visual_regions, name='stable region fraction')
 # %%
-# Figure S1
+# Figure S1B
 def plot_directed_degree_distributions(G_dict, row_ind, sign, measure, n, weight=None, cc=False):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -7556,9 +7567,11 @@ def plot_directed_degree_distributions(G_dict, row_ind, sign, measure, n, weight
       ax.plot(in_degrees, np.array(in_degree_freq) / sum(in_degree_freq),color='orange',marker='o', markerfacecolor='white', label='in-degree', markersize=10, alpha=1.)
       ax.plot(out_degrees, np.array(out_degree_freq) / sum(out_degree_freq),color='limegreen',marker='o', markerfacecolor='white', label='out-degree', markersize=10, alpha=1.)
       # ax.legend(loc='upper right', fontsize=7)
-      xlabel = 'Weighted Degree' if weight is not None else 'Degree'
-      ax.set_xlabel(xlabel, fontsize=22)
-      ax.set_ylabel('Frequency', fontsize=22)
+      # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+      # ax.set_xlabel(xlabel, fontsize=22)
+      # ax.set_ylabel('Frequency', fontsize=22)
+      ax.set_xlabel('')
+      ax.set_ylabel('')
       ax.set_xscale('symlog')
       ax.set_yscale('log')
       for axis in ['bottom', 'left']:
