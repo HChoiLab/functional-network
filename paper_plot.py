@@ -1,5 +1,5 @@
 # %%
-############################## figure for publication ##############################
+############################## Figure plots for publication ##############################
 ##############################                        ##############################
 from library import *
 stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
@@ -451,6 +451,7 @@ plot_best_ccg(neg_h_indx, neg_h_file, 0, sign='neg', window=100, scalebar=False)
 plot_best_ccg(pos_h_indx, pos_h_file, 9, sign='pos', window=100, scalebar=False)
 plot_best_ccg(neg_h_indx, neg_h_file, 3, sign='neg', window=100, scalebar=False)
 #%%
+# Figure 1D
 ############### plot connectivity matrix
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -496,6 +497,7 @@ def get_connectivity_data(G_dict, row_ind, col_ind):
 row_ind, col_ind = 5, 7
 ccg_zscore, ccg_value = get_connectivity_data(G_ccg_dict, row_ind, col_ind)
 #%%
+# Figure 1D
 ###################### plot connectivity matrix from left to right, from bottom to up
 def plot_connectivity_matrix_annotation(G_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight=None, ratio=15):
   rows, cols = get_rowcol(G_dict)
@@ -621,6 +623,15 @@ ratio = 15
 plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight=None, ratio=ratio)
 # plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='confidence', ratio=ratio)
 # plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight='weight', ratio=ratio)
+#%%
+# Figure S1A
+row_ind = 5
+col_inds = [0, 2, 3, 4, 5, 7]
+weight=None
+ratio = 15
+for col_ind in col_inds:
+  ccg_zscore, ccg_value = get_connectivity_data(G_ccg_dict, row_ind, col_ind)
+  plot_connectivity_matrix_annotation(G_ccg_dict, row_ind, col_ind, ccg_zscore, ccg_value, weight=None, ratio=ratio)
 #%%
 # Figure S1C
 def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
@@ -1012,7 +1023,7 @@ def scatter_dataVSdensity(G_dict, area_dict, regions, name='intra'):
 scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='intra')
 scatter_dataVSdensity(S_ccg_dict, area_dict, visual_regions, name='ex')
 #%%
-# Figure S2
+# Figure S3
 def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
   directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
   if not os.path.isdir(directory):
@@ -1035,7 +1046,7 @@ def get_region_FR(session_ids, stimulus_names, regions, active_area_dict):
 
 FR = get_region_FR(session_ids, stimulus_names, visual_regions, active_area_dict)
 #%%
-# Figure S2
+# Figure S3
 def get_region_links(G_dict, regions, active_area_dict):
   rows, cols = get_rowcol(G_dict)
   intra_links, inter_links = {}, {}
@@ -1065,7 +1076,7 @@ def get_region_links(G_dict, regions, active_area_dict):
 
 intra_links, inter_links = get_region_links(G_ccg_dict, visual_regions, active_area_dict)
 #%%
-# Figure S2
+# Figure S3
 def plot_FR_links_region(data, regions, dataname):
   if dataname == 'FR':
     name = 'Firing rate (Hz)'
@@ -1312,7 +1323,7 @@ def scatter_linkVSFR_stimulus(FR, links, regions, degree_type='intra'):
 scatter_linkVSFR_stimulus(FR, intra_links, visual_regions, degree_type='intra')
 scatter_linkVSFR_stimulus(FR, inter_links, visual_regions, degree_type='inter')
 #%%
-# Figure S2
+# Figure S3
 ################### confidence level for difference between two correlations
 def r_confidence_interval(r, n, alpha):
   z = np.log((1 + r) / (1 - r)) / 2.0
@@ -1395,7 +1406,7 @@ df = get_difference_intra_inter_r_stimulus(FR, intra_links, inter_links, visual_
 df
 # df[(df['significance'].isin(['*', '**', '***', '****'])) & (df['intra significance'].isin(['*', '**', '***', '****']))]
 #%%
-# Figure S2
+# Figure S3
 ################### barplot of correlation for intra/inter links VS FR with significance annotation
 def plot_intra_inter_r_bar_significance(df, regions):
   fig, axes = plt.subplots(3, 2, figsize=(7*2, 5*3), sharey=True)
@@ -1964,7 +1975,7 @@ def plot_dH(rows, cols, real_H, subs_H, resolution_list):
   
 plot_dH(rows, cols, real_Hamiltonian, subs_Hamiltonian, resolution_list)
 #%%
-# Figure S3
+# Figure S4A
 ########################### visualize the delta_H
 def plot_dH_row(rows, cols, row_ind, real_H, subs_H, resolution_list): 
   fig, axes = plt.subplots(1, len(combined_stimulus_names), figsize=(3.5*len(combined_stimulus_names), 3), tight_layout=True)
@@ -2616,6 +2627,7 @@ def save_markers():
 
 save_markers()
 #%%
+# Figure S5A
 ########################## probability of being in the same module VS signal correlation
 def plot_same_module_prob_signal_correlation(df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
@@ -2627,38 +2639,46 @@ def plot_same_module_prob_signal_correlation(df):
     data.insert(0, 'probability of same module', 0)
     # data.loc[:, 'probability of same module'] = 0
     data.loc[data['type']=='within community','probability of same module'] = 1
-    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['signal correlation'].values.flatten(), data['probability of same module'].values.flatten()
     numbin = 6
     binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
     for i in range(len(binned_x)):
-      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
-    table = sm.stats.Table.from_data(np.vstack((x, y)).T)
+      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)   
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
     p_value = table.test_ordinal_association().pvalue
-    locx, locy = .2, .5
-    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+    locx, locy = .5, .9
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    ax.text(locx, locy, text, horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=25)
     # ax.scatter(binned_x, binned_y)
     ax.xaxis.set_tick_params(labelsize=30)
     ax.yaxis.set_tick_params(labelsize=30)
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('0.2')
+      ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.tick_params(width=1.5)
-    if cs_ind == 0:
-      ax.set_ylabel('Probability of finding pairs\ninside the same module', fontsize=30)
-    ax.set_xlabel('Signal correlation', fontsize=25)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Probability of finding connected \npairs inside the same module', fontsize=28)
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
 
-  plt.tight_layout()
+  plt.tight_layout(rect=[.01, 0, 1, 1])
   # plt.show()
   plt.savefig('./plots/same_module_prob_signal_correlation.pdf', transparent=True)
 
 plot_same_module_prob_signal_correlation(signalcorr_within_cross_comm_df)
 #%%
+# Figure S2A
 ########################################## get connection probability VS signal correlation
 def get_connectionp_signalcorr(G_dict, signal_correlation_dict):
   rows = signal_correlation_dict.keys()
@@ -2682,9 +2702,11 @@ def get_connectionp_signalcorr(G_dict, signal_correlation_dict):
               connect.append(scorr)
             else:
               disconnect.append(scorr)
+        connect_dict[row][combined_stimulus_name] += connect
+        disconnect_dict[row][combined_stimulus_name] += disconnect
         # Add bootstrapping to create more datapoints
-        connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(connect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
-        disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(disconnect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+        # connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(connect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+        # disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(disconnect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
   df = pd.DataFrame()
   for combined_stimulus_name in combined_stimulus_names[1:]:
     print(combined_stimulus_name)
@@ -2700,19 +2722,20 @@ start_time = time.time()
 connectionp_signalcorr_df = get_connectionp_signalcorr(G_ccg_dict, signal_correlation_dict)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
+# Figure S2A
 def plot_connectionp_signal_correlation(df):
-  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5)) #
-  axes[0].set_ylim(top = 1.2)
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #
+  # axes[0].set_ylim(top = 1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
     data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
-    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
 
     data.insert(0, 'probability of connection', 0)
     # data.loc[:, 'probability of same module'] = 0
     data.loc[data['type']=='connected','probability of connection'] = 1
-    ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['signal correlation'].values.flatten(), data['probability of connection'].values.flatten()
 
     # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
@@ -2721,24 +2744,35 @@ def plot_connectionp_signal_correlation(df):
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
     for i in range(len(binned_x)):
-      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)
-    xy = np.vstack((x, y)).T
-    table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+      ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=18)
+    
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
     p_value = table.test_ordinal_association().pvalue
-    locx, locy = .2, .8
-    ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+    
+    # xy = np.vstack((x, y)).T
+    # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    # p_value = table.test_ordinal_association().pvalue
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    locx, locy = .5, .8
+    ax.text(locx, locy, text, horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=25)
     ax.xaxis.set_tick_params(labelsize=30)
     ax.yaxis.set_tick_params(labelsize=30)
     for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('0.2')
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.tick_params(width=1.5)
-    if cs_ind == 0:
-      ax.set_ylabel('Probability of finding pairs\nwith functional connection', fontsize=30)
-    ax.set_xlabel('Signal correlation', fontsize=25)
+    ax.tick_params(width=2.5)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Connection probability', fontsize=30)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    # ax.set_xlabel('Signal correlation', fontsize=25)
 
   plt.tight_layout()
   # plt.show()
@@ -2746,6 +2780,7 @@ def plot_connectionp_signal_correlation(df):
 
 plot_connectionp_signal_correlation(connectionp_signalcorr_df)
 #%%
+# Figure S2B,C
 ########################################## regard bidirectional edges as 2
 ########################################## get positive and negative connection probability VS signal correlation in a different way!!!
 def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
@@ -2816,6 +2851,7 @@ pairtype = 'all'
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
+# Figure S2B,C
 def plot_pos_neg_connectionp_signal_correlation(df, dname='pos',pairtype='connected'):
   # for row in session2keep:
   #   print(row)
@@ -4818,7 +4854,7 @@ plot_directionality_score_area_sum(G_ccg_dict, active_area_dict, visual_regions,
 plot_directionality_score_area_sum(G_ccg_dict, active_area_dict, visual_regions, 'all')
 print("--- %s minutes" % ((time.time() - start_time)/60))
 # %%
-# Figure S3
+# Figure S4B
 def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions):
   rows, cols = get_rowcol(comms_dict)
   df = pd.DataFrame()
@@ -4854,7 +4890,7 @@ def get_purity_coverage_comm_size(G_dict, comms_dict, area_dict, regions):
 df = get_purity_coverage_comm_size(G_ccg_dict, best_comms_dict, area_dict, visual_regions)
 # plt.savefig(image_name)
 #%%
-# Figure S3
+# Figure S4B
 ####################### jointplot of purity VS community size
 def jointplot_purity_coverage_comm_size(df, name='purity'):
   g = sns.JointGrid()
@@ -4895,7 +4931,7 @@ def jointplot_purity_coverage_comm_size(df, name='purity'):
 jointplot_purity_coverage_comm_size(df, name='purity')
 jointplot_purity_coverage_comm_size(df, name='coverage')
 #%%
-# Figure S3
+# Figure S4B
 def save_stimulus_type_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   for st_ind, st in enumerate(stimulus_types):
@@ -4912,7 +4948,7 @@ def save_stimulus_type_legend():
 
 save_stimulus_type_legend()
 #%%
-# Figure S3
+# Figure S4B
 def get_mean_purity_coverage_Hcommsize_col(G_dict, comms_dict, area_dict, regions):
   rows, cols = get_rowcol(comms_dict)
   purity_dict, coverage_dict = {}, {}
@@ -4943,7 +4979,7 @@ def get_mean_purity_coverage_Hcommsize_col(G_dict, comms_dict, area_dict, region
 
 purity_dict, coverage_dict = get_mean_purity_coverage_Hcommsize_col(G_ccg_dict, best_comms_dict, area_dict, visual_regions)
 #%%
-# Figure S3
+# Figure S4B
 def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity'):
   fig, ax = plt.subplots(1, 1, figsize=(5, 2.5))
   left, width = .25, .5
@@ -5094,7 +5130,7 @@ plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighte
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
 #%%
-# Figure S4
+# Figure S5
 # Z score between signal correlation distributions of pos, neg and disconnected neuron pairs
 # correlation coefficient between w_purity and Z score is neg_dis=0.72 > pos_dis=0.52 > pos_neg=0.29, unsigned connected_dis = 0.53
 def get_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_correlation_dict, pairtype):
@@ -7368,179 +7404,6 @@ def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_thr
 
 multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
 # %%
-####################### Figure 4 #######################
-########################################################
-def plot_steady_distribution(G_dict, epsilon, active_area_dict, regions, maxsteps=200):
-  rows, cols = get_rowcol(G_dict)
-  np.random.seed(1)
-  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  # fig = plt.figure(figsize=(5*len(cols), 4*len(regions)))
-  fig, axes = plt.subplots(len(regions), len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 3*len(regions)), sharex=True, sharey=True)
-  axes[0, 0].set_ylim(0, 1) # sharey=True propagates it to all plots
-  for s_ind, c_stimulus in enumerate(combined_stimuli):
-    print(c_stimulus)
-    steady_distribution = np.zeros((len(regions), 2, len(regions)))
-    s_distri = {r:[] for r in regions}
-    for col in c_stimulus:
-      for row_ind, row in enumerate(session2keep):
-        G = G_dict[row][col]
-        areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
-        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
-        plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
-        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
-        for region_ind, region in enumerate(regions):
-          s_distri[region].append(state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, :].mean(0))
-      for region_ind, region in enumerate(regions):
-        steady_distribution[region_ind, 0] = np.vstack((s_distri[region])).mean(0)
-        steady_distribution[region_ind, 1] = np.vstack((s_distri[region])).std(0)
-    for i in range(len(regions)):
-      ax = axes[i, s_ind]
-      if s_ind == 0:
-        ax.text(0, .5, region_labels[i], size=35, color='k', ha='center', va='center')
-        ax.set_ylabel('Fraction', fontsize=32, color='k') #, weight='bold'
-      if i == 0:
-        ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
-      elif i == len(regions) - 1:
-        ax.set_xlabel('Source area', fontsize=32, color='k') #, weight='bold'
-      # ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
-      colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.4) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for c_ind, color in enumerate(region_colors)]
-      ax.bar(range(len(regions)), steady_distribution[i, 0], yerr=steady_distribution[i, 1], align='center', alpha=1., ecolor='black', color=colors_transparency, capsize=10)
-      ax.set_xticks(range(len(regions)))
-      ax.set_xticklabels(region_labels, fontsize=25)
-      for axis in ['bottom', 'left']:
-        ax.spines[axis].set_linewidth(2.)
-        ax.spines[axis].set_color('0.1')
-      ax.spines['top'].set_visible(False)
-      ax.spines['right'].set_visible(False)
-      ax.yaxis.set_tick_params(labelsize=28)
-  plt.tight_layout()
-  plt.savefig('./plots/state_vector_steady_distribution_epislon_{}.pdf'.format(epsilon), transparent=True)
-  # plt.show()
-
-plot_steady_distribution(S_ccg_dict, 0, active_area_dict, visual_regions, maxsteps=2000)
-# %%
-def plot_dominance_score(G_dict, epsilon, active_area_dict, regions, maxsteps=20):
-  rows, cols = get_rowcol(G_dict)
-  np.random.seed(1)
-  # one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  # fig = plt.figure(figsize=(5*len(cols), 4))
-  fig, axes = plt.subplots(1, len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 4), sharex=True, sharey=True)
-  axes[0].set_ylim(0, 1) # sharey=True propagates it to all plots
-  for s_ind, c_stimulus in enumerate(combined_stimuli):
-    print(c_stimulus)
-    steady_distribution = np.zeros((len(regions), 2, len(regions)))
-    s_distri = {r:[] for r in regions}
-    dominance_score = []
-    s_score = []
-    for col in c_stimulus:
-      # dominance_score = np.zeros((len(regions), 2))
-      for row_ind, row in enumerate(session2keep):
-        G = G_dict[row][col]
-        _, state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=5, maxsteps=maxsteps)
-        s_score.append(state_variation[:, -1, :].mean(0)) # / state_variation[:, 0, :].mean(0)
-    # dominance_score[:, 0] = np.vstack((s_score)).mean(0)
-    # dominance_score[:, 1] = np.vstack((s_score)).std(0)
-    dominance_score = np.vstack((s_score)).T.tolist()
-    ax = axes[s_ind]
-    # ax = plt.subplot(1, len(cols), col_ind+1)
-    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
-    # ax.barplot(range(len(regions)), dominance_score[:, 0], yerr=dominance_score[:, 1], align='center', alpha=0.6, ecolor='black', color=region_colors, capsize=10)
-    boxprops = dict(facecolor='white', edgecolor='k')
-    medianprops = dict(linestyle='-', linewidth=2.5, color='k')
-    bplot = ax.boxplot(dominance_score, showfliers=False, widths=.4, patch_artist=True, boxprops=boxprops, medianprops=medianprops)
-    # colors_transparency = [transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.4) if c_ind <=2 else transparent_rgb(colors.to_rgb(color), [1,1,1], alpha=.8) for c_ind, color in enumerate(region_colors)]
-    # for patch, color in zip(bplot['boxes'], region_colors):
-    #   patch.set_edgecolor(color)
-    ax.set_xticks(range(1, len(regions)+1))
-    ax.set_xticklabels(region_labels, fontsize=25)
-    for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(2.)
-      ax.spines[axis].set_color('0.1')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.yaxis.set_tick_params(labelsize=28)
-    if s_ind == 0:
-      ax.set_ylabel('Mean fraction', fontsize=30, color='k') #, weight='bold'
-
-    box_patches = [patch for patch in ax.patches if type(patch) == mpl.patches.PathPatch]
-    if len(box_patches) == 0:  # in matplotlib older than 3.5, the boxes are stored in ax.artists
-      box_patches = ax.artists
-    num_patches = len(box_patches)
-    lines_per_boxplot = len(ax.lines) // num_patches
-    for i, patch in enumerate(box_patches):
-      # Set the linecolor on the patch to the facecolor, and set the facecolor to None
-      # color = patch.get_edgecolor()
-      # patch.set_edgecolor(color)
-      patch.set_facecolor('None')
-      patch.set_linewidth(4)
-      # Each box has associated Line2D objects (to make the whiskers, fliers, etc.)
-      # Loop over them here, and use the same color as above
-      # for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
-      #   line.set_color(color)
-      #   line.set_mfc(color)  # facecolor of fliers
-      #   line.set_mec(color)  # edgecolor of fliers
-  plt.tight_layout()
-  plt.savefig('./plots/state_vector_dominance_score_scale_epislon_{}.pdf'.format(epsilon), transparent=True)
-  # plt.show()
-
-plot_dominance_score(S_ccg_dict, 0, active_area_dict, visual_regions, maxsteps=2000)
-# %%
-def get_stable(G_dict, epsilon_list, active_area_dict, regions, step2confirm=5, maxsteps=1000):
-  rows, cols = get_rowcol(G_dict)
-  np.random.seed(1)
-  one_hot = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1]])
-  step2convergence, region_frac = np.zeros((len(cols), len(regions), len(rows), len(epsilon_list))), np.zeros((len(cols), len(regions), len(rows), len(epsilon_list)))
-  for col_ind, col in enumerate(cols):
-    print(col)
-    for row_ind, row in enumerate(session2keep):
-      G = G_dict[row][col]
-      areas = [active_area_dict[row][node] for node in sorted(G.nodes())]
-      for e_ind, epsilon in enumerate(epsilon_list):
-        step2convergence[col_ind, :, row_ind, e_ind], state_variation = propagation2convergence(G, epsilon, active_area_dict[row], regions, step2confirm=step2confirm, maxsteps=maxsteps)
-        plot_areas_num = [(np.array(areas)==a).sum() for a in regions]
-        area_inds = [0] + np.cumsum(plot_areas_num).tolist()
-        for region_ind, region in enumerate(regions):
-          region_loc = np.where(one_hot[region_ind])[0][0]
-          region_frac[col_ind, region_ind, row_ind, e_ind] = state_variation[area_inds[region_ind]:area_inds[region_ind+1], -1, region_loc].mean(0) 
-    # ax = plt.subplot(1, len(cols), col_ind+1)
-  return step2convergence, region_frac
-
-epsilon_list = np.arange(0, 202, 2)
-step2convergence, region_frac = get_stable(G_ccg_dict, epsilon_list, active_area_dict, visual_regions, step2confirm=5, maxsteps=2000)
-#%%
-def plot_dataVSepsilon(data, epsilon_list, regions, name):
-  fig, axes = plt.subplots(1, len(stimulus_names), figsize=(5*len(stimulus_names), 4), sharex=True, sharey=True)
-  # axes[0].set_ylim(0, 4) # sharey=True propagates it to all plots
-  for col_ind, col in enumerate(stimulus_names):
-    print(col)
-    ax = axes[col_ind]
-    ax.set_title(stimulus_labels[col_ind].replace('\n', ' '), fontsize=35, rotation=0)
-    for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(2.)
-      ax.spines[axis].set_color('0.1')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.xaxis.set_tick_params(labelsize=25)
-    ax.yaxis.set_tick_params(labelsize=28)
-    for area_ind, area in enumerate(regions):
-      ymean, yerr = np.nanmean(reject_outliers_2d(data[col_ind, area_ind], 0, 2), 0), 2 * np.nanstd(reject_outliers_2d(data[col_ind, area_ind], 0, 2), 0)
-      # plt.errorbar(epsilon_list, ymean, yerr=yerr, label=area, alpha=0.6, color=colors_[area_ind])
-      ax.plot(epsilon_list, ymean, label=area, alpha=0.6, color=region_colors[area_ind], linewidth=3)
-    if col_ind == len(stimulus_names) - 1:
-      handles, labels = ax.get_legend_handles_labels()
-      ax.legend(handles, labels, title='', bbox_to_anchor=(.75, 1.), loc='upper left', fontsize=15)
-    ax.set_xlabel('epsilon', fontsize=32, color='k') #, weight='bold'
-    if col_ind == 0:
-      ax.set_ylabel(name, fontsize=32, color='k') #, weight='bold'
-    # plt.ylim(-.5, 4.5)
-
-  plt.tight_layout()
-  plt.savefig('./plots/{}.pdf'.format(name.replace(' ', '_')), transparent=True)
-  # plt.show()
-
-plot_dataVSepsilon(step2convergence, epsilon_list, visual_regions, name='steps to convergence')
-plot_dataVSepsilon(region_frac, epsilon_list, visual_regions, name='stable region fraction')
-# %%
 # Figure S1B
 def plot_directed_degree_distributions(G_dict, row_ind, sign, measure, n, weight=None, cc=False):
   rows, cols = get_rowcol(G_dict)
@@ -7635,6 +7498,7 @@ def count_signed_triplet_connection_p(G):
   p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
   return p0, p1, p2, p3, p4, p5
 #%%
+# Figure S7A
 def plot_pair_distributions(G_dict, row_ind):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -7642,7 +7506,7 @@ def plot_pair_distributions(G_dict, row_ind):
   for cs_ind, combined_stimulus in enumerate(combined_stimuli):
     ax = axes[cs_ind]
     col = combined_stimulus[0]
-    ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
+    # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
     G = G_dict[row][col].copy()
     num0, num1, num2 = 0, 0, 0
     nodes = list(G.nodes())
@@ -7659,11 +7523,13 @@ def plot_pair_distributions(G_dict, row_ind):
     assert num1+num2*2 == G.number_of_edges()
     p0, p1, p2 = num0 / total_num, num1 / total_num, num2 / total_num
     
-    ax.plot(range(3), [p0, p1, p2],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
+    # ax.plot(range(3), [p0, p1, p2],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
+    ax.bar(range(3), [p0, p1, p2], width=0.3, color='.7')
     # ax.legend(loc='upper right', fontsize=7)
     # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
     # ax.set_xlabel(xlabel, fontsize=22)
-    ax.set_ylabel('Frequency', fontsize=22)
+    if cs_ind == 0:
+      ax.set_ylabel('Frequency', fontsize=22)
     # ax.set_xscale('symlog')
     ax.set_yscale('log')
     for axis in ['bottom', 'left']:
@@ -7686,6 +7552,7 @@ def plot_pair_distributions(G_dict, row_ind):
 
 plot_pair_distributions(G_ccg_dict, 7)
 # %%
+# Figure S7B
 def plot_signed_pair_distributions(G_dict, row_ind):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -7693,15 +7560,16 @@ def plot_signed_pair_distributions(G_dict, row_ind):
   for cs_ind, combined_stimulus in enumerate(combined_stimuli):
     ax = axes[cs_ind]
     col = combined_stimulus[0]
-    ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
+    # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
     G = G_dict[row][col].copy()
     p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
-    
-    ax.plot(range(6), [p0, p1, p2, p3, p4, p5],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
+    # ax.plot(range(6), [p0, p1, p2, p3, p4, p5],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
+    ax.bar(range(6), [p0, p1, p2, p3, p4, p5], width=0.6, color='.7')
     # ax.legend(loc='upper right', fontsize=7)
     # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
     # ax.set_xlabel(xlabel, fontsize=22)
-    ax.set_ylabel('Frequency', fontsize=22)
+    if cs_ind == 0:
+      ax.set_ylabel('Frequency', fontsize=22)
     # ax.set_xscale('symlog')
     ax.set_yscale('log')
     for axis in ['bottom', 'left']:
@@ -7757,4 +7625,53 @@ def plot_signalcorr_distributions(signal_correlation_dict):
   plt.savefig('./plots/distribution_signal_corr.pdf', transparent=True)
 
 plot_signalcorr_distributions(signal_correlation_dict)
+# # %%
+# # Figure S7
+# def plot_distri_weight_confidence(G_dict):
+#   rows,cols = get_rowcol(G_dict)
+#   fig, axes = plt.subplots(1, 2, figsize=(7*2, 4))
+#   targets = ['weight', 'confidence']
+#   for ax, target in zip(axes, targets):
+#     df = pd.DataFrame()
+#     conf, p_conf, n_conf = [], [], []
+#     for row in session2keep:
+#       for col in cols:
+#         G = G_dict[row][col]
+#         conf += [w for _, _, w in G.edges(data=target)]
+#     p_conf = np.array([c for c in conf if c > 0])
+#     n_conf = np.array([abs(c) for c in conf if c < 0])
+#     df = pd.concat([df, pd.DataFrame(np.concatenate((p_conf[:,None], np.array(['excitatory connection'] * len(p_conf))[:,None]), 1), columns=['data', 'type'])], ignore_index=True)
+#     df = pd.concat([df, pd.DataFrame(np.concatenate((n_conf[:,None], np.array(['inhibitory connection'] * len(n_conf))[:,None]), 1), columns=['data', 'type'])], ignore_index=True)
+#     df['data'] = pd.to_numeric(df['data'])
+#     # h = sns.histplot(data=df, x='data', linewidth=0, stat='probability', hue='type', common_norm=False, palette=['r', 'b'], alpha=.3, ax=ax)
+#     h = sns.kdeplot(data=df, x='data', hue='type', common_norm=False, ax=ax, palette=['r', 'b'], alpha=.8)
+#     # ph = sns.histplot(data=p_conf, linewidth=0, stat='probability', color='r', alpha=.3, label='excitatory connection', ax=ax)
+#     # nh = sns.histplot(data=n_conf, linewidth=0, stat='probability', color='b', alpha=.3, label='inhibitory link', ax=ax)
+    
+#     ax.axvline(x=np.nanmean(p_conf), color='r', linestyle='--', alpha=.3)
+#     ax.axvline(x=np.nanmean(n_conf), color='b', linestyle='--', alpha=.3)
+#     ax.set_xscale('log')
+#     ax.set_yscale('log')
+#     ax.tick_params(axis='x', which='both', labelsize=20) # 'both' includes major (10^n) and minor ticks (m x 10^n) for log scale
+#     # ax.xaxis.set_tick_params(labelsize=20)
+#     ax.yaxis.set_tick_params(labelsize=20)
+#     xlabel = 'Absolute CCG weight' if target == 'weight' else 'Absolute CCG Z score'
+#     ax.set_xlabel(xlabel, fontsize=20)
+#     ax.set_ylabel('')
+#     m_p_conf, m_n_conf = np.nanmean(p_conf), np.nanmean(n_conf)
+#     ax.text(max(m_p_conf, m_n_conf), .03, "percentage difference {:2.2f} %".format(100 * abs(m_p_conf-m_n_conf)/((m_p_conf+m_n_conf)/2)), verticalalignment='center', fontsize=18)
+#     for axis in ['bottom', 'left']:
+#       ax.spines[axis].set_linewidth(1.5)
+#       ax.spines[axis].set_color('k')
+#     ax.spines['top'].set_visible(False)
+#     ax.spines['right'].set_visible(False)
+#     ax.tick_params(width=1.5)
+#     # ax.tick_params(axis='x', labelsize=20)
+#     # h.set_xticklabels(h.get_xticks(), size=20)
+#     ax.legend([], [], fontsize=0)
+    
+#   axes[0].set_ylabel('Probability', fontsize=20)
+#   plt.savefig('./plots//distri_pos_neg_weight_confidence_fold.pdf', transparent=True)
+#   # plt.show()
+# plot_distri_weight_confidence(G_ccg_dict)
 # %%
