@@ -33,6 +33,7 @@ from statsmodels.stats.multitest import multipletests, fdrcorrection
 from statsmodels.stats.weightstats import ztest as ztest
 import networkx as nx
 import networkx.algorithms.community as nx_comm
+import networkx.algorithms.isomorphism as iso
 from collections import defaultdict, deque
 from networkx import NetworkXError
 from networkx.algorithms.community.community_utils import is_partition
@@ -3352,9 +3353,6 @@ def random_graph_generator_multi_thread(input_G, repeat, weight='weight', cc=Fal
   origin_G = input_G.copy()
   if cc:
     origin_G = get_lcc(origin_G)
-  weight_dict = nx.get_edge_attributes(origin_G, weight)
-  weights = list(weight_dict.values())
-  random_graphs = []
   nswap = Q*origin_G.number_of_edges()
   max_tries = 1e75
   keys, out_degrees = zip(*origin_G.out_degree())  # keys, degree
@@ -3388,20 +3386,28 @@ def random_graph_generator_multi_thread(input_G, repeat, weight='weight', cc=Fal
         # unidirectional edges
         if (u not in G[v]) and (x not in G[y]):
           edge2remove = [(u, v), (x, y)]
-          ews = [G.get_edge_data(*e)[weight] for e in edge2remove]
-          np.random.shuffle(ews)
-          edge2add = [(u, y, ews[0]), (x, v, ews[1])]
-          G.add_weighted_edges_from((edge2add), weight=weight)
+          if weight is not None:
+            ews = [G.get_edge_data(*e)[weight] for e in edge2remove]
+            np.random.shuffle(ews)
+            edge2add = [(u, y, ews[0]), (x, v, ews[1])]
+            G.add_weighted_edges_from((edge2add), weight=weight)
+          else:
+            edge2add = [(u, y), (x, v)]
+            G.add_edges_from((edge2add))
           G.remove_edges_from(edge2remove)
           swapcount += 1
           break
         # bidirectional edges
         elif (u in G[v]) and (x in G[y]):
           edge2remove = [(u, v), (v, u), (x, y), (y, x)]
-          ews = [(G[u][v][weight],G[v][u][weight]), (G[x][y][weight], G[y][x][weight])]
-          np.random.shuffle(ews)
-          edge2add = [(u, y, ews[0][0]), (y, u, ews[0][1]), (x, v, ews[1][0]), (v, x, ews[1][1])]
-          G.add_weighted_edges_from((edge2add), weight=weight)
+          if weight is not None:
+            ews = [(G[u][v][weight],G[v][u][weight]), (G[x][y][weight], G[y][x][weight])]
+            np.random.shuffle(ews)
+            edge2add = [(u, y, ews[0][0]), (y, u, ews[0][1]), (x, v, ews[1][0]), (v, x, ews[1][1])]
+            G.add_weighted_edges_from((edge2add), weight=weight)
+          else:
+            edge2add = [(u, y), (y, u), (x, v), (v, x)]
+            G.add_edges_from((edge2add))
           G.remove_edges_from(edge2remove)
           swapcount += 2
           break
@@ -6033,107 +6039,214 @@ def meanmice_signed_triad_census(all_triads):
 
 ########################### motif analysis for all 13 motifs ##########################
 ################## motif intensity and coherence
-def get_motif_sign(motif, motif_type, weight='confidence'):
-  edges = list(motif.edges())
-  nodes = [node for sub in edges for node in sub]
-  triplets = list(set(nodes))
-  if motif_type == '021D':
-    node_P = most_common([i for i,j in edges])
-    node_X, node_O = [j for i,j in edges]
-    edge_order = [(node_P, node_X), (node_P, node_O)]
-  elif motif_type == '021U':
-    node_P = most_common([j for i,j in edges])
-    node_X, node_O = [i for i,j in edges]
-    edge_order = [(node_X, node_P), (node_O, node_P)]
-  elif motif_type == '021C':
-    node_X = most_common(nodes)
-    triplets.remove(node_X)
-    if (triplets[0], node_X) in edges:
-      node_P, node_O = triplets
-    else:
-      node_O, node_P = triplets
-    edge_order = [(node_P, node_X), (node_X, node_O)]
-  elif motif_type == '111D':
-    node_X = most_common([j for i,j in edges])
-    node_P = [j for i,j in edges if i == node_X][0]
-    triplets.remove(node_X)
-    triplets.remove(node_P)
-    node_O = triplets[0]
-    edge_order = [(node_P, node_X), (node_X, node_P), (node_O, node_X)]
-  elif motif_type == '111U':
-    node_X = most_common([i for i,j in edges])
-    node_P = [i for i,j in edges if j == node_X][0]
-    triplets.remove(node_X)
-    triplets.remove(node_P)
-    node_O = triplets[0]
-    edge_order = [(node_P, node_X), (node_X, node_P), (node_X, node_O)]
-  elif motif_type == '030T':
-    node_P = most_common([i for i,j in edges])
-    node_X = most_common([j for i,j in edges])
-    triplets.remove(node_P)
-    triplets.remove(node_X)
-    node_O = triplets[0]
-    edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X)]
-  elif motif_type == '030C':
-    es = edges.copy()
-    np.random.shuffle(es)
-    node_P, node_O = es[0]
-    triplets.remove(node_P)
-    triplets.remove(node_O)
-    node_X = triplets[0]
-    edge_order = [(node_P, node_O), (node_O, node_X), (node_X, node_P)]
-  elif motif_type == '201':
-    node_P = most_common([i for i,j in edges])
-    triplets.remove(node_P)
-    np.random.shuffle(triplets)
-    node_X, node_O = triplets
-    edge_order = [(node_P, node_O), (node_O, node_P), (node_P, node_X), (node_X, node_P)]
-  elif motif_type == '120D' or motif_type == '120U':
-    if motif_type == '120D':
-      node_X = most_common([i for i,j in edges])
-    else:
-      node_X = most_common([j for i,j in edges])
-    triplets.remove(node_X)
-    np.random.shuffle(triplets)
-    node_P, node_O = triplets
-    if motif_type == '120D':
-      edge_order = [(node_X, node_P), (node_P, node_O), (node_X, node_O), (node_O, node_P)]
-    else:
-      edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X), (node_O, node_P)]
-  elif motif_type == '120C':
-    node_P = most_common([i for i,j in edges])
-    node_X = most_common([j for i,j in edges])
-    triplets.remove(node_P)
-    triplets.remove(node_X)
-    node_O = triplets[0]
-    edge_order = [(node_P, node_X), (node_X, node_P), (node_P, node_O), (node_O, node_X)]
-  elif motif_type == '210':
-    node_O = most_common([node for sub in edges for node in sub])
-    triplets.remove(node_O)
-    if tuple(triplets) in edges:
-      node_P, node_X = triplets
-    else:
-      node_X, node_P = triplets
-    edge_order = [(node_P, node_O), (node_O, node_P), (node_O, node_X), (node_X, node_O), (node_P, node_X)]
-  elif motif_type == '300':
-    np.random.shuffle(triplets)
-    node_P, node_X, node_O = triplets
-    edge_order = [(node_X, node_P), (node_P, node_X), (node_X, node_O), (node_O, node_X), (node_P, node_O), (node_O, node_P)]
-  motif_sign = {edge:motif[edge[0]][edge[1]][weight] for edge in edges}
-  sign = [motif_sign[edge] for edge in edge_order]
-  sign = ''.join(map(lambda x:'+' if x > 0 else '-', sign))
-  if motif_type in ['021D', '021U']:
-    sign = ''.join(sorted(sign))
-  # elif motif_type == '111D' or motif_type == '111U':
-  #   sign = ''.join(sorted(sign[:2]) + sign[-2:]) # P<->X, O->X/X->O
-  elif motif_type == '030C':
-    sign = sorted([sign, sign[1:] + sign[:1], sign[2:] + sign[:2]])[0] # shift string
-  elif motif_type in ['201', '120D', '120U']:
-    sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
-  elif motif_type == '300':
-    sign = ''.join([i for x in sorted([sorted(sign[:2]),sorted(sign[2:4]),sorted(sign[-2:])]) for i in x]) # X<->P, X<->O, P<->O
-  return sign
+# def shift_by_2(sign):
+#   shifts = [sign[:2]+sign[2:4]+sign[-2:], sign[-2:]+sign[:2]+sign[2:4], sign[2:4]+sign[-2:]+sign[:2]]
+#   return sorted(shifts)[0]
 
+# def get_motif_sign(motif, motif_type, weight='confidence'):
+#   edges = list(motif.edges())
+#   nodes = [node for sub in edges for node in sub]
+#   triplets = list(set(nodes))
+#   if motif_type == '021D':
+#     node_P = most_common([i for i,j in edges])
+#     node_X, node_O = [j for i,j in edges]
+#     edge_order = [(node_P, node_X), (node_P, node_O)]
+#   elif motif_type == '021U':
+#     node_P = most_common([j for i,j in edges])
+#     node_X, node_O = [i for i,j in edges]
+#     edge_order = [(node_X, node_P), (node_O, node_P)]
+#   elif motif_type == '021C':
+#     node_X = most_common(nodes)
+#     triplets.remove(node_X)
+#     if (triplets[0], node_X) in edges:
+#       node_P, node_O = triplets
+#     else:
+#       node_O, node_P = triplets
+#     edge_order = [(node_P, node_X), (node_X, node_O)]
+#   elif motif_type == '111D':
+#     node_X = most_common([j for i,j in edges])
+#     node_P = [j for i,j in edges if i == node_X][0]
+#     triplets.remove(node_X)
+#     triplets.remove(node_P)
+#     node_O = triplets[0]
+#     edge_order = [(node_P, node_X), (node_X, node_P), (node_O, node_X)]
+#   elif motif_type == '111U':
+#     node_X = most_common([i for i,j in edges])
+#     node_P = [i for i,j in edges if j == node_X][0]
+#     triplets.remove(node_X)
+#     triplets.remove(node_P)
+#     node_O = triplets[0]
+#     edge_order = [(node_P, node_X), (node_X, node_P), (node_X, node_O)]
+#   elif motif_type == '030T':
+#     node_P = most_common([i for i,j in edges])
+#     node_O = most_common([j for i,j in edges])
+#     triplets.remove(node_P)
+#     triplets.remove(node_O)
+#     node_X = triplets[0]
+#     edge_order = [(node_P, node_O), (node_P, node_X), (node_X, node_O)]
+#   elif motif_type == '030C':
+#     es = edges.copy()
+#     np.random.shuffle(es)
+#     node_P, node_X = es[0]
+#     triplets.remove(node_P)
+#     triplets.remove(node_X)
+#     node_O = triplets[0]
+#     edge_order = [(node_P, node_X), (node_X, node_O), (node_O, node_P)]
+#   elif motif_type == '201': # to fix
+#     node_P = most_common([i for i,j in edges])
+#     triplets.remove(node_P)
+#     np.random.shuffle(triplets)
+#     node_X, node_O = triplets
+#     edge_order = [(node_P, node_O), (node_O, node_P), (node_P, node_X), (node_X, node_P)]
+#   elif motif_type == '120D' or motif_type == '120U': # to fix
+#     if motif_type == '120D':
+#       node_X = most_common([i for i,j in edges])
+#     else:
+#       node_X = most_common([j for i,j in edges])
+#     triplets.remove(node_X)
+#     np.random.shuffle(triplets)
+#     node_P, node_O = triplets
+#     if motif_type == '120D':
+#       edge_order = [(node_X, node_P), (node_P, node_O), (node_X, node_O), (node_O, node_P)]
+#     else:
+#       edge_order = [(node_P, node_X), (node_P, node_O), (node_O, node_X), (node_O, node_P)]
+#   elif motif_type == '120C':
+#     node_P = most_common([i for i,j in edges])
+#     node_O = most_common([j for i,j in edges])
+#     triplets.remove(node_P)
+#     triplets.remove(node_O)
+#     node_X = triplets[0]
+#     edge_order = [(node_P, node_O), (node_O, node_P), (node_P, node_X), (node_X, node_O)]
+#   elif motif_type == '210':
+#     node_O = most_common([node for sub in edges for node in sub])
+#     triplets.remove(node_O)
+#     if tuple(triplets) in edges:
+#       node_P, node_X = triplets
+#     else:
+#       node_X, node_P = triplets
+#     edge_order = [(node_P, node_O), (node_O, node_P), (node_O, node_X), (node_X, node_O), (node_P, node_X)]
+#   elif motif_type == '300': # to fix
+#     np.random.shuffle(triplets)
+#     node_P, node_X, node_O = triplets
+#     edge_order = [(node_X, node_P), (node_P, node_X), (node_P, node_O), (node_O, node_P), (node_O, node_X), (node_X, node_O)]
+#   motif_sign = {edge:motif[edge[0]][edge[1]][weight] for edge in edges}
+#   sign = [motif_sign[edge] for edge in edge_order]
+#   sign = ''.join(map(lambda x:'+' if x > 0 else '-', sign))
+#   if motif_type in ['021D', '021U']:
+#     sign = ''.join(sorted(sign))
+#   # elif motif_type == '111D' or motif_type == '111U':
+#   #   sign = ''.join(sorted(sign[:2]) + sign[-2:]) # P<->X, O->X/X->O
+#   elif motif_type == '030C':
+#     sign = sorted([sign, sign[1:] + sign[:1], sign[2:] + sign[:2]])[0] # shift string
+#   elif motif_type in ['201', '120D', '120U']:
+#     sign = ''.join(sorted(sign[:2]) + sorted(sign[-2:])) # X->P/O, P<->O
+#   elif motif_type == '300': # fixed
+#     sign = shift_by_2(sign) # X<->P, X<->O, P<->O
+#   return sign
+
+def find_all_unique_smotifs(edges, weight='weight'):
+  em = iso.numerical_edge_match(weight, 1)
+  G0 = nx.DiGraph()
+  all_ws = list(itertools.product([1, -1], repeat=len(edges))) # either 1 or -1, all possible combinations
+  edge2add = [(*edge, w) for edge, w in zip(edges, all_ws[0])]
+  G0.add_weighted_edges_from((edge2add), weight=weight)
+  unique_sms = [G0]
+  for all_w in tqdm(all_ws[1:], total=len(all_ws)-1, disable=True):
+    G = nx.DiGraph()
+    edge2add = [(*edge, w) for edge, w in zip(edges, all_w)]
+    G.add_weighted_edges_from((edge2add), weight=weight)
+    is_unique = True
+    for ex_G in unique_sms:
+      if nx.is_isomorphic(G, ex_G, edge_match=em):  # match weight
+        is_unique = False
+        break
+    if is_unique:
+      unique_sms.append(G)
+  return unique_sms
+
+def to_unique_form(signed_motif, unique_sms, weight='weight'):
+  em = iso.numerical_edge_match(weight, 1)
+  for unique_sm in unique_sms:
+    if nx.is_isomorphic(signed_motif, unique_sm, edge_match=em):  # match weight
+      unique_form = unique_sm
+      break
+  return unique_form
+
+def get_motif_sign_new(origin_motif, edges, unique_sms, weight='weight'):
+  motif = origin_motif.copy()
+  for u, v, w in motif.edges(data=weight):
+    motif[u][v][weight] = 1 if w > 0 else -1
+  # edges = list(motif.edges()) # we can, but we'll lose track of edge order and sign, can only know number of unique patterns
+  # if motif_type == '021D':
+  #   edges = [(0, 1), (0, 2)]
+  # elif motif_type == '021U':
+  #   edges = [(0, 1), (2, 1)]
+  # elif motif_type == '021C':
+  #   edges = [(0, 1), (1, 2)]
+  # elif motif_type == '111D':
+  #   edges = [(0, 1), (1, 2), (2, 1)]
+  # elif motif_type == '111U':
+  #   edges = [(0, 1), (0, 2), (2, 0)]
+  # elif motif_type == '030T':
+  #   edges = [(0, 1), (1, 2), (0, 2)]
+  # elif motif_type == '030C':
+  #   edges = [(0, 1), (1, 2), (2, 0)]
+  # elif motif_type == '201':
+  #   edges = [(0, 1), (1, 0), (0, 2), (2, 0)]
+  # elif motif_type == '120D':
+  #   edges = [(0, 1), (0, 2), (1, 2), (2, 1)]
+  # elif motif_type == '120U':
+  #   edges = [(0, 2), (1, 2), (0, 1), (1, 0)]
+  # elif motif_type == '120C':
+  #   edges = [(0, 1), (1, 2), (0, 2), (2, 0)]
+  # elif motif_type == '210':
+  #   edges = [(0, 1), (1, 2), (2, 1), (0, 2), (2, 0)]
+  # elif motif_type == '300':
+  #   edges = [(0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2)]
+  # unique_sms = find_all_unique_smotifs(edges, weight=weight)
+  unique_form = to_unique_form(motif, unique_sms, weight=weight)
+  signs = [unique_form[edge[0]][edge[1]][weight] for edge in edges]
+  signs = ''.join(['+' if sign > 0 else '-' for sign in signs])
+  return signs
+  
+def get_edges_sms(motif_type, weight='weight'):
+  if motif_type == '021D':
+    edges = [(0, 1), (0, 2)]
+  elif motif_type == '021U':
+    edges = [(0, 1), (2, 1)]
+  elif motif_type == '021C':
+    edges = [(0, 1), (1, 2)]
+  elif motif_type == '111D':
+    edges = [(0, 1), (1, 2), (2, 1)]
+  elif motif_type == '111U':
+    edges = [(0, 1), (0, 2), (2, 0)]
+  elif motif_type == '030T':
+    edges = [(0, 1), (1, 2), (0, 2)]
+  elif motif_type == '030C':
+    edges = [(0, 1), (1, 2), (2, 0)]
+  elif motif_type == '201':
+    edges = [(0, 1), (1, 0), (0, 2), (2, 0)]
+  elif motif_type == '120D':
+    edges = [(0, 1), (0, 2), (1, 2), (2, 1)]
+  elif motif_type == '120U':
+    edges = [(0, 2), (1, 2), (0, 1), (1, 0)]
+  elif motif_type == '120C':
+    edges = [(0, 1), (1, 2), (0, 2), (2, 0)]
+  elif motif_type == '210':
+    edges = [(0, 1), (1, 2), (2, 1), (0, 2), (2, 0)]
+  elif motif_type == '300':
+    edges = [(0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2)]
+  unique_sms = find_all_unique_smotifs(edges, weight=weight)
+  return edges, unique_sms
+
+################### count total number of all signed motif types
+# motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+# count = 0
+# for motif_type in motif_types:
+#   count += len(get_all_sms(motif_type))
+#   print(motif_type, len(get_all_sms(motif_type)))
+# print(count)
+  
 def _tricode(G, v, u, w):
     """Returns the integer code of the given triad.
 
@@ -6205,34 +6318,59 @@ def get_motif_intensity_coherence(motif, weight='confidence'):
   coherence = I / np.mean(w_list)
   return intensity, coherence
 
-def plot_distri_weight_confidence(G_dict, measure, n, target='weight'):
+def plot_distri_weight_confidence(G_dict):
   rows,cols = get_rowcol(G_dict)
-  conf, p_conf, n_conf = [], [], []
-  for row in rows:
-    for col in cols:
-      G = G_dict[row][col]
-      conf += [e[2][target] for e in G.edges(data=True)]
-  p_conf = [c for c in conf if c > 0]
-  n_conf = [abs(c) for c in conf if c < 0]
-  plt.figure()
-  sns.histplot(data=p_conf, linewidth=0, stat='probability', color='tab:Orange', alpha=.3, label='excitatory link')
-  sns.histplot(data=n_conf, linewidth=0, stat='probability', color='tab:Blue', alpha=.3, label='inhibitory link')
-  plt.axvline(x=np.nanmean(p_conf), color='tab:Orange', linestyle='--', alpha=.3)
-  plt.axvline(x=np.nanmean(n_conf), color='tab:Blue', linestyle='--', alpha=.3)
-  plt.xscale('log')
-  plt.yscale('log')
-  xlabel = 'absolute CCG weight' if target == 'weight' else 'absolute CCG Z score'
-  plt.xlabel(xlabel)
-  m_p_conf, m_n_conf = np.nanmean(p_conf), np.nanmean(n_conf)
-  plt.text(max(m_p_conf, m_n_conf), .03, "percentage difference {:2.2f} %".format(100 * abs(m_p_conf-m_n_conf)/((m_p_conf+m_n_conf)/2)), verticalalignment='center')
-  plt.legend()
-  figname = f'./plots//distri_pos_neg_{target}_{measure}_{n}fold.jpg'
-  plt.savefig(figname)
+  fig, axes = plt.subplots(1, 2, figsize=(7*2, 4))
+  targets = ['weight', 'confidence']
+  for ax, target in zip(axes, targets):
+    df = pd.DataFrame()
+    conf, p_conf, n_conf = [], [], []
+    for row in session2keep:
+      for col in cols:
+        G = G_dict[row][col]
+        conf += [w for _, _, w in G.edges(data=target)]
+    p_conf = np.array([c for c in conf if c > 0])
+    n_conf = np.array([abs(c) for c in conf if c < 0])
+    df = pd.concat([df, pd.DataFrame(np.concatenate((p_conf[:,None], np.array(['excitatory connection'] * len(p_conf))[:,None]), 1), columns=['data', 'type'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((n_conf[:,None], np.array(['inhibitory connection'] * len(n_conf))[:,None]), 1), columns=['data', 'type'])], ignore_index=True)
+    df['data'] = pd.to_numeric(df['data'])
+    # h = sns.histplot(data=df, x='data', linewidth=0, stat='probability', hue='type', common_norm=False, palette=['r', 'b'], alpha=.3, ax=ax)
+    h = sns.kdeplot(data=df, x='data', hue='type', common_norm=False, ax=ax, palette=['r', 'b'], alpha=.8)
+    # ph = sns.histplot(data=p_conf, linewidth=0, stat='probability', color='r', alpha=.3, label='excitatory connection', ax=ax)
+    # nh = sns.histplot(data=n_conf, linewidth=0, stat='probability', color='b', alpha=.3, label='inhibitory link', ax=ax)
+    
+    ax.axvline(x=np.nanmean(p_conf), color='r', linestyle='--', alpha=.3)
+    ax.axvline(x=np.nanmean(n_conf), color='b', linestyle='--', alpha=.3)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.tick_params(axis='x', which='both', labelsize=20) # 'both' includes major (10^n) and minor ticks (m x 10^n) for log scale
+    # ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    xlabel = 'Absolute CCG weight' if target == 'weight' else 'Absolute CCG Z score'
+    ax.set_xlabel(xlabel, fontsize=20)
+    ax.set_ylabel('')
+    m_p_conf, m_n_conf = np.nanmean(p_conf), np.nanmean(n_conf)
+    ax.text(max(m_p_conf, m_n_conf), .03, "percentage difference {:2.2f} %".format(100 * abs(m_p_conf-m_n_conf)/((m_p_conf+m_n_conf)/2)), verticalalignment='center', fontsize=18)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    # ax.tick_params(axis='x', labelsize=20)
+    # h.set_xticklabels(h.get_xticks(), size=20)
+    ax.legend([], [], fontsize=0)
+    
+  axes[0].set_ylabel('Probability', fontsize=20)
+  plt.savefig('./plots//distri_pos_neg_weight_confidence_fold.pdf', transparent=True)
   # plt.show()
 
 def get_signed_intensity_coherence(G_dict, motif_types):
   rows, cols = get_rowcol(G_dict)
   intensity_dict, coherence_dict = {}, {}
+  motif_edges, motif_sms = {}, {}
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
   for row_ind, row in enumerate(rows):
     print(row)
     intensity_dict[row], coherence_dict[row] = {}, {}
@@ -6247,7 +6385,8 @@ def get_signed_intensity_coherence(G_dict, motif_types):
         # print(motif_type)
         for motif in motifs:
           intensity, coherence = get_motif_intensity_coherence(motif, weight='confidence')
-          signed_motif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+          signed_motif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+          # signed_motif_type = motif_type + get_motif_sign_new(motif, motif_type, weight='confidence')
           intensity_dict[row][col][signed_motif_type] = intensity_dict[row][col].get(signed_motif_type, 0) + intensity
           coherence_dict[row][col][signed_motif_type] = coherence_dict[row][col].get(signed_motif_type, 0) + coherence
       intensity_dict[row][col] = dict(sorted(intensity_dict[row][col].items(), key=lambda x:x[1], reverse=True))
@@ -6257,11 +6396,14 @@ def get_signed_intensity_coherence(G_dict, motif_types):
 def get_signed_intensity_coherence_baseline(G_dict, motif_types, algorithm='directed_double_edge_swap', num_baseline=10):
   rows, cols = get_rowcol(G_dict)
   intensity_dict, coherence_dict = {}, {}
+  motif_edges, motif_sms = {}, {}
+  # get ordered edges and all unique signed motifs once and for all
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
   for row_ind, row in enumerate(rows):
-    print(row)
     intensity_dict[row], coherence_dict[row] = {}, {}
     for col_ind, col in enumerate(cols):
-      print(col)
+      print(row, col)
       intensity_dict[row][col], coherence_dict[row][col] = defaultdict(lambda: np.zeros(num_baseline)), defaultdict(lambda: np.zeros(num_baseline))
       G = G_dict[row][col]
       random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
@@ -6274,7 +6416,7 @@ def get_signed_intensity_coherence_baseline(G_dict, motif_types, algorithm='dire
           # print(motif_type)
           for motif in motifs:
             intensity, coherence = get_motif_intensity_coherence(motif, weight='confidence')
-            signed_motif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+            signed_motif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
             intensity_dict[row][col][signed_motif_type][g_ind] += intensity
             coherence_dict[row][col][signed_motif_type][g_ind] += coherence
   return intensity_dict, coherence_dict
@@ -6561,7 +6703,7 @@ def get_motif_region_census(df, G_dict, area_dict, signed_motif_types):
           motif_type = signed_motif_type.replace('+', '').replace('-', '')
           motifs = motifs_by_type[motif_type]
           for motif in motifs:
-            smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='confidence')
+            smotif_type = motif_type + get_motif_sign_new(motif, motif_type, weight='sign')
             if smotif_type == signed_motif_type:
               region = get_motif_region(motif, node_area, motif_type)
               # print(smotif_type, region)
