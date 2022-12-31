@@ -3504,7 +3504,7 @@ def get_module_size_coverage_purity(G_dict, regions, best_comms_dict):
 
 size_dict, coverage_dict, purity_dict = get_module_size_coverage_purity(G_ccg_dict, visual_regions, best_comms_dict)
 #%%
-# Figure 3D
+# Figure 3B
 ########################### merge data points from all mice into one distribution
 def plot_num_module_VSpurity_threshold(size_dict, coverage_dict, purity_dict, sth_list_lin, sth_list_log, cth_list_lin, cth_list_log, pth_list):
   rows, cols = get_rowcol(purity_dict)
@@ -3724,7 +3724,7 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
 pth_list = np.arange(0, 1, 0.05)
 plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, visual_regions)
 #%%
-# Figure 3D
+# Figure 3E,F
 ################################ get module size and purity for each area
 def get_module_size_purity_each_area(G_dict, best_comms_dict, regions, combined_stimulus_name):
   rows, cols = get_rowcol(G_dict)
@@ -5574,6 +5574,7 @@ plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_res
 ####################### Figure 4 #######################
 ########################################################
 #%%
+# Figure 4A
 ################## relative count of signed node pairs
 def count_signed_triplet_connection_p(G):
   num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
@@ -5707,10 +5708,17 @@ signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_
 signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
 signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
 #%%
+# Figure S7D
 ################## plot weight/confidence difference between within motif/other neurons
 def get_data_within_cross_motif(G_dict, signed_motif_types, weight='confidence'):
   rows, cols = get_rowcol(G_dict)
   within_motif_dict, cross_motif_dict = {}, {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
   for row_ind, row in enumerate(rows):
     print(row)
     within_motif_dict[row], cross_motif_dict[row] = {}, {}
@@ -5724,7 +5732,8 @@ def get_data_within_cross_motif(G_dict, signed_motif_types, weight='confidence')
         motif_type = signed_motif_type.replace('+', '').replace('-', '')
         motifs = motifs_by_type[motif_type]
         for motif in motifs:
-          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
+          smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+          # smotif_type = motif_type + get_motif_sign_new(motif, motif_type, weight=weight)
           if smotif_type == signed_motif_type:
             within_motif_dict[row][col].append(np.mean([abs(G[e[0]][e[1]][weight]) for e in motif.edges()]))
             other_edges -= set(list(motif.edges()))
@@ -5746,21 +5755,23 @@ sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '3
 confidence_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='confidence')
 weight_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='weight')
 #%%
+# Figure S7D
 def save_within_motif_otherwise_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = ['k','w']
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=2) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
+  export_legend(legend, './plots/within_motif_otherwise_legend_2cols.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
 
 save_within_motif_otherwise_legend()
 #%%
+# Figure S7D
 def plot_data_within_cross_motif_significance(df, weight='confidence'):
   fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
   palette = ['k','w']
@@ -5778,7 +5789,7 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
   ax.tick_params(width=2)
   ax.set_xlabel('')
   if weight == 'confidence':
-    ylabel = 'Z score'
+    ylabel = r'$Z_{CCG}$'
   elif weight == 'weight':
     ylabel = 'Connection strength'
   ax.set_ylabel(ylabel, fontsize=40) #'Absolute ' + 
@@ -5792,7 +5803,10 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
     within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
     within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
     maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
-  h, l = .05 * maxx, .05 * maxx
+  if weight == 'confidence':
+    h, l = .01 * maxx, .01 * maxx
+  elif weight == 'weight':
+    h, l = .05 * maxx, .05 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
     _, p = ztest(within_motif, cross_motif, value=0)
@@ -5801,6 +5815,8 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
     within_sr = within_sr + h
     cross_sr = cross_sr + h
     annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  if weight == 'confidence':
+    ax.set_ylim(bottom=4)
   plt.tight_layout(rect=[.02, -.03, 1, 1])
 
   # plt.tight_layout()
@@ -5808,12 +5824,19 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
   plt.savefig('./plots/{}_within_cross_motif.pdf'.format(weight), transparent=True)
 
 plot_data_within_cross_motif_significance(confidence_within_cross_motif_df, weight='confidence')
-plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
+# plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
 #%%
+# Figure 4F
 ################## plot signal correlation difference between within motif/other neurons
 def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correlation_dict, pair_type='all'):
   rows, cols = get_rowcol(G_dict)
   within_motif_dict, cross_motif_dict = {}, {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
   for row_ind, row in enumerate(rows):
     print(row)
     active_area = active_area_dict[row]
@@ -5835,7 +5858,8 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
           motif_type = signed_motif_type.replace('+', '').replace('-', '')
           motifs = motifs_by_type[motif_type]
           for motif in motifs:
-            smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
+            smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+            # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
             if smotif_type == signed_motif_type:
               if pair_type == 'all': # all neuron pairs
                 motif_pairs = list(itertools.combinations(motif.nodes(), 2))
@@ -5859,11 +5883,12 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
   df['signal_corr'] = pd.to_numeric(df['signal_corr'])
   return df
 
-pair_type = 'all'
-# pair_type = 'connected'
+# pair_type = 'all'
+pair_type = 'connected'
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
 signal_corr_within_cross_motif_df = get_signalcorr_within_cross_motif(G_ccg_dict, sig_motif_types, signal_correlation_dict, pair_type=pair_type)
 #%%
+# Figure 4F
 def plot_signalcorr_within_cross_motif_significance(df, pair_type='all'):
   fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
   df = df.set_index('stimulus')
@@ -6073,41 +6098,42 @@ mean_df = remove_outlier_meandf(whole_df, mean_df, signed_motif_types)
 ############### Z score distribution for all signed motifs
 plot_zscore_distribution(whole_df, measure, n)
 #%%
-def plot_zscore_all_motif(df, model_name):
-  stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
-  fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(100, 6*len(stimulus_order)))
-  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
-  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
-  sorted_types = [item for sublist in sorted_types for item in sublist]
-  for s_ind, stimulus in enumerate(stimulus_order):
-    print(stimulus)
-    data = df[df.stimulus==stimulus]
-    ax = axes[s_ind]
-    ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
-    barplot = sns.barplot(data=data, x="signed motif type", y="intensity z score", order=sorted_types, ax=ax)
-    ax.xaxis.set_tick_params(labelsize=35, rotation=90)
-    ax.yaxis.set_tick_params(labelsize=35)
-    for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(1.5)
-      ax.spines[axis].set_color('0.2')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.tick_params(width=2.5)
-    ax.xaxis.set_tick_params(length=0)
-    ax.set_ylabel('Z score of intensity', fontsize=40)
-    # ax.set_ylim(top=60)
-    # plt.yscale('symlog')
-    barplot.set(xlabel=None)
-    ax.set_ylim(-10, 20)
-  plt.tight_layout()
-  figname = './plots/zscore_all_motifs_{}.pdf'.format(model_name.replace(' ', '_'))
-  # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
-  plt.savefig(figname, transparent=True)
-################## box plot of z score for all signed motifs
-dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
-for df_ind, df in enumerate(dfs):
-  plot_zscore_all_motif(df, model_names[df_ind])
+# def plot_zscore_all_motif(df, model_name):
+#   stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
+#   fig, axes = plt.subplots(len(stimulus_order),1, sharex=True, sharey=True, figsize=(100, 6*len(stimulus_order)))
+#   TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+#   sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+#   sorted_types = [item for sublist in sorted_types for item in sublist]
+#   for s_ind, stimulus in enumerate(stimulus_order):
+#     print(stimulus)
+#     data = df[df.stimulus==stimulus]
+#     ax = axes[s_ind]
+#     ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=50, rotation=0)
+#     barplot = sns.barplot(data=data, x="signed motif type", y="intensity z score", order=sorted_types, ax=ax)
+#     ax.xaxis.set_tick_params(labelsize=35, rotation=90)
+#     ax.yaxis.set_tick_params(labelsize=35)
+#     for axis in ['bottom', 'left']:
+#       ax.spines[axis].set_linewidth(1.5)
+#       ax.spines[axis].set_color('0.2')
+#     ax.spines['top'].set_visible(False)
+#     ax.spines['right'].set_visible(False)
+#     ax.tick_params(width=2.5)
+#     ax.xaxis.set_tick_params(length=0)
+#     ax.set_ylabel('Z score of intensity', fontsize=40)
+#     # ax.set_ylim(top=60)
+#     # plt.yscale('symlog')
+#     barplot.set(xlabel=None)
+#     ax.set_ylim(-10, 20)
+#   plt.tight_layout()
+#   figname = './plots/zscore_all_motifs_{}.pdf'.format(model_name.replace(' ', '_'))
+#   # figname = './plots/zscore_all_motifs_log_{}_{}fold.jpg'.format(measure, n)
+#   plt.savefig(figname, transparent=True)
+# ################## box plot of z score for all signed motifs
+# dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
+# for df_ind, df in enumerate(dfs):
+#   plot_zscore_all_motif(df, model_names[df_ind])
 #%%
+# Figure 4B
 def plot_zscore_allmotif_lollipop(df, model_name):
   # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
   fig, axes = plt.subplots(len(combined_stimulus_names),1, sharex=True, sharey=True, figsize=(50, 3*len(combined_stimulus_names)))
@@ -6144,7 +6170,7 @@ def plot_zscore_allmotif_lollipop(df, model_name):
     if model_names.index(model_name) <= 1:
       ax.set_yscale('symlog')
     else:
-      ax.set_ylim(-13, 23)
+      ax.set_ylim(-13, 21)
   plt.tight_layout()
   figname = './plots/zscore_all_motifs_lollipop_{}.pdf'.format(model_name.replace(' ', '_'))
   plt.savefig(figname, transparent=True)
@@ -6153,9 +6179,10 @@ def plot_zscore_allmotif_lollipop(df, model_name):
 # plot_zscore_allmotif_lollipop(whole_df)
 dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
 # for df_ind, df in enumerate(dfs):
-df_ind = 0
+df_ind = 3
 plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 #%%
+# Figure 4C
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
   df['density'] = 0
@@ -6310,6 +6337,7 @@ def plot_heatmap_spearman_zscore(df, name='spearmanr'):
 # plot_heatmap_spearman_zscore(whole_df4, name='spearmanr')
 plot_heatmap_spearman_zscore(whole_df4, name='kendalltau')
 #%%
+# Figure 4D
 from matplotlib.colors import LinearSegmentedColormap
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
     new_cmap = colors.LinearSegmentedColormap.from_list(
@@ -6335,14 +6363,14 @@ def plot_heatmap_correlation_zscore(df):
   hm_z = np.corrcoef(data_mat)
   np.fill_diagonal(hm_z, np.nan)
 
-  cmap = plt.get_cmap('hot')
-  new_cmap = truncate_colormap(cmap, 0., 0.3)
+  # cmap = plt.get_cmap('hot')
+  # new_cmap = truncate_colormap(cmap, 0., 0.3)
   
-  colors = ['w', 'k'] # first color is black, last is red
+  colors = ['w', '.3'] # first color is black, last is red
   cm = LinearSegmentedColormap.from_list(
         "Custom", colors, N=20)
 
-  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':14})#, mask=mask
+  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmin=0, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':14})#, mask=mask
   cbar = hm.collections[0].colorbar
   cbar.ax.tick_params(labelsize=20)
 
@@ -6364,60 +6392,55 @@ def plot_heatmap_correlation_zscore(df):
 
 plot_heatmap_correlation_zscore(whole_df4)
 #%%
+# Figure S7E
 ######################## Number of significant motifs against threshold
-def plot_sig_motif_threshold(df, threshold_list):
+from matplotlib.ticker import FuncFormatter # set log scale for only negative numbers
+def plot_signed_sig_motif_threshold(df, threshold_list):
   # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
   # stimulus_order = [s for s in stimulus_types if df[df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type].stimulus.str.contains(s).sum()]
-  num_pos, num_neg = np.zeros((len(stimulus_types), len(threshold_list))), np.zeros((len(stimulus_types), len(threshold_list)))
-  fig, ax = plt.subplots(figsize=[8,6])
+  num_pos, num_neg = np.zeros((len(combined_stimulus_names), len(threshold_list))), np.zeros((len(combined_stimulus_names), len(threshold_list)))
+  fig, axes = plt.subplots(1, 2, figsize=[5*2,4])
   linewidth=2.5
-  for s_ind, stimulus_type in enumerate(stimulus_types):
-    print(stimulus_type)
-    # data = df[df.stimulus==stimulus]
-    data = df[df.apply(lambda x: stimulus2stype(x['stimulus'])[1], axis=1)==stimulus_type]
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
     for t_ind, threshold in enumerate(threshold_list):
-      num_pos[s_ind, t_ind] = len(data[data['intensity z score']>=threshold])
-      num_neg[s_ind, t_ind] = len(data[data['intensity z score']<=-threshold])
-    ax.plot(threshold_list, num_neg[s_ind, :], color=stimulus_type_color[s_ind], linestyle=(0, (5,1)), alpha=.9, linewidth=linewidth)
-    ax.plot(threshold_list, num_pos[s_ind, :], label=stimulus_type, color=stimulus_type_color[s_ind], alpha=.9, linewidth=linewidth)
-  # plt.legend(loc='lower left', frameon=False)
-  handles, labels = ax.get_legend_handles_labels()
-  ax.legend(handles, [sn.replace('\n', ' ') for sn in stimulus_types], title='', loc='lower left', fontsize=7, frameon=False)#, bbox_to_anchor=(.9, 1.)
-  ax.set_xscale('log')
-  ax.set_yscale('log')
-  for axis in ['bottom', 'left']:
-    ax.spines[axis].set_linewidth(1.5)
-    ax.spines[axis].set_color('k')
-  ax.spines['top'].set_visible(False)
-  ax.spines['right'].set_visible(False)
-  ax.tick_params(width=1.5)
-  plt.xticks(fontsize=20)
-  plt.yticks(fontsize=20)
-  plt.setp(ax.get_legend().get_texts(), fontsize='25') # for legend text
-  # plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
-  plt.xlabel('Threshold', fontsize=25)
-  plt.ylabel('Number of significant motifs', fontsize=25)
-  axins = inset_axes(ax, loc='upper right', width="28%", # width = 30% of parent_bbox
-                   height="35%") # height : 1 inch)
-  # mark_inset(ax, axins, loc1=1, loc2=1, fc="none", ec="0.5")
-  axins.set_xlim([3,18])
-  axins.set_ylim([.8,18])
-  # # Plot zoom window
-  for s_ind, stimulus_type in enumerate(stimulus_types):
-    axins.plot(threshold_list, num_neg[s_ind, :], color=stimulus_type_color[s_ind], linestyle=(0, (5,1)), alpha=.9, linewidth=linewidth)
-    axins.plot(threshold_list, num_pos[s_ind, :], label=stimulus_type, color=stimulus_type_color[s_ind], alpha=.9, linewidth=linewidth)
-  axins.spines['top'].set_visible(False)
-  axins.spines['right'].set_visible(False)
-  plt.yscale('log')
-  plt.xticks(fontsize=20)
-  plt.yticks(fontsize=20)
-  # plt.tight_layout()
-  plt.savefig('./plots/sig_motif_threshold.pdf', transparent=True)
+      num_pos[cs_ind, t_ind] = len(data[data['intensity z score']>=threshold])
+      num_neg[cs_ind, t_ind] = len(data[data['intensity z score']<=-threshold])
+    axes[0].plot(threshold_list, num_pos[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
+    axes[1].plot(threshold_list, num_neg[cs_ind], label=combined_stimulus_name, color='.1', marker=stimulus2marker[combined_stimulus_name], markersize=scatter_size_dict[stimulus2marker[combined_stimulus_name]], alpha=1., markerfacecolor='w')
+  fontsize = 20
+  for ax in axes:
+    ax.xaxis.set_tick_params(labelsize=fontsize)
+    ax.yaxis.set_tick_params(labelsize=fontsize)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    # handles, labels = ax.get_legend_handles_labels()
+    # ax.legend(handles, [sn.replace('\n', ' ') for sn in stimulus_types], title='', loc='lower left', fontsize=7, frameon=False)#, bbox_to_anchor=(.9, 1.)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    ax.set_xlabel('Threshold on Z score', fontsize=25)
+  # axes[0].set_ylabel('Number of significant motif patterns', fontsize=fontsize)
+  ax.set_xticks([0.1,1,10])
+  ax.xaxis.set_major_formatter(FuncFormatter(lambda x,pos: '$-\\mathdefault{10^{'+f'{int(np.log10(x))}'+'}}$')) # set log scale for only negative numbers
+  # ax.set_xticks(threshold_list)
+  # ax.set_xticklabels(x)
+  # ax.set_xticks(threshold_list, labels=-threshold_list)
+  # xticks = ax.get_xticks() # .astype(float)
+  # print(xticks)
+  # axes[1].set_xticks(xticks)
+  # axes[1].set_xticklabels(labels=-xticks[::-1], fontsize=25)
+  plt.tight_layout()
+  plt.savefig('./plots/signed_sig_motif_threshold.pdf', transparent=True)
   # plt.show()
 ################## number of significant motif VS threshold
-threshold_list = np.arange(0.1, 21, 0.1)
-plot_sig_motif_threshold(mean_df4, threshold_list)
+threshold_list = np.logspace(-1, np.log10(21), 20)
+plot_signed_sig_motif_threshold(mean_df4, threshold_list)
 #%%
+# Figure 4E
 ################## regional distribution of significant motifs 030T+,120D+,120U+,120C+,210+,300+
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
 region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_types)
@@ -6425,6 +6448,7 @@ region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_typ
 # ################## plot regional distribution of significant motifs
 # plot_sig_motif_region(region_count_dict, sig_motif_types)
 #%%
+# Figure 4E
 ################## plot errorplot for motif region
 def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mtype='all_V1'):
   fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(6, 4))
@@ -6832,7 +6856,6 @@ def plot_motif_region_box(region_count_dict, signed_motif_types, mtype='all_V1')
 
 plot_motif_region_box(region_count_dict, sig_motif_types, mtype='all_V1')
 plot_motif_region_box(region_count_dict, sig_motif_types, mtype='one_V1')
-#%%
 # %%
 def adjust_box_widths(g, fac):
   # iterating through Axes instances
@@ -7290,6 +7313,7 @@ whole_df2, signed_motif_types2 = add_missing_motif_type(whole_df2, signed_motif_
 whole_df3, signed_motif_types3 = add_missing_motif_type(whole_df3, signed_motif_types3, signed_motif_types)
 whole_df4, signed_motif_types4 = add_missing_motif_type(whole_df4, signed_motif_types4, signed_motif_types)
 # %%
+# Figure 4G
 GREY = '.5'
 motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
 
