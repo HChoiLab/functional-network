@@ -1076,7 +1076,7 @@ def get_region_links(G_dict, regions, active_area_dict):
 
 intra_links, inter_links = get_region_links(G_ccg_dict, visual_regions, active_area_dict)
 #%%
-# Figure S3
+# Figure S3A
 def plot_FR_links_region(data, regions, dataname):
   if dataname == 'FR':
     name = 'Firing rate (Hz)'
@@ -1323,7 +1323,7 @@ def scatter_linkVSFR_stimulus(FR, links, regions, degree_type='intra'):
 scatter_linkVSFR_stimulus(FR, intra_links, visual_regions, degree_type='intra')
 scatter_linkVSFR_stimulus(FR, inter_links, visual_regions, degree_type='inter')
 #%%
-# Figure S3
+# Figure S3B
 ################### confidence level for difference between two correlations
 def r_confidence_interval(r, n, alpha):
   z = np.log((1 + r) / (1 - r)) / 2.0
@@ -1406,7 +1406,7 @@ df = get_difference_intra_inter_r_stimulus(FR, intra_links, inter_links, visual_
 df
 # df[(df['significance'].isin(['*', '**', '***', '****'])) & (df['intra significance'].isin(['*', '**', '***', '****']))]
 #%%
-# Figure S3
+# Figure S3B
 ################### barplot of correlation for intra/inter links VS FR with significance annotation
 def plot_intra_inter_r_bar_significance(df, regions):
   fig, axes = plt.subplots(3, 2, figsize=(7*2, 5*3), sharey=True)
@@ -1463,20 +1463,21 @@ def plot_intra_inter_r_bar_significance(df, regions):
 
 plot_intra_inter_r_bar_significance(df, visual_regions)
 #%%
-def save_within_cross_region_legend():
+# Figure S3B
+def save_within_across_region_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='none', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within-area', 'cross-area'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within-area', 'across-area'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_cross_region_legend.pdf')
+  export_legend(legend, './plots/within_across_region_legend.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
 
-save_within_cross_region_legend()
+save_within_across_region_legend()
 #%%
 def get_certain_region_links(G_dict, regions, active_area_dict, certain_regions=['VISp']):
   rows, cols = get_rowcol(G_dict)
@@ -2437,6 +2438,84 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 # signal_correlation = np.corrcoef(FR_condition)
 # np.fill_diagonal(signal_correlation, np.nan)
 #%%
+# test if we can merge data points to get response to different stimulus conditions with same length
+def get_num_stimulus_conditions(G_dict, resolution):
+  all_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP'] # calculate signal correlation matrix for all 8 regions, but select only cortical regions later
+  rows, cols = get_rowcol(G_dict)
+  num_stimulus_conditions = np.zeros((len(rows), len(cols)))
+  row_ind = 0
+  row = rows[row_ind]
+  # for row_ind, row in enumerate(rows):
+  for col_ind, col in enumerate(cols):
+    print(row, col)
+  # for combined_stimulus in combined_stimuli[1:]:
+  #   print(row, combined_stimulus_names[combined_stimuli.index(combined_stimulus)].replace('\n', ' '))
+  #   for col in combined_stimulus:
+      # condition, time, neuron
+    stim_table, histograms = get_table_histogram(row, col, all_regions, resolution)
+    if 'natural_movie' in col:
+      frame_ids = np.unique(stim_table.frame)
+      num_conditions = len(frame_ids)
+    else:
+      unique_condition_ids = stim_table['stimulus_condition_id'].unique()
+      num_conditions = len(unique_condition_ids)
+    num_stimulus_conditions[row_ind, col_ind] = num_conditions
+  return num_stimulus_conditions
+
+start_time = time.time()
+resolution = 0.001
+num_stimulus_conditions = get_num_stimulus_conditions(G_ccg_dict, resolution)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def get_chunked_signal_correlation(G_dict, resolution):
+  all_regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP'] # calculate signal correlation matrix for all 8 regions, but select only cortical regions later
+  rows, cols = get_rowcol(G_dict)
+  signal_correlation_dict = {}
+  for row in rows:
+    signal_correlation_dict[row] = {}
+    for combined_stimulus in combined_stimuli[2:]:
+      print(row, combined_stimulus_names[combined_stimuli.index(combined_stimulus)].replace('\n', ' '))
+      FR_condition = []
+      for col in combined_stimulus:
+        # condition, time, neuron
+        stim_table, histograms = get_table_histogram(row, col, all_regions, resolution)
+        if 'natural_movie' in col:
+          sequences = np.moveaxis(histograms.values, -1, 0) # neuron, condition, time
+          frame_ids = np.unique(stim_table.frame)
+          num_neuron, trial, time = sequences[:,stim_table.frame==0,:].shape
+          # new_sequences = np.zeros((num_neuron, len(frame_ids), trial*time))
+          for ind, frame_id in enumerate(frame_ids):
+            # new_sequences[:,ind,:] = sequences[:,stim_table.frame==frame_id,:].reshape(num_neuron, -1)
+            sequence = sequences[:,stim_table.frame==frame_id,:].reshape(num_neuron, -1)
+            FR_condition.append(1000 * sequence.sum(1) / sequence.shape[1]) # firing rate in Hz
+        else:
+          unique_condition_ids = stim_table['stimulus_condition_id'].unique()
+          for condition_id in unique_condition_ids:
+            inds = stim_table['stimulus_condition_id']==condition_id
+          # unique_sblock = stim_table[['stimulus_block', 'stimulus_condition_id']].drop_duplicates()
+          # for i in range(unique_sblock.shape[0]):
+            # inds = (stim_table['stimulus_block']==unique_sblock.iloc[i]['stimulus_block']) & (stim_table['stimulus_condition_id']==unique_sblock.iloc[i]['stimulus_condition_id'])
+            sequences = np.moveaxis(histograms.values[inds], -1, 0) # neuron, condition, time
+            # FR_condition[:, c_ind] = 1000 * sequences.mean(1).sum(1) / sequences.shape[2] # firing rate in Hz
+            FR_condition.append(1000 * sequences.mean(1).sum(1) / sequences.shape[2]) # firing rate in Hz
+      FR_condition = np.vstack(FR_condition).T # transpose to (neuron, block)
+      chunked_FR_condition = []
+      for i in np.array_split(FR_condition, 41, axis=1):
+        chunked_FR_condition.append(i.mean(-1))
+      chunked_FR_condition = np.vstack(chunked_FR_condition).T
+      signal_correlation = np.corrcoef(chunked_FR_condition)
+      np.fill_diagonal(signal_correlation, 0)
+      signal_correlation_dict[row][combine_stimulus(col)[1]] = signal_correlation
+  return signal_correlation_dict
+
+start_time = time.time()
+resolution = 0.001
+signal_correlation_dict = get_chunked_signal_correlation(G_ccg_dict, resolution)
+a_file = open('./files/chunked_signal_correlation_dict.pkl', 'wb')
+pickle.dump(signal_correlation_dict, a_file)
+a_file.close()
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
 # Figure 3A
 ########################################## get signal correlation for within/cross community VS stimulus
 def get_within_cross_comm(G_dict, signal_correlation_dict, comms_dict, pair_type='all'):
@@ -2469,8 +2548,10 @@ def get_within_cross_comm(G_dict, signal_correlation_dict, comms_dict, pair_type
               within_comm.append(scorr)
             else:
               cross_comm.append(scorr)
-          within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
-          cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
+          # within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
+          # cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
+          within_comm_dict[row][combined_stimulus_name] += within_comm
+          cross_comm_dict[row][combined_stimulus_name] += cross_comm
   df = pd.DataFrame()
   for combined_stimulus_name in combined_stimulus_names[1:]:
     print(combined_stimulus_name)
@@ -2488,20 +2569,21 @@ start_time = time.time()
 signalcorr_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, signal_correlation_dict, best_comms_dict, pair_type=pair_type)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-def save_within_cross_module_legend():
+# Figure 3B
+def save_within_across_module_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = ['k','.6']
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within-module', 'across-module'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_cross_module_legend.pdf')
+  export_legend(legend, './plots/within_across_module_legend.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
 
-save_within_cross_module_legend()
+save_within_across_module_legend()
 #%%
 # Figure 3A
 ######################### merge all pairs from different mice into one distribution
@@ -2630,8 +2712,8 @@ save_markers()
 # Figure S5A
 ########################## probability of being in the same module VS signal correlation
 def plot_same_module_prob_signal_correlation(df):
-  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, sharey=True, figsize=(5*(len(combined_stimulus_names)-1), 5))
-  axes[0].set_ylim(top=1.2)
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5))
+  # axes[0].set_ylim(top=1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
@@ -2646,11 +2728,11 @@ def plot_same_module_prob_signal_correlation(df):
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
     for i in range(len(binned_x)):
-      ax.annotate('{}/{}'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)   
+      ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=20)   
     dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
     table = sm.stats.Table(dff, shift_zeros=False)
     p_value = table.test_ordinal_association().pvalue
-    locx, locy = .5, .9
+    locx, locy = .5, .1
     if p_value == 0:
       text = 'p<1e-310'
     else:
@@ -3683,7 +3765,7 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
   region_colors = ['#b3de69', '#80b1d3', '#fdb462', '#c3c3c3', '#fccde5', '#cec5f2']
   rows, cols = get_rowcol(purity_dict)
   runs = len(purity_dict[rows[0]][cols[0]])
-  fig, axes = plt.subplots(1, 6, figsize=(4*6, 4), sharex=True, sharey=True)
+  fig, axes = plt.subplots(1, 6, figsize=(3.7*6, 5), sharex=True, sharey=True)
   num_module = np.zeros((len(combined_stimulus_names), len(pth_list)))
   for r_ind, region in enumerate(regions[::-1]):
     ax = axes[r_ind]
@@ -3703,7 +3785,7 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
     ax.set_xlim(right=1)
     ax.set_title(region_labels[5-r_ind], fontsize=24)
   
-  fontsize = 20
+  fontsize = 25
   axes[0].set_ylabel('Number of modules', fontsize=fontsize)
   for ax in axes:
     ax.xaxis.set_tick_params(labelsize=fontsize)
@@ -3717,7 +3799,7 @@ def plot_num_module_VSpurity_threshold_areawise(purity_dict, pth_list, regions):
     ax.set_xlabel('')
     # ax.set_xlabel('Threshold on purity', fontsize=fontsize)
   # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
-  plt.tight_layout()
+  plt.tight_layout(rect=[0., 0., 1., .97])
   plt.savefig('./plots/num_moduleVSpurity_areawise.pdf', transparent=True)
   # plt.show()
 
@@ -4449,21 +4531,21 @@ plot_data_area_distance(area_distance, neg_frac, visual_regions, name='negative_
 # plot_signal_correlation_within_cross_comm_same_area_significance(signalcorr_within_cross_comm_same_area_df, rand_cross_comm_list, visual_regions)
 #%%
 # Figure 3E,F
-def save_within_cross_random_legend():
+def save_within_across_random_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = ['k','w']
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   ax.axhline(y=1, linestyle='--', linewidth=3, color='.2', label='cross random module')
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles[1:] + [handles[0]], ['within module', 'cross module (within area)', 'cross module (cross area)'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=3) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles[1:] + [handles[0]], ['within-module', 'across-module (within-area)', 'across-module (across-area)'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=3) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_cross_random_module_legend.pdf')
+  export_legend(legend, './plots/within_across_random_module_legend.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
 
-save_within_cross_random_legend()
+save_within_across_random_legend()
 #%%
 # Figure 3E,F
 ################################ positive density and negative fraction of within/cross module per area
@@ -5130,7 +5212,237 @@ plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighte
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
 #%%
-# Figure S5
+# load chunked signal correlation with same number of stimulus conditions
+with open('./files/chunked_signal_correlation_dict.pkl', 'rb') as f:
+  chunked_signal_correlation_dict = pickle.load(f)
+#%%
+# Not that good
+# get mean of signal correlation distribution
+def get_mean_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_correlation_dict, pairtype):
+  rows, cols = get_rowcol(G_dict)
+  df = pd.DataFrame()
+  sig_corr = np.zeros((len(session2keep), len(combined_stimulus_names)-2))
+  for row_ind, row in enumerate(session2keep):
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+      sc = signal_correlation_dict[row][combined_stimulus_name]
+      pos_edges, neg_edges, dis_pairs = [], [], []
+      for col in combined_stimuli[cs_ind+1]:
+        G = G_dict[row][col].copy()
+        pos_edges += [(i,j) for i,j,w in G.edges(data='weight') if w > 0]
+        neg_edges += [(i,j) for i,j,w in G.edges(data='weight') if w < 0]
+        dis_pairs += [(i,j) for i,j in list(itertools.combinations(G.nodes(), 2)) if (not G.has_edge(i,j)) and (not G.has_edge(j,i))]
+      pos_sigcorr = [sc[i, j] for i, j in pos_edges if not np.isnan(sc[i, j])]
+      neg_sigcorr = [sc[i, j] for i, j in neg_edges if not np.isnan(sc[i, j])]
+      dis_sigcorr = [sc[i, j] for i, j in dis_pairs if not np.isnan(sc[i, j])]
+      if pairtype == 'pos':
+        sc = np.mean(pos_sigcorr)
+      elif pairtype == 'neg':
+        sc = np.mean(neg_sigcorr)
+      elif pairtype == 'dis':
+        sc = np.mean(dis_sigcorr)
+      sig_corr[row_ind, cs_ind] = sc
+      # m_sc[row_ind, cs_ind] = np.nanmean([sc[i, j] for i, j in set(edges)])
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      w_purity_col = []
+      data = {}
+      G = G_dict[row][col].copy()
+      node_area = area_dict[row]
+      all_regions = [node_area[node] for node in sorted(G.nodes())]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(len(best_comms_dict[row][col])):
+        comms_list = best_comms_dict[row][col]
+        comms = comms_list[run]
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          size = counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          if size in data:
+            data[size][0].append(purity)
+            data[size][1].append(coverage)
+          else:
+            data[size] = [[purity], [coverage]]
+        c_size, c_purity, c_coverage = [k for k,v in data.items()], [v[0] for k,v in data.items()], [v[1] for k,v in data.items()]
+        all_size = np.repeat(c_size, [len(p) for p in c_purity])
+        c_size = all_size / sum(all_size)
+        w_purity_col.append(sum([cs * cp for cs, cp in zip(c_size, [p for ps in c_purity for p in ps])]))
+        # w_coverage_col.append(sum([cs * cc for cs, cc in zip(c_size, [c for css in c_coverage for c in css])]))
+        # w_purity_col.append(sum([cs * np.sum(cp) for cs, cp in zip(c_size, c_purity)]))
+        # w_coverage_col.append(sum([cs * np.sum(cp) for cs, cp in zip(c_size, c_coverage)]))
+
+        assert len(all_regions) == len(comm2label(comms)), '{}, {}'.format(len(all_regions), len(comm2label(comms)))
+        # print(len(regions), len(comm2label(comms)))
+        # ri_list.append(adjusted_rand_score(all_regions, comm2label(comms)))
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_purity_col)[:,None], np.array([combine_stimulus(col)[1]] * len(w_purity_col))[:,None], np.array([row] * len(w_purity_col))[:,None]), 1), columns=['weighted purity', 'combined stimulus', 'session'])], ignore_index=True)
+  df['weighted purity'] = pd.to_numeric(df['weighted purity'])
+  return sig_corr, df
+
+# pairtype = 'pos'
+# pairtype = 'neg'
+pairtype='dis'
+sig_corr, wpurity_df = get_mean_signalcorr_wpurity(G_ccg_dict, area_dict, visual_regions, best_comms_dict, chunked_signal_correlation_dict, pairtype=pairtype)
+#%%
+# Not that good
+# plot chunked signal correlation for pos, neg and disconnected pairs
+def plot_chunked_signalcorrVSwpurity_markers(wpurity_df, sig_corr, pairtype='pos'):
+  fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+  X, Y = [], []
+  for s_ind, session in enumerate(session2keep):
+    data = wpurity_df[wpurity_df['session']==session].groupby('combined stimulus')
+    x = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()[2:]
+    y = sig_corr[s_ind]
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()[1:]
+    # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
+    # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
+    X += list(x)
+    Y += list(y)
+    for ind, (xi, yi) in enumerate(zip(x, y)):
+      ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind+2]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind+2]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+    # for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+    #   ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+    #   ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind+1]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind+1]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+  line = slope*X+intercept
+  locx, locy = .5, 1.1
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  ax.text(locx, locy, text, horizontalalignment='center',
+    verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  ax.xaxis.set_tick_params(labelsize=20)
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('WA purity', fontsize=22)
+  ax.set_ylabel('Signal correlation', fontsize=22)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/chunked_signalcorrVSwpurity_markers_{}.pdf'.format(pairtype), transparent=True)
+  # plt.show()
+
+plot_chunked_signalcorrVSwpurity_markers(wpurity_df, sig_corr, pairtype)
+#%%
+# Figure S5C
+# Better
+# plot chunked signal correlation for within/cross module pairs
+def get_within_cross_comm_chunked(G_dict, signal_correlation_dict, comms_dict, pair_type='all'):
+  rows = list(signal_correlation_dict.keys())
+  within_comm_dict, cross_comm_dict = {}, {}
+  runs = len(comms_dict[rows[0]][cols[0]])
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    within_comm_dict[row], cross_comm_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names[2:]:
+      within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name] = [], []
+      signal_correlation = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
+        comms_list = comms_dict[row][col]
+        for run in range(runs):
+          comms = comms_list[run]
+          within_comm, cross_comm = [], []
+          node_to_community = comm2partition(comms)
+          if pair_type == 'all': # all neuron pairs
+            neuron_pairs = list(itertools.combinations(node_idx, 2))
+          elif pair_type == 'connected': # limited to connected pairs only
+            neuron_pairs = G.to_undirected().edges()
+          for nodei, nodej in neuron_pairs: # for all neurons
+            scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+            if node_to_community[nodei] == node_to_community[nodej]:
+              within_comm.append(scorr)
+            else:
+              cross_comm.append(scorr)
+          within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
+          cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names[2:]:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      within_comm, cross_comm = within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name]
+      within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([combined_stimulus_name] * len(within_comm))[:,None], np.array([row] * len(within_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([combined_stimulus_name] * len(cross_comm))[:,None], np.array([row] * len(cross_comm))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
+  df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+  return df
+
+# pair_type = 'all'
+pair_type = 'connected'
+start_time = time.time()
+signalcorr_within_cross_comm_df = get_within_cross_comm_chunked(G_ccg_dict, chunked_signal_correlation_dict, best_comms_dict, pair_type=pair_type)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# Figure S5C
+# Better
+# plot chunked signal correlation for within/cross pairs
+def plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, within_cross_df, pairtype='within'):
+  fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+  X, Y = [], []
+  df = signalcorr_within_cross_comm_df.groupby(['stimulus', 'session']).mean(numeric_only=True)
+  for s_ind, session in enumerate(session2keep):
+    data = wpurity_df[wpurity_df['session']==session].groupby('combined stimulus')
+    x = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()[2:]
+    if pairtype == 'within':
+      y_df = within_cross_df[(within_cross_df.session==session)&(within_cross_df.type=='within community')]
+    elif pairtype == 'cross':
+      y_df = within_cross_df[(within_cross_df.session==session)&(within_cross_df.type=='cross community')]
+    elif pairtype == 'all_connected':
+      y_df = within_cross_df[within_cross_df.session==session]
+    y = y_df.groupby('stimulus').mean(numeric_only=True).loc[combined_stimulus_names[2:]].values.flatten()
+    # y = sig_corr[s_ind]
+    
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()[1:]
+    # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
+    # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
+    X += list(x)
+    Y += list(y)
+    for ind, (xi, yi) in enumerate(zip(x, y)):
+      ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind+2]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind+2]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+    # for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+    #   ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+    #   ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind+1]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind+1]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+  line = slope*X+intercept
+  locx, locy = .5, 1.1
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  ax.text(locx, locy, text, horizontalalignment='center',
+    verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  ax.xaxis.set_tick_params(labelsize=20)
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('WA purity', fontsize=22)
+  ax.set_ylabel('Signal correlation', fontsize=22)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/chunked_signalcorrVSwpurity_markers_{}.pdf'.format(pairtype), transparent=True)
+  # plt.show()
+
+# plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, signalcorr_within_cross_comm_df, pairtype='within')
+# plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, signalcorr_within_cross_comm_df, pairtype='cross')
+plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, signalcorr_within_cross_comm_df, pairtype='all_connected')
+#%%
+# Figure S5B
 # Z score between signal correlation distributions of pos, neg and disconnected neuron pairs
 # correlation coefficient between w_purity and Z score is neg_dis=0.72 > pos_dis=0.52 > pos_neg=0.29, unsigned connected_dis = 0.53
 def get_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_correlation_dict, pairtype):
@@ -5762,7 +6074,7 @@ def save_within_motif_otherwise_legend():
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=2) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within-motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=2) # change legend order to within/cross similar module then cross random
   plt.axis('off')
   export_legend(legend, './plots/within_motif_otherwise_legend_2cols.pdf')
   plt.tight_layout()
