@@ -2587,8 +2587,10 @@ save_within_across_module_legend()
 #%%
 # Figure 3A
 ######################### merge all pairs from different mice into one distribution
-def plot_signal_correlation_within_cross_comm_significance(df, pair_type='all'):
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
+def plot_signal_correlation_within_cross_comm_significance(origin_df, pair_type='all'):
+  df = origin_df.copy()
+  df = df[df['stimulus']!='Flashes'] # remove flashes
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(2*(len(combined_stimulus_names)-2), 5))
   palette = ['k','.6']
   barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", hue_order=['within community', 'cross community'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6, errorbar=('ci', 95))
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
@@ -2612,19 +2614,19 @@ def plot_signal_correlation_within_cross_comm_significance(df, pair_type='all'):
   # add significance annotation
   alpha_list = [.0001, .001, .01, .05]
   maxx = 0
-  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
   h, l = .05 * maxx, .05 * maxx
-  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
     _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     within_sr = within_sr + h
     cross_sr = cross_sr + h
-    annot_difference(diff_star, -.12 + cs_ind, .12 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
   plt.tight_layout(rect=[.02, -.03, 1, 1])
   # plt.show()
   plt.savefig('./plots/signal_correlation_within_cross_comm_{}.pdf'.format(pair_type), transparent=True)
@@ -2712,12 +2714,12 @@ save_markers()
 # Figure S5A
 ########################## probability of being in the same module VS signal correlation
 def plot_same_module_prob_signal_correlation(df):
-  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5))
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 5))
   # axes[0].set_ylim(top=1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
-    data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+2]].copy() # remove spontaneous and flash
     data.insert(0, 'probability of same module', 0)
     # data.loc[:, 'probability of same module'] = 0
     data.loc[data['type']=='within community','probability of same module'] = 1
@@ -2806,12 +2808,12 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 # Figure S2A
 def plot_connectionp_signal_correlation(df):
-  fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 5)) #
   # axes[0].set_ylim(top = 1.2)
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
-    data = df[df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+2]].copy() # remove spontaneous and flash
     # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
 
     data.insert(0, 'probability of connection', 0)
@@ -2928,8 +2930,8 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
   return pos_df, neg_df, dis_df
 
 start_time = time.time()
-pairtype = 'all'
-# pairtype = 'connected'
+# pairtype = 'all'
+pairtype = 'connected'
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
@@ -2937,7 +2939,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 def plot_pos_neg_connectionp_signal_correlation(df, dname='pos',pairtype='connected'):
   # for row in session2keep:
   #   print(row)
-    fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 5)) #, sharey=True
+    fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 5)) #, sharey=True
     # axes[0].set_ylim(top = 1.2)
     # if dname == 'pos':
     #   axes[0].set_ylim(top = .2)
@@ -2946,7 +2948,7 @@ def plot_pos_neg_connectionp_signal_correlation(df, dname='pos',pairtype='connec
     # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
     for cs_ind in range(len(axes)):
       ax = axes[cs_ind]
-      data = df[(df.stimulus==combined_stimulus_names[cs_ind+1])].copy() #  & (df.session==row)
+      data = df[(df.stimulus==combined_stimulus_names[cs_ind+2])].copy() #  remove spontaneous and flash
       
       # Old version, bootstrapping for connected sigcorr and disconnected sigcorr separately
       # data.insert(0, 'probability of connection', 0)
@@ -3008,12 +3010,13 @@ plot_pos_neg_connectionp_signal_correlation(neg_connectionp_signalcorr_df, 'neg'
 def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
   # for row in session2keep:
   #   print(row)
-    fig, axes = plt.subplots(1,len(combined_stimulus_names)-1, figsize=(5*(len(combined_stimulus_names)-1), 3)) #, sharey=True
+    fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 3)) #, sharey=True
     for cs_ind in range(len(axes)):
       ax = axes[cs_ind]
-      pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+1]) & (pos_df.type==1)].copy() #  & (df.session==row)
-      neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+1]) & (neg_df.type==1)].copy() #  & (df.session==row)
-      dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+1]].copy()
+      # +2 to remove spontaneous and flash
+      pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==row)
+      neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==row)
+      dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+2]].copy()
       pos_x, neg_x, dis_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten(), dis_data['signal correlation'].values.flatten()
       df = pd.DataFrame()
       df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(pos_x)[:,None], np.array(['excitatory'] * len(pos_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
@@ -6067,16 +6070,16 @@ sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '3
 confidence_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='confidence')
 weight_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='weight')
 #%%
-# Figure S7D
+# Figure 4F, Figure S7D
 def save_within_motif_otherwise_legend():
-  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
-  palette = ['k','w']
-  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
-  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
+  palette = ['k', 'grey','w']
+  df = pd.DataFrame([[0,0,0],[0,0,1], [0,0,2]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1, 2], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within-motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=2) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within-eFFLb motif', 'within-other-motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=1) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_motif_otherwise_legend_2cols.pdf')
+  export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
@@ -6140,12 +6143,12 @@ plot_data_within_cross_motif_significance(confidence_within_cross_motif_df, weig
 #%%
 # Figure 4F
 ################## plot signal correlation difference between within motif/other neurons
-def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correlation_dict, pair_type='all'):
+def get_signalcorr_within_cross_motif(G_dict, eFFLb_types, all_motif_types, signal_correlation_dict, pair_type='all'):
   rows, cols = get_rowcol(G_dict)
-  within_motif_dict, cross_motif_dict = {}, {}
+  within_eFFLb_dict, within_motif_dict, cross_motif_dict = {}, {}, {}
   motif_types = []
   motif_edges, motif_sms = {}, {}
-  for signed_motif_type in signed_motif_types:
+  for signed_motif_type in all_motif_types:
     motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
   for motif_type in motif_types:
     motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
@@ -6153,11 +6156,13 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
     print(row)
     active_area = active_area_dict[row]
     node_idx = sorted(active_area.keys())
-    within_motif_dict[row], cross_motif_dict[row] = {}, {}
+    within_eFFLb_dict[row], within_motif_dict[row], cross_motif_dict[row] = {}, {}, {}
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
       for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
         print(col)
-        within_motif_dict[row][col], cross_motif_dict[row][col] = [], []
+        df = mean_df4[mean_df4['stimulus']==col]
+        sig_motifs = df.loc[df['intensity z score'] > 2.576]['signed motif type'].tolist() # 1.96, 2.576
+        within_eFFLb_dict[row][col], within_motif_dict[row][col], cross_motif_dict[row][col] = [], [], []
         G = G_dict[row][col]
         signal_corr = signal_correlation_dict[row][combined_stimulus_name]
         motifs_by_type = find_triads(G) # faster
@@ -6166,21 +6171,25 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
         elif pair_type == 'connected': # limited to connected pairs only
           neuron_pairs = list(G.to_undirected().edges())
         other_edges = set(neuron_pairs)
-        for signed_motif_type in signed_motif_types:
-          motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        for motif_type in motif_types:
           motifs = motifs_by_type[motif_type]
           for motif in motifs:
             smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
             # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
-            if smotif_type == signed_motif_type:
-              if pair_type == 'all': # all neuron pairs
-                motif_pairs = list(itertools.combinations(motif.nodes(), 2))
-              elif pair_type == 'connected': # limited to connected pairs only
-                motif_pairs = list(motif.to_undirected().edges())
-              within_signal_corr = [signal_corr[e] for e in motif_pairs if not np.isnan(signal_corr[e])]
-              if len(within_signal_corr):
+            if pair_type == 'all': # all neuron pairs
+              motif_pairs = list(itertools.combinations(motif.nodes(), 2))
+            elif pair_type == 'connected': # limited to connected pairs only
+              motif_pairs = list(motif.to_undirected().edges())
+            within_signal_corr = [signal_corr[e] for e in motif_pairs if not np.isnan(signal_corr[e])]
+            if len(within_signal_corr):
+              if smotif_type in eFFLb_types:
+                within_eFFLb_dict[row][col] += within_signal_corr
+                other_edges -= set(motif_pairs)
+              # else: # if all motifs
+              elif smotif_type in sig_motifs:
                 within_motif_dict[row][col] += within_signal_corr
-              other_edges -= set(motif_pairs)
+                other_edges -= set(motif_pairs)
+            
         for e in other_edges:
           if not np.isnan(signal_corr[e]):
             cross_motif_dict[row][col].append(signal_corr[e])
@@ -6188,9 +6197,10 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
     for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
       for row in session2keep:
-        within_motif, cross_motif = within_motif_dict[row][col], cross_motif_dict[row][col]
+        within_eFFLb, within_motif, cross_motif = within_eFFLb_dict[row][col], within_motif_dict[row][col], cross_motif_dict[row][col]
         # within_motif, cross_motif = [e for e in within_motif if not np.isnan(e)], [e for e in cross_motif if not np.isnan(e)] # remove nan values
-        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within motif'] * len(within_motif))[:,None], np.array([combined_stimulus_name] * len(within_motif))[:,None], np.array([row] * len(within_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_eFFLb)[:,None], np.array(['within eFFLb'] * len(within_eFFLb))[:,None], np.array([combined_stimulus_name] * len(within_eFFLb))[:,None], np.array([row] * len(within_eFFLb))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within other motif'] * len(within_motif))[:,None], np.array([combined_stimulus_name] * len(within_motif))[:,None], np.array([row] * len(within_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
         df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_motif)[:,None], np.array(['otherwise'] * len(cross_motif))[:,None], np.array([combined_stimulus_name] * len(cross_motif))[:,None], np.array([row] * len(cross_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
   df['signal_corr'] = pd.to_numeric(df['signal_corr'])
   return df
@@ -6198,17 +6208,20 @@ def get_signalcorr_within_cross_motif(G_dict, signed_motif_types, signal_correla
 # pair_type = 'all'
 pair_type = 'connected'
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
-signal_corr_within_cross_motif_df = get_signalcorr_within_cross_motif(G_ccg_dict, sig_motif_types, signal_correlation_dict, pair_type=pair_type)
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+signal_corr_within_cross_motif_df = get_signalcorr_within_cross_motif(G_ccg_dict, sig_motif_types, motif_types, signal_correlation_dict, pair_type=pair_type)
 #%%
 # Figure 4F
-def plot_signalcorr_within_cross_motif_significance(df, pair_type='all'):
-  fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
+def plot_signalcorr_within_cross_motif_significance(origin_df, pair_type='all'):
+  df = origin_df.copy()
+  # df = df[df['stimulus']!='Flashes'] # remove flashes
+  fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-2), 5))
   df = df.set_index('stimulus')
-  df = df.loc[combined_stimulus_names[1:]]
+  df = df.loc[combined_stimulus_names[2:]]
   df.reset_index(inplace=True)
-  palette = ['k','w']
+  palette = ['k', 'grey','w']
   y = 'signal_corr'
-  barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", hue_order=['within eFFLb', 'within other motif', 'otherwise'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   ax.yaxis.set_tick_params(labelsize=30)
   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
   plt.xticks([], []) # use markers to represent stimuli!
@@ -6227,24 +6240,33 @@ def plot_signalcorr_within_cross_motif_significance(df, pair_type='all'):
   alpha_list = [.0001, .001, .01, .05]
 
   maxx = 0
-  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
-    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
-    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
-    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+    within_eFFLb, within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    eFFLb_sr, within_sr, cross_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    maxx = max(eFFLb_sr, within_sr, cross_sr) if max(eFFLb_sr, within_sr, cross_sr) > maxx else maxx
   h, l = .05 * maxx, .05 * maxx
-  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[1:]):
-    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
-    _, p = ztest(within_motif, cross_motif, value=0)
-    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
-    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
-    within_sr = within_sr + h
-    cross_sr = cross_sr + h
-    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+    within_eFFLb, within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    if len(within_motif):
+      _, p1 = ztest(within_eFFLb, within_motif, value=0)
+      diff_star1 = '*' * (len(alpha_list) - bisect(alpha_list, p1)) if len(alpha_list) > bisect(alpha_list, p1) else 'ns'
+    _, p2 = ztest(within_eFFLb, cross_motif, value=0)
+    diff_star2 = '*' * (len(alpha_list) - bisect(alpha_list, p2)) if len(alpha_list) > bisect(alpha_list, p2) else 'ns'
+    eFFLb_sr, within_sr, cross_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    eFFLb_sr += h
+    within_sr += h
+    cross_sr += h
+    if len(within_motif):
+      annot_difference(diff_star1, -.18 + cs_ind, cs_ind, max(eFFLb_sr, within_sr), l, 2.5, 28, ax=ax)
+    annot_difference(diff_star2, -.18 + cs_ind, .18 + cs_ind, max(eFFLb_sr, cross_sr) + 3.5*h, l, 2.5, 28, ax=ax)
   plt.tight_layout(rect=[.02, -.03, 1, 1])
 
   # plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/signalcorr_within_cross_motif_{}.pdf'.format(pair_type), transparent=True)
+  # plt.savefig('./plots/signalcorr_within_cross_motif_{}.pdf'.format(pair_type), transparent=True)
+  # plt.savefig('./plots/signalcorr_within_cross_all_motif_{}.pdf'.format(pair_type), transparent=True)
+  # plt.savefig('./plots/signalcorr_within_cross_pos_motif_{}.pdf'.format(pair_type), transparent=True)
+  plt.savefig('./plots/signalcorr_within_cross_sig99_motif_{}.pdf'.format(pair_type), transparent=True)
 
 plot_signalcorr_within_cross_motif_significance(signal_corr_within_cross_motif_df, pair_type=pair_type)
 #%%
