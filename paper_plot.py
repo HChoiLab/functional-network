@@ -670,7 +670,7 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
   plt.xticks(fontsize=18) #, weight='bold'
   plt.yticks(fontsize=18) # , weight='bold'
-  name2label = {'offset':r'$\tau$', 'duration':r'$D$', 'delay':r'$\tau+D$'}
+  name2label = {'offset':'lag ' + r'$\tau$', 'duration':'duration ' + r'$D$', 'delay':r'$\tau+D$'}
   plt.xlabel('Within-area {} (ms)'.format(name2label[name]))
   ylabel = 'Cross-area {} (ms)'.format(name2label[name])
   plt.ylabel(ylabel)
@@ -6023,7 +6023,7 @@ signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_
 signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
 signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
 #%%
-# Figure S7D
+# Figure S7F
 ################## plot weight/confidence difference between within motif/other neurons
 def get_data_within_cross_motif(G_dict, signed_motif_types, weight='confidence'):
   rows, cols = get_rowcol(G_dict)
@@ -6071,7 +6071,7 @@ confidence_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_m
 weight_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='weight')
 #%%
 # Figure 4F, Figure S7D
-def save_within_motif_otherwise_legend():
+def save_within_eFFLb_motif_otherwise_legend():
   fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
   palette = ['k', 'grey','w']
   df = pd.DataFrame([[0,0,0],[0,0,1], [0,0,2]], columns=['x', 'y', 'type'])
@@ -6079,12 +6079,12 @@ def save_within_motif_otherwise_legend():
   handles, labels = ax.get_legend_handles_labels()
   legend = ax.legend(handles, ['within-eFFLb motif', 'within-other-motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=1) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
+  export_legend(legend, './plots/within_eFFLb_motif_otherwise_legend.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
 
-save_within_motif_otherwise_legend()
+save_within_eFFLb_motif_otherwise_legend()
 #%%
 # Figure S7D
 def plot_data_within_cross_motif_significance(df, weight='confidence'):
@@ -8032,4 +8032,604 @@ plot_signalcorr_distributions(signal_correlation_dict)
 #   plt.savefig('./plots//distri_pos_neg_weight_confidence_fold.pdf', transparent=True)
 #   # plt.show()
 # plot_distri_weight_confidence(G_ccg_dict)
+# %%
+# calculate neuron distance
+regions = ['VISp', 'VISl', 'VISrl', 'VISal', 'VISpm', 'VISam', 'LGd', 'LP']
+num2id = {}
+coordinate_df = pd.DataFrame()
+data_directory = './data/ecephys_cache_dir'
+manifest_path = os.path.join(data_directory, "manifest.json")
+cache = EcephysProjectCache.from_warehouse(manifest=manifest_path)
+for session_id in session_ids:
+  print(session_id)
+  num2id[session_id] = {}
+  session = cache.get_session_data(int(session_id),
+                              amplitude_cutoff_maximum=np.inf,
+                              presence_ratio_minimum=-np.inf,
+                              isi_violations_maximum=np.inf)
+  df = session.units
+  df = df.rename(columns={"channel_local_index": "channel_id", 
+                          "ecephys_structure_acronym": "ccf", 
+                          "probe_id":"probe_global_id", 
+                          "probe_description":"probe_id",
+                          'probe_vertical_position': "ypos"})
+  cortical_units_ids = np.array([idx for idx, ccf in enumerate(df.ccf.values) if ccf in regions])
+  df_cortex = df.iloc[cortical_units_ids]
+  coordinate_df = pd.concat([coordinate_df, df_cortex[['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate']]], ignore_index=False)
+  instruction = df_cortex.ccf
+  # if set(instruction.unique()) == set(regions): # if the mouse has all regions recorded
+  #   speed_dict[mouseID] = {}
+  instruction = instruction.reset_index()
+  for i in range(instruction.shape[0]):
+    num2id[session_id][i] = instruction.unit_id.iloc[i]
+# print(num2id)
+# %%
+phys_dist = {}
+for session_id in session2keep:
+  print(session_id)
+  G = G_ccg_dict[session_id]['spontaneous']
+  nodes = sorted(list(G.nodes()))
+  node_indx = [num2id[session_id][node] for node in nodes]
+  num_nodes = len(num2id[session_id])
+  phys_dist[session_id] = np.zeros((num_nodes, num_nodes))
+  for i, j in itertools.combinations(nodes, 2):
+  # for i, j in itertools.combinations(range(num_nodes), 2):
+    node_i, node_j = num2id[session_id][i], num2id[session_id][j]
+    if not (np.isnan(coordinate_df.loc[node_i].tolist()).any() | np.isnan(coordinate_df.loc[node_j].tolist()).any()):
+      phys_dist[session_id][i, j] = distance.euclidean(coordinate_df.loc[node_i].tolist(), coordinate_df.loc[node_j].tolist())
+# %%
+# Figure S
+########################################## get connection probability VS signal correlation
+def get_connectionp_physdist(G_dict, phys_dist):
+  rows = phys_dist.keys()
+  connect_dict, disconnect_dict = {}, {}
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    distance_mat = phys_dist[row]
+    connect_dict[row], disconnect_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name] = [], []
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col]
+        connect, disconnect = [], []
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          dist_ij = distance_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if dist_ij != 0:
+            if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)):
+              connect.append(dist_ij)
+            else:
+              disconnect.append(dist_ij)
+        connect_dict[row][combined_stimulus_name] += connect
+        disconnect_dict[row][combined_stimulus_name] += disconnect
+        # Add bootstrapping to create more datapoints
+        # connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(connect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+        # disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(disconnect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      connect, disconnect = connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(connect)[:,None], np.array(['connected'] * len(connect))[:,None], np.array([combined_stimulus_name] * len(connect))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(disconnect)[:,None], np.array(['disconnected'] * len(disconnect))[:,None], np.array([combined_stimulus_name] * len(disconnect))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+  df['distance'] = pd.to_numeric(df['distance'])
+  return df
+
+start_time = time.time()
+connectionp_physdist_df = get_connectionp_physdist(G_ccg_dict, phys_dist)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def plot_connectionp_physdist(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 5)) #
+  # axes[0].set_ylim(top = 1.2)
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind]].copy() # remove spontaneous and flash
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+
+    data.insert(0, 'probability of connection', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='connected','probability of connection'] = 1
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['distance'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    for i in range(len(binned_x)):
+      ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=18)
+    
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
+    p_value = table.test_ordinal_association().pvalue
+    
+    # xy = np.vstack((x, y)).T
+    # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    # p_value = table.test_ordinal_association().pvalue
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    locx, locy = .5, 1.1
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=2.5)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Connection probability', fontsize=30)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/connectionp_physical_distance.pdf', transparent=True)
+
+plot_connectionp_physdist(connectionp_physdist_df)
+# %%
+# Figure S5C
+def get_within_cross_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
+  rows = list(phys_dist.keys())
+  within_comm_dict, cross_comm_dict = {}, {}
+  runs = len(comms_dict[rows[0]][cols[0]])
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    within_comm_dict[row], cross_comm_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names:
+      within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name] = [], []
+      dist_mat = phys_dist[row]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
+        comms_list = comms_dict[row][col]
+        for run in range(runs):
+          comms = comms_list[run]
+          within_comm, cross_comm = [], []
+          node_to_community = comm2partition(comms)
+          if pair_type == 'all': # all neuron pairs
+            neuron_pairs = list(itertools.combinations(node_idx, 2))
+          elif pair_type == 'connected': # limited to connected pairs only
+            neuron_pairs = G.to_undirected().edges()
+          for nodei, nodej in neuron_pairs: # for all neurons
+            dist_ij = dist_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+            if node_to_community[nodei] == node_to_community[nodej]:
+              within_comm.append(dist_ij)
+            else:
+              cross_comm.append(dist_ij)
+          # within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
+          # cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
+          within_comm_dict[row][combined_stimulus_name] += within_comm
+          cross_comm_dict[row][combined_stimulus_name] += cross_comm
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      within_comm, cross_comm = within_comm_dict[row][combined_stimulus_name], cross_comm_dict[row][combined_stimulus_name]
+      within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_comm)[:,None], np.array(['within community'] * len(within_comm))[:,None], np.array([combined_stimulus_name] * len(within_comm))[:,None], np.array([row] * len(within_comm))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_comm)[:,None], np.array(['cross community'] * len(cross_comm))[:,None], np.array([combined_stimulus_name] * len(cross_comm))[:,None], np.array([row] * len(cross_comm))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+  df['distance'] = pd.to_numeric(df['distance'])
+  return df
+
+# pair_type = 'all'
+pair_type = 'connected'
+start_time = time.time()
+physdist_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, phys_dist, best_comms_dict, pair_type=pair_type)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# Figure S5C
+######################### merge all pairs from different mice into one distribution
+def plot_physdist_within_cross_comm_significance(origin_df, pair_type='all'):
+  df = origin_df.copy()
+  # df = df[df['stimulus']!='Flashes'] # remove flashes
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)), 5))
+  palette = ['k','.6']
+  barplot = sns.barplot(x='stimulus', y='distance', hue="type", hue_order=['within community', 'cross community'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6, errorbar=('ci', 95))
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  # barplot = sns.barplot(x='stimulus', y='signal correlation', hue="type", palette=palette, data=df, ax=ax, capsize=.05, width=0.5)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks([], []) # use markers to represent stimuli!
+  # plt.xticks(range(len(combined_stimulus_names)-1), combined_stimulus_names[1:], fontsize=30)
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ax.set_xlabel('')
+  ax.set_ylabel(u'Distance (\u03bcm)', fontsize=40)
+  ax.legend([], [], fontsize=0)
+  # handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, ['within module', 'cross module'], title='', bbox_to_anchor=(0., 1.), handletextpad=0.3, loc='upper left', fontsize=35, frameon=False)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  maxx = 0
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['distance'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['distance'].values.flatten()
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  h, l = .05 * maxx, .05 * maxx
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['distance'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['distance'].values.flatten()
+    _, p = ztest(within_comm, cross_comm, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  plt.tight_layout(rect=[.02, -.03, 1, 1])
+  # plt.show()
+  plt.savefig('./plots/physical_distance_within_cross_comm_{}.pdf'.format(pair_type), transparent=True)
+
+plot_physdist_within_cross_comm_significance(physdist_within_cross_comm_df, pair_type=pair_type)
+#%%
+# Figure S5C
+def get_purity_distance(G_dict, area_dict, regions, best_comms_dict, pair_type, dist_type):
+  rows, cols = get_rowcol(G_dict)
+  df = pd.DataFrame()
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    node_area = area_dict[row]
+    dist_mat = phys_dist[row]
+    for col_ind, col in enumerate(cols):
+      w_purity, distance = [], []
+      data = {}
+      G = G_dict[row][col].copy()
+      comms_list = best_comms_dict[row][col]
+      all_regions = [node_area[node] for node in sorted(G.nodes())]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(len(comms_list)):
+        comms = comms_list[run]
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          size = counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          if size in data:
+            data[size].append(purity)
+          else:
+            data[size] = []
+        c_size, c_purity = [k for k,v in data.items()], [v for k,v in data.items()]
+        all_size = np.repeat(c_size, [len(p) for p in c_purity])
+        c_size = all_size / sum(all_size)
+        w_purity.append(sum([cs * cp for cs, cp in zip(c_size, [p for ps in c_purity for p in ps])]))
+        
+        within_comm, across_comm = [], []
+        node_to_community = comm2partition(comms)
+        if pair_type == 'all': # all neuron pairs
+          neuron_pairs = list(itertools.combinations(node_idx, 2))
+        elif pair_type == 'connected': # limited to connected pairs only
+          neuron_pairs = G.to_undirected().edges()
+        for nodei, nodej in neuron_pairs: # for all neurons
+          dist_ij = dist_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if dist_ij != 0:
+            if node_to_community[nodei] == node_to_community[nodej]:
+              within_comm.append(dist_ij)
+            else:
+              across_comm.append(dist_ij)
+        # within_comm_dict[row][combined_stimulus_name].append(np.nanmean(within_comm))
+        # cross_comm_dict[row][combined_stimulus_name].append(np.nanmean(cross_comm))
+        if dist_type == 'within':
+          distance += within_comm
+        elif dist_type == 'across':
+          distance += across_comm
+        elif dist_type == 'all':
+          distance += within_comm + across_comm
+
+        assert len(all_regions) == len(comm2label(comms)), '{}, {}'.format(len(all_regions), len(comm2label(comms)))
+      df = pd.concat([df, pd.DataFrame([[np.mean(distance), np.mean(w_purity), combine_stimulus(col)[1]]], columns=['distance', 'WA purity', 'combined stimulus'])], ignore_index=True)
+    # df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_purity_col)[:,None], np.array(['weighted purity'] * len(w_purity_col))[:,None], np.array([combine_stimulus(col)[1]] * len(w_purity_col))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+  df['distance'] = pd.to_numeric(df['distance'])
+  df['WA purity'] = pd.to_numeric(df['WA purity'])
+  return df
+
+pair_type = 'connected'
+# dist_type = 'within'
+# dist_type = 'across'
+dist_type = 'all'
+purity_distance_df = get_purity_distance(G_ccg_dict, area_dict, visual_regions, best_comms_dict, pair_type=pair_type, dist_type=dist_type)
+# %%
+# Figure S5C
+def scatter_purity_distance(df, G_dict, area_dict, regions, dist_type='within'):
+  rows, cols = get_rowcol(G_dict)
+  fig, ax = plt.subplots(figsize=(6, 5))
+  X, Y = [], []
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    x = df[df['combined stimulus']==combined_stimulus_name]['distance'].values
+    y = df[df['combined stimulus']==combined_stimulus_name]['WA purity'].values
+    X += x.tolist()
+    Y += y.tolist()
+    ax.scatter(x, y, ec='.1', fc='none', marker=stimulus2marker[combined_stimulus_name], s=10*marker_size_dict[stimulus2marker[combined_stimulus_name]], alpha=.9, linewidths=1.5)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  # if name in ['intra']:
+  slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+  print(p_value)
+  line = slope*X+intercept
+  locx, locy = .8, .9
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  # elif name in ['ex', 'cluster']:
+  #   slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+  #   line = slope*np.log10(X)+intercept
+  #   locx, locy = .4, 1.
+  #   text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  # ax.plot(X, line, color='.4', linestyle='-', alpha=.5) # (5,(10,3))
+  # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  plt.xticks(fontsize=22) #, weight='bold'
+  plt.yticks(fontsize=22) # , weight='bold'
+  if dist_type == 'within':
+    xlabel = 'Within-module distance'
+  elif dist_type == 'across':
+    xlabel = 'Across-module distance'
+    # plt.xscale('log')
+  elif dist_type == 'all':
+    xlabel = 'Distance'
+    # plt.xscale('log')
+  plt.xlabel(xlabel + ' (\u03bcm)')
+  ylabel = 'WA purity'
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=28,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig(f'./plots/purity_{dist_type}_distance.pdf', transparent=True)
+
+scatter_purity_distance(purity_distance_df, S_ccg_dict, area_dict, visual_regions, dist_type=dist_type)
+# %%
+# Figure S7F
+def get_distance_within_cross_motif(G_dict, signed_motif_types, phys_dist):
+  rows, cols = get_rowcol(G_dict)
+  within_motif_dict, cross_motif_dict = {}, {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    within_motif_dict[row], cross_motif_dict[row] = {}, {}
+    dist_mat = phys_dist[row]
+    for col_ind, col in enumerate(cols):
+      print(col)
+      within_motif_dict[row][col], cross_motif_dict[row][col] = [], []
+      G = G_dict[row][col]
+      motifs_by_type = find_triads(G) # faster
+      other_edges = set(list(G.edges()))
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+          # smotif_type = motif_type + get_motif_sign_new(motif, motif_type, weight=weight)
+          if smotif_type == signed_motif_type:
+            within_motif_dict[row][col].append(np.mean([dist_mat[e] for e in motif.edges() if dist_mat[e] != 0]))
+            other_edges -= set(list(motif.edges()))
+      for e in other_edges:
+         if dist_mat[e] != 0:
+          cross_motif_dict[row][col].append(dist_mat[e])
+  df = pd.DataFrame()
+  for col in cols:
+    for row in session2keep:
+      within_motif, cross_motif = within_motif_dict[row][col], cross_motif_dict[row][col]
+      within_motif, cross_motif = [e for e in within_motif if not np.isnan(e)], [e for e in cross_motif if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within motif'] * len(within_motif))[:,None], np.array([combine_stimulus(col)[1]] * len(within_motif))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_motif)[:,None], np.array(['otherwise'] * len(cross_motif))[:,None], np.array([combine_stimulus(col)[1]] * len(cross_motif))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+  df['distance'] = pd.to_numeric(df['distance'])
+  return df
+
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+distance_within_cross_motif_df = get_distance_within_cross_motif(G_ccg_dict, sig_motif_types, phys_dist)
+#%%
+# Figure S7F
+def plot_distance_within_cross_motif_significance(df):
+  fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)), 5))
+  palette = ['k','w']
+  y = 'distance'
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks([], []) # use markers to represent stimuli!
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2)
+  ax.set_xlabel('')
+  ylabel = 'Distance (\u03bcm)'
+  ax.set_ylabel(ylabel, fontsize=40) #'Absolute ' + 
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend([], [], fontsize=0)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+  maxx = 0
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    maxx = max(within_sr, cross_sr) if max(within_sr, cross_sr) > maxx else maxx
+  h, l = .05 * maxx, .05 * maxx
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    _, p = ztest(within_motif, cross_motif, value=0)
+    diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
+    within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+    within_sr = within_sr + h
+    cross_sr = cross_sr + h
+    annot_difference(diff_star, -.15 + cs_ind, .15 + cs_ind, max(within_sr, cross_sr), l, 2.5, 28, ax=ax)
+  plt.tight_layout(rect=[.02, -.03, 1, 1])
+
+  # plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/distance_within_cross_motif.pdf', transparent=True)
+
+plot_distance_within_cross_motif_significance(distance_within_cross_motif_df)
+#%%
+# Figure S7F
+def save_within_motif_otherwise_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
+  palette = ['k', 'w']
+  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles, ['within-eFFLb motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=1) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_within_motif_otherwise_legend()
+# %%
+# # not good
+# def get_physdist_within_cross_motif(G_dict, eFFLb_types, all_motif_types, phys_dist, pair_type='all'):
+#   rows, cols = get_rowcol(G_dict)
+#   within_eFFLb_dict, within_motif_dict, cross_motif_dict = {}, {}, {}
+#   motif_types = []
+#   motif_edges, motif_sms = {}, {}
+#   for signed_motif_type in all_motif_types:
+#     motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+#   for motif_type in motif_types:
+#     motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+#   for row_ind, row in enumerate(session2keep):
+#     print(row)
+#     dist_mat = phys_dist[row]
+#     active_area = active_area_dict[row]
+#     node_idx = sorted(active_area.keys())
+#     within_eFFLb_dict[row], within_motif_dict[row], cross_motif_dict[row] = {}, {}, {}
+#     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+#       for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+#         # print(col)
+#         df = mean_df4[mean_df4['stimulus']==col]
+#         sig_motifs = df.loc[df['intensity z score'] > 1.96]['signed motif type'].tolist() # 1.96, 2.576
+#         within_eFFLb_dict[row][col], within_motif_dict[row][col], cross_motif_dict[row][col] = [], [], []
+#         G = G_dict[row][col]
+#         motifs_by_type = find_triads(G) # faster
+#         if pair_type == 'all': # all neuron pairs
+#           neuron_pairs = list(itertools.combinations(node_idx, 2))
+#         elif pair_type == 'connected': # limited to connected pairs only
+#           neuron_pairs = list(G.to_undirected().edges())
+#         other_edges = set(neuron_pairs)
+#         for motif_type in motif_types:
+#           motifs = motifs_by_type[motif_type]
+#           for motif in motifs:
+#             smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+#             # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
+#             if pair_type == 'all': # all neuron pairs
+#               motif_pairs = list(itertools.combinations(motif.nodes(), 2))
+#             elif pair_type == 'connected': # limited to connected pairs only
+#               motif_pairs = list(motif.to_undirected().edges())
+#             within_dist = [dist_mat[e] for e in motif_pairs if dist_mat[e] != 0]
+#             if len(within_dist):
+#               if smotif_type in eFFLb_types:
+#                 within_eFFLb_dict[row][col] += within_dist
+#                 other_edges -= set(motif_pairs)
+#               # else: # if all motifs
+#               elif smotif_type in sig_motifs:
+#                 within_motif_dict[row][col] += within_dist
+#                 other_edges -= set(motif_pairs)
+            
+#         for e in other_edges:
+#           if dist_mat[e] != 0:
+#             cross_motif_dict[row][col].append(dist_mat[e])
+#   df = pd.DataFrame()
+#   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+#     for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+#       for row in session2keep:
+#         within_eFFLb, within_motif, cross_motif = within_eFFLb_dict[row][col], within_motif_dict[row][col], cross_motif_dict[row][col]
+#         # within_motif, cross_motif = [e for e in within_motif if not np.isnan(e)], [e for e in cross_motif if not np.isnan(e)] # remove nan values
+#         df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_eFFLb)[:,None], np.array(['within eFFLb'] * len(within_eFFLb))[:,None], np.array([combined_stimulus_name] * len(within_eFFLb))[:,None], np.array([row] * len(within_eFFLb))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+#         df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within other motif'] * len(within_motif))[:,None], np.array([combined_stimulus_name] * len(within_motif))[:,None], np.array([row] * len(within_motif))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+#         df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(cross_motif)[:,None], np.array(['otherwise'] * len(cross_motif))[:,None], np.array([combined_stimulus_name] * len(cross_motif))[:,None], np.array([row] * len(cross_motif))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+#   df['distance'] = pd.to_numeric(df['distance'])
+#   return df
+
+# # pair_type = 'all'
+# pair_type = 'connected'
+# sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+# motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+# physdist_within_cross_motif_df = get_physdist_within_cross_motif(G_ccg_dict, sig_motif_types, motif_types, phys_dist, pair_type=pair_type)
+# #%%
+# def plot_physdist_within_cross_motif_significance(origin_df, pair_type='all'):
+#   df = origin_df.copy()
+#   # df = df[df['stimulus']!='Flashes'] # remove flashes
+#   fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)), 5))
+#   df = df.set_index('stimulus')
+#   # df = df.loc[combined_stimulus_names[2:]]
+#   df.reset_index(inplace=True)
+#   palette = ['k', 'grey','w']
+#   y = 'distance'
+#   barplot = sns.barplot(x='stimulus', y=y, hue="type", hue_order=['within eFFLb', 'within other motif', 'otherwise'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+#   ax.yaxis.set_tick_params(labelsize=30)
+#   plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+#   plt.xticks([], []) # use markers to represent stimuli!
+#   ax.xaxis.set_tick_params(length=0)
+#   for axis in ['bottom', 'left']:
+#     ax.spines[axis].set_linewidth(2)
+#     ax.spines[axis].set_color('k')
+#   ax.spines['top'].set_visible(False)
+#   ax.spines['right'].set_visible(False)
+#   ax.tick_params(width=2)
+#   ax.set_xlabel('')
+#   ax.set_ylabel('Distance (\u03bcm)', fontsize=40) #'Absolute ' + 
+#   handles, labels = ax.get_legend_handles_labels()
+#   ax.legend([], [], fontsize=0)
+#   # add significance annotation
+#   alpha_list = [.0001, .001, .01, .05]
+
+#   maxx = 0
+#   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+#     within_eFFLb, within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+#     eFFLb_sr, within_sr, cross_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+#     maxx = max(eFFLb_sr, within_sr, cross_sr) if max(eFFLb_sr, within_sr, cross_sr) > maxx else maxx
+#   h, l = .01 * maxx, .03 * maxx
+#   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+#     within_eFFLb, within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+#     if len(within_motif):
+#       _, p1 = ztest(within_eFFLb, within_motif, value=0)
+#       diff_star1 = '*' * (len(alpha_list) - bisect(alpha_list, p1)) if len(alpha_list) > bisect(alpha_list, p1) else 'ns'
+#     _, p2 = ztest(within_eFFLb, cross_motif, value=0)
+#     diff_star2 = '*' * (len(alpha_list) - bisect(alpha_list, p2)) if len(alpha_list) > bisect(alpha_list, p2) else 'ns'
+#     eFFLb_sr, within_sr, cross_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
+#     eFFLb_sr += h
+#     within_sr += h
+#     cross_sr += h
+#     if len(within_motif):
+#       annot_difference(diff_star1, -.18 + cs_ind, cs_ind, max(eFFLb_sr, within_sr), l, 2.5, 22, ax=ax)
+#     annot_difference(diff_star2, -.18 + cs_ind, .18 + cs_ind, max(eFFLb_sr, cross_sr) + 3.5*h, l, 2.5, 22, ax=ax)
+#   plt.tight_layout(rect=[.02, -.03, 1, 1])
+
+#   # plt.tight_layout()
+#   plt.show()
+#   # plt.savefig('./plots/distance_within_cross_sig99_motif_{}.pdf'.format(pair_type), transparent=True)
+
+# plot_physdist_within_cross_motif_significance(physdist_within_cross_motif_df, pair_type=pair_type)
 # %%
