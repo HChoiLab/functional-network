@@ -3443,25 +3443,6 @@ def get_module_weight_confidence_purity(G_dict, comms_dict, max_neg_reso):
 
 weight_dict, confidence_dict, purity_dict = get_module_weight_confidence_purity(G_ccg_dict, comms_dict, max_reso_subs)
 #%%
-def double_equal_binning(x, y, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
-  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
-  return binned_x, binned_y
-
-def binning_count(x, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  count = [(digitized == i).sum() for i in range(1, len(bins))]
-  return count
-
 def plot_data_purity(data_dict, purity_dict, name='weight'):
   rows, cols = get_rowcol(data_dict)
   fig, axes = plt.subplots(1, 6, figsize=(3*6, 3))
@@ -4370,26 +4351,6 @@ def get_data_area_distance_module(G_dict, comms_dict, regions, max_neg_reso):
 
 pos_density, neg_frac, area_distance = get_data_area_distance_module(G_ccg_dict, comms_dict, visual_regions, max_reso_subs)
 #%%
-import statsmodels.api as sm
-def double_equal_binning(x, y, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  binned_x = [(bins[i]+bins[i+1])/2 for i in range(len(bins)-1)]
-  binned_y = [y[digitized == i].mean() for i in range(1, len(bins))]
-  return binned_x, binned_y
-
-def binning_count(x, numbin=20, log=False):
-  if log:
-    bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
-  else:
-    bins = np.linspace(x.min(), x.max(), numbin) # linear binning
-  digitized = np.digitize(x, bins) # binning based on community size
-  count = [(digitized == i).sum() for i in range(1, len(bins))]
-  return count
-
 def plot_data_area_distance(area_distance, data, regions, name='positive_density'):
   fig, axes = plt.subplots(1, len(regions), figsize=(3.5*6, 3.5))
   for r_ind, region in enumerate(regions):
@@ -5921,10 +5882,10 @@ def count_signed_triplet_connection_p(G):
 
 def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
   rows, cols = get_rowcol(G_dict)
-  fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(4, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
+  fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(8, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
   for s_ind, stimulus_name in enumerate(combined_stimulus_names):
     ax = axes[s_ind]
-    ax.set_title(stimulus_name.replace('\n', ' '), fontsize=15, rotation=0)
+    # ax.set_title(stimulus_name.replace('\n', ' '), fontsize=15, rotation=0)
     all_pair_count = defaultdict(lambda: [])
     for col in combined_stimuli[s_ind]:
       for row in rows:
@@ -6704,9 +6665,9 @@ def plot_heatmap_correlation_zscore(df):
   cm = LinearSegmentedColormap.from_list(
         "Custom", colors, N=20)
 
-  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmin=0, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':14})#, mask=mask
+  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmin=0, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':20})#, mask=mask
   cbar = hm.collections[0].colorbar
-  cbar.ax.tick_params(labelsize=20)
+  cbar.ax.tick_params(labelsize=24)
 
   # ax.set_xticks(0.5 + np.arange(len(combined_stimulus_names)))
   # ax.set_xticklabels(labels=combined_stimulus_names, fontsize=12)
@@ -7827,7 +7788,62 @@ def save_in_out_degree_legend():
   plt.show()
 
 save_in_out_degree_legend()
+#%%
+# Figure S7A
+def plot_pair_distributions(G_dict, row_ind):
+  rows, cols = get_rowcol(G_dict)
+  row = rows[row_ind]
+  fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(4, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
+  # fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
+  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+    ax = axes[cs_ind]
+    col = combined_stimulus[0]
+    # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
+    G = G_dict[row][col].copy()
+    num0, num1, num2 = 0, 0, 0
+    nodes = list(G.nodes())
+    for node_i, node_j in itertools.combinations(nodes, 2):
+      if G.has_edge(node_i, node_j) and G.has_edge(node_j, node_i):
+        num2 += 1
+      elif G.has_edge(node_i, node_j) or G.has_edge(node_j, node_i):
+        num1 += 1
+      else:
+        num0 += 1
+    # print(num0, num1, num2)
+    total_num = num0+num1+num2
+    assert total_num == len(nodes) * (len(nodes) - 1) / 2, '{}, {}'.format(total_num, len(nodes) * (len(nodes) - 1) / 2)
+    assert num1+num2*2 == G.number_of_edges()
+    p0, p1, p2 = num0 / total_num, num1 / total_num, num2 / total_num
+    
+    # ax.plot(range(3), [p0, p1, p2],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
+    ax.bar(range(3), [p0, p1, p2], width=0.3, color='.7')
+    # ax.legend(loc='upper right', fontsize=7)
+    # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+    # ax.set_xlabel(xlabel, fontsize=22)
+    # ax.set_ylabel('Frequency', fontsize=14)
+    # ax.set_xscale('symlog')
+    ax.set_yscale('log')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set_xticks([])
+    # ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    # if cs_ind == 0:
+    #   handles, labels = ax.get_legend_handles_labels()
+    #   ax.legend(handles, labels, title='', bbox_to_anchor=(.7, .8), loc='upper left', fontsize=16, frameon=False)
+      
+  plt.tight_layout()
+  image_name = './plots/pair_distribution_{}.pdf'.format(row_ind)
+  # plt.show()
+  plt.savefig(image_name, transparent=True)
+  # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
+
+plot_pair_distributions(G_ccg_dict, 7)
 # %%
+# Figure S7B
 def count_signed_triplet_connection_p(G):
   num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
   nodes = list(G.nodes())
@@ -7855,66 +7871,12 @@ def count_signed_triplet_connection_p(G):
   assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
   p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
   return p0, p1, p2, p3, p4, p5
-#%%
-# Figure S7A
-def plot_pair_distributions(G_dict, row_ind):
-  rows, cols = get_rowcol(G_dict)
-  row = rows[row_ind]
-  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
-  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
-    ax = axes[cs_ind]
-    col = combined_stimulus[0]
-    # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
-    G = G_dict[row][col].copy()
-    num0, num1, num2 = 0, 0, 0
-    nodes = list(G.nodes())
-    for node_i, node_j in itertools.combinations(nodes, 2):
-      if G.has_edge(node_i, node_j) and G.has_edge(node_j, node_i):
-        num2 += 1
-      elif G.has_edge(node_i, node_j) or G.has_edge(node_j, node_i):
-        num1 += 1
-      else:
-        num0 += 1
-    # print(num0, num1, num2)
-    total_num = num0+num1+num2
-    assert total_num == len(nodes) * (len(nodes) - 1) / 2, '{}, {}'.format(total_num, len(nodes) * (len(nodes) - 1) / 2)
-    assert num1+num2*2 == G.number_of_edges()
-    p0, p1, p2 = num0 / total_num, num1 / total_num, num2 / total_num
-    
-    # ax.plot(range(3), [p0, p1, p2],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
-    ax.bar(range(3), [p0, p1, p2], width=0.3, color='.7')
-    # ax.legend(loc='upper right', fontsize=7)
-    # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
-    # ax.set_xlabel(xlabel, fontsize=22)
-    if cs_ind == 0:
-      ax.set_ylabel('Frequency', fontsize=22)
-    # ax.set_xscale('symlog')
-    ax.set_yscale('log')
-    for axis in ['bottom', 'left']:
-      ax.spines[axis].set_linewidth(2.)
-      ax.spines[axis].set_color('k')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.set_xticks([])
-    # ax.xaxis.set_tick_params(labelsize=20)
-    ax.yaxis.set_tick_params(labelsize=20)
-    # if cs_ind == 0:
-    #   handles, labels = ax.get_legend_handles_labels()
-    #   ax.legend(handles, labels, title='', bbox_to_anchor=(.7, .8), loc='upper left', fontsize=16, frameon=False)
-      
-  plt.tight_layout()
-  image_name = './plots/pair_distribution_{}.pdf'.format(row_ind)
-  # plt.show()
-  plt.savefig(image_name, transparent=True)
-  # plt.savefig(image_name.replace('jpg', 'pdf'), transparent=True)
 
-plot_pair_distributions(G_ccg_dict, 7)
-# %%
-# Figure S7B
 def plot_signed_pair_distributions(G_dict, row_ind):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
-  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
+  fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(8, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
+  # fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
   for cs_ind, combined_stimulus in enumerate(combined_stimuli):
     ax = axes[cs_ind]
     col = combined_stimulus[0]
@@ -7922,13 +7884,14 @@ def plot_signed_pair_distributions(G_dict, row_ind):
     G = G_dict[row][col].copy()
     p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
     # ax.plot(range(6), [p0, p1, p2, p3, p4, p5],'ko-', markerfacecolor='white', markersize=10, alpha=1.)
-    ax.bar(range(6), [p0, p1, p2, p3, p4, p5], width=0.6, color='.7')
+    ax.bar(range(6), [p0, p1, p2, p3, p4, p5], width=0.3, color='.7')
     # ax.legend(loc='upper right', fontsize=7)
     # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
     # ax.set_xlabel(xlabel, fontsize=22)
-    if cs_ind == 0:
-      ax.set_ylabel('Frequency', fontsize=22)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Frequency', fontsize=22)
     # ax.set_xscale('symlog')
+    ax.set_ylim([0.0001, 1])
     ax.set_yscale('log')
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(2.)
@@ -8064,6 +8027,8 @@ for session_id in session_ids:
     num2id[session_id][i] = instruction.unit_id.iloc[i]
 # print(num2id)
 # %%
+# Figure S
+########################################## get physical distance
 phys_dist = {}
 for session_id in session2keep:
   print(session_id)
@@ -8076,10 +8041,12 @@ for session_id in session2keep:
   # for i, j in itertools.combinations(range(num_nodes), 2):
     node_i, node_j = num2id[session_id][i], num2id[session_id][j]
     if not (np.isnan(coordinate_df.loc[node_i].tolist()).any() | np.isnan(coordinate_df.loc[node_j].tolist()).any()):
-      phys_dist[session_id][i, j] = distance.euclidean(coordinate_df.loc[node_i].tolist(), coordinate_df.loc[node_j].tolist())
+      dist = distance.euclidean(coordinate_df.loc[node_i].tolist(), coordinate_df.loc[node_j].tolist())
+      phys_dist[session_id][i, j] = dist
+      phys_dist[session_id][j, i] = dist
 # %%
 # Figure S
-########################################## get connection probability VS signal correlation
+########################################## get connection probability VS physical distance
 def get_connectionp_physdist(G_dict, phys_dist):
   rows = phys_dist.keys()
   connect_dict, disconnect_dict = {}, {}
@@ -8134,6 +8101,7 @@ def plot_connectionp_physdist(df):
     data.insert(0, 'probability of connection', 0)
     # data.loc[:, 'probability of same module'] = 0
     data.loc[data['type']=='connected','probability of connection'] = 1
+    data = data[data['distance']<=200] # only focus on connection p between neurons within 200 microns
     # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
     x, y = data['distance'].values.flatten(), data['probability of connection'].values.flatten()
 
@@ -8160,7 +8128,7 @@ def plot_connectionp_physdist(df):
     ax.text(locx, locy, text, horizontalalignment='center',
         verticalalignment='center', transform=ax.transAxes, fontsize=25)
     ax.xaxis.set_tick_params(labelsize=30)
-    ax.yaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30, which='both')
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(2.5)
       ax.spines[axis].set_color('k')
@@ -8171,13 +8139,318 @@ def plot_connectionp_physdist(df):
     #   ax.set_ylabel('Connection probability', fontsize=30)
     ax.set_xlabel('')
     ax.set_ylabel('')
+    # ax.set_xscale('log')
+    ax.set_yscale('log')
     # ax.set_xlabel('Signal correlation', fontsize=25)
 
   plt.tight_layout()
   # plt.show()
-  plt.savefig('./plots/connectionp_physical_distance.pdf', transparent=True)
+  plt.savefig('./plots/connectionp_physical_distance_200.pdf', transparent=True)
+  # plt.savefig('./plots/connectionp_physical_distance_noanno_200.pdf', transparent=True)
 
 plot_connectionp_physdist(connectionp_physdist_df)
+#%%
+# connection probability VS distance for within module neurons only
+def get_connectionp_physdist_within(G_dict, phys_dist):
+  rows = phys_dist.keys()
+  connect_dict, disconnect_dict = {}, {}
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    distance_mat = phys_dist[row]
+    connect_dict[row], disconnect_dict[row] = {}, {}
+    for combined_stimulus_name in combined_stimulus_names:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name] = [], []
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col]
+        connect, disconnect = [], []
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          if active_area[nodei] == active_area[nodej]:
+            dist_ij = distance_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+            if dist_ij != 0:
+              if (G.has_edge(nodei, nodej) or G.has_edge(nodej, nodei)):
+                connect.append(dist_ij)
+              else:
+                disconnect.append(dist_ij)
+        connect_dict[row][combined_stimulus_name] += connect
+        disconnect_dict[row][combined_stimulus_name] += disconnect
+        # Add bootstrapping to create more datapoints
+        # connect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(connect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+        # disconnect_dict[row][combined_stimulus_name] += np.mean(np.array([np.random.choice(disconnect, 100, replace = True) for _ in range(50)]), axis=1).tolist()
+  df = pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      connect, disconnect = connect_dict[row][combined_stimulus_name], disconnect_dict[row][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(connect)[:,None], np.array(['connected'] * len(connect))[:,None], np.array([combined_stimulus_name] * len(connect))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(disconnect)[:,None], np.array(['disconnected'] * len(disconnect))[:,None], np.array([combined_stimulus_name] * len(disconnect))[:,None]), 1), columns=['distance', 'type', 'stimulus'])], ignore_index=True)
+  df['distance'] = pd.to_numeric(df['distance'])
+  return df
+
+start_time = time.time()
+connectionp_physdist_within_df = get_connectionp_physdist_within(G_ccg_dict, phys_dist)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# plot connection probability VS distance for within-module neuron pairs only
+def plot_connectionp_physdist_within(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 5)) #
+  # axes[0].set_ylim(top = 1.2)
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind]].copy() # remove spontaneous and flash
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+
+    data.insert(0, 'probability of connection', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='connected','probability of connection'] = 1
+    # data = data[data['distance']<=200] # only focus on connection p between neurons within 200 microns
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['distance'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    numbin = 6
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    for i in range(len(binned_x)):
+      ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=18)
+    
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
+    p_value = table.test_ordinal_association().pvalue
+    
+    # xy = np.vstack((x, y)).T
+    # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    # p_value = table.test_ordinal_association().pvalue
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    locx, locy = .5, 1.1
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30, which='both')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=2.5)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Connection probability', fontsize=30)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    # ax.set_xscale('log')
+    ax.set_yscale('log')
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/connectionp_physical_distance_within.pdf', transparent=True)
+  # plt.savefig('./plots/connectionp_physical_distance_noanno_200.pdf', transparent=True)
+
+plot_connectionp_physdist_within(connectionp_physdist_within_df)
+#%%
+# plot the whole distribution of physical distance
+fig, ax = plt.subplots(1,1, figsize=(5, 4))
+sns.histplot(data=connectionp_physdist_df[connectionp_physdist_df['stimulus']=='Resting\nstate'].distance, stat='probability', kde=True, linewidth=0)
+# plt.hist(connectionp_physdist_df.distance, 20)
+plt.xlabel('Distance')
+plt.savefig('./plots/distance_distribution.pdf', trasparent=True)
+# plt.show()
+#%%
+# get distance distribution pairwise for all visual areas
+def get_physdist_areawise(G_dict, phys_dist, visual_regions):
+  rows, cols = get_rowcol(G_dict)
+  dist_dict = {row:{regiona:{regionb:[] for regionb in visual_regions} for regiona in visual_regions} for row in session2keep}
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    G0 = G_dict[row][cols[0]]
+    active_area = active_area_dict[row]
+    area_nodes = [[node for node in sorted(G0.nodes()) if active_area[node]==region] for region in visual_regions]
+    distance_mat = phys_dist[row]
+    # node_idx = sorted(active_area.keys())
+    for col in cols:
+      G = G_dict[row][col]
+      for r_ind, region in enumerate(visual_regions):
+        node_idx = area_nodes[r_ind]
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          dist_ij = distance_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if dist_ij != 0:
+            dist_dict[row][region][region].append(dist_ij)
+      for regiona, regionb in itertools.combinations(range(len(visual_regions)), 2):
+        node_idxa, node_idxb = area_nodes[regiona], area_nodes[regionb]
+        dist_list = distance_mat[np.array(node_idxa)[:, None], node_idxb].flatten().tolist()
+        dist_list = [ele for ele in dist_list if (not np.isnan(ele)) and (ele != 0)]
+        dist_dict[row][visual_regions[regiona]][visual_regions[regionb]] = dist_list
+        dist_dict[row][visual_regions[regionb]][visual_regions[regiona]] = dist_list
+  # df = pd.DataFrame()
+  # for row in session2keep:
+  #   within, across = within_dict[row], across_dict[row]
+  #   df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within)[:,None], np.array([row] * len(within))[:,None]), 1), columns=['distance', 'mouse'])], ignore_index=True)
+  # df['distance'] = pd.to_numeric(df['distance'])
+  return dist_dict
+
+start_time = time.time()
+distance_dict = get_physdist_areawise(G_ccg_dict, phys_dist, visual_regions)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# plot the whole distribution of physical distance
+fig, ax = plt.subplots(1,1, figsize=(5, 4))
+sns.histplot(data=connectionp_physdist_df[connectionp_physdist_df['stimulus']=='Resting\nstate'].distance, stat='probability', kde=True, linewidth=0)
+# plt.hist(connectionp_physdist_df.distance, 20)
+plt.xlabel('Distance (\u03bcm)')
+plt.savefig('./plots/distance_distribution.pdf', trasparent=True)
+#%%
+# plot the distribution of physical distance for within-area neuron pairs for each mouse
+fig, ax = plt.subplots(1,1, figsize=(5, 4))
+for row in session2keep:
+  sns.histplot(data=physdist_withinarea_df[physdist_withinarea_df['mouse']==row].distance, stat='probability', kde=True, linewidth=0, ax=ax)
+# plt.hist(connectionp_physdist_df.distance, 20)
+plt.xlabel('Distance (\u03bcm)')
+# plt.show()
+plt.savefig('./plots/distance_distribution_within_area_eachmouse.pdf', trasparent=True)
+#%%
+# plot the distribution of physical distance for within-area neuron pairs for all mice
+fig, ax = plt.subplots(1,1, figsize=(5, 4))
+sns.histplot(data=physdist_withinarea_df.distance, stat='probability', kde=True, linewidth=0, ax=ax)
+# plt.hist(connectionp_physdist_df.distance, 20)
+plt.xlabel('Distance (\u03bcm)')
+# plt.show()
+plt.savefig('./plots/distance_distribution_within_area.pdf', trasparent=True)
+#%%
+# plot all distributions for all combinations of visual areas
+fig, axes = plt.subplots(len(visual_regions),len(visual_regions), figsize=(5*len(visual_regions), 4*len(visual_regions)))
+for i in range(axes.shape[0]):
+  for j in range(axes.shape[1]):
+    ax = axes[i, j]
+    data = []
+    for row in session2keep:
+      data += distance_dict[row][visual_regions[i]][visual_regions[len(visual_regions)-j-1]]
+    sns.histplot(data=data, stat='probability', kde=True, linewidth=0, ax=ax)
+# plt.hist(connectionp_physdist_df.distance, 20)
+    if i == axes.shape[0] - 1:
+      ax.set_xlabel('Distance (\u03bcm)', fontsize=30)
+    if j == 0:
+      ax.set_ylabel('Probability', fontsize=30)
+    else:
+      ax.set_ylabel('')
+    if i == 0:
+      ax.set_title(region_labels[len(visual_regions)-j-1], fontsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.xaxis.set_tick_params(labelsize=23)
+    ax.yaxis.set_tick_params(labelsize=23)
+plt.tight_layout()
+# plt.show()
+plt.savefig('./plots/distance_distribution_areawise.pdf', trasparent=True)
+#%%
+# import re, seaborn as sns
+# import numpy as np
+
+# from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import ListedColormap
+
+fig = plt.figure(figsize=(10,5))
+for s_ind, session_id in enumerate(session2keep):
+  ax = fig.add_subplot(2, 4, s_ind+1, projection='3d')
+  print(session_id)
+  session_df = pd.DataFrame(columns=['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate', 'area'])
+  for area in visual_regions:
+    area_nodes = [k  for k, v in area_dict[session_id].items() if v == area]
+    area_node_ids = [num2id[session_id][node] for node in area_nodes]
+    coordinates = coordinate_df.loc[area_node_ids].values
+    coordinates = coordinates[~np.isnan(coordinates).any(axis=1)]
+    data = np.concatenate((coordinates, np.array([area for _ in range(coordinates.shape[0])])[:,None]), 1)
+    
+    session_df = pd.concat([session_df, pd.DataFrame(data, columns=['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate', 'area'])], ignore_index=True)
+  # session_df = session_df.dropna(axis=0, how='any')
+  session_df['anterior_posterior_ccf_coordinate'] = pd.to_numeric(session_df['anterior_posterior_ccf_coordinate'])
+  session_df['dorsal_ventral_ccf_coordinate'] = pd.to_numeric(session_df['dorsal_ventral_ccf_coordinate'])
+  session_df['left_right_ccf_coordinate'] = pd.to_numeric(session_df['left_right_ccf_coordinate'])
+  # axes instance
+  
+  # ax = Axes3D(fig, auto_add_to_figure=False)
+  # fig.add_axes(ax)
+
+  for a_ind, area in enumerate(visual_regions):
+    df = session_df[session_df['area']==area]
+    x, y, z = df['left_right_ccf_coordinate'].values, df['dorsal_ventral_ccf_coordinate'].values, df['anterior_posterior_ccf_coordinate'].values
+    sc = ax.scatter(x, y, z, s=40, marker='o', c=region_colors[a_ind], alpha=1, label=area) # , cmap=cmap
+  ax.set_zlabel('anterior_posterior')
+  ax.set_ylabel('dorsal_ventral')
+  ax.set_xlabel('left_right')
+  # ax.invert_xaxis()
+  # ax.invert_yaxis()
+  # ax.invert_zaxis()
+  ax.set_xlim(ax.get_xlim()[::-1])
+  ax.set_ylim(ax.get_ylim()[::-1])
+  ax.set_zlim(ax.get_zlim()[::-1])
+  # ax.set_title(session_id, size=12)
+  ax.text(0., 0.9, 0.9, session_id, horizontalalignment='center',
+    verticalalignment='center', transform=ax.transAxes, fontsize=12)
+  
+  # handles, labels = ax.get_legend_handles_labels()
+  # ax.legend(handles, labels, title='', bbox_to_anchor=(.7, 1.), loc='upper left', fontsize=18, frameon=False)
+
+  # legend
+  # plt.legend(*sc.legend_elements(), bbox_to_anchor=(1.05, 1), loc=2)
+
+  # save
+# plt.show()
+plt.savefig('./plots/neuron_3dscatter.pdf', transparent=True)
+#%%
+# inter areal distance
+from scipy.spatial.distance import directed_hausdorff
+# fig = plt.figure(figsize=(10,5))
+fig, axes = plt.subplots(2,3, figsize=(9, 5)) #
+sixsessions = session2keep.copy()
+sixsessions.remove('755434585')
+for s_ind, session_id in enumerate(sixsessions):
+  ax = axes[s_ind//3, s_ind%3]
+  session_df = pd.DataFrame(columns=['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate', 'area'])
+  for area in visual_regions:
+    area_nodes = [k  for k, v in area_dict[session_id].items() if v == area]
+    area_node_ids = [num2id[session_id][node] for node in area_nodes]
+    coordinates = coordinate_df.loc[area_node_ids].values
+    coordinates = coordinates[~np.isnan(coordinates).any(axis=1)]
+    data = np.concatenate((coordinates, np.array([area for _ in range(coordinates.shape[0])])[:,None]), 1)
+    
+    session_df = pd.concat([session_df, pd.DataFrame(data, columns=['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate', 'area'])], ignore_index=True)
+  # session_df = session_df.dropna(axis=0, how='any')
+  session_df['anterior_posterior_ccf_coordinate'] = pd.to_numeric(session_df['anterior_posterior_ccf_coordinate'])
+  session_df['dorsal_ventral_ccf_coordinate'] = pd.to_numeric(session_df['dorsal_ventral_ccf_coordinate'])
+  session_df['left_right_ccf_coordinate'] = pd.to_numeric(session_df['left_right_ccf_coordinate'])
+  dist_mat = np.zeros((len(visual_regions), len(visual_regions)))
+  for area1, area2 in itertools.permutations(visual_regions, 2):
+    coor1 = session_df[session_df['area']==area1][['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate']].values
+    coor2 = session_df[session_df['area']==area2][['anterior_posterior_ccf_coordinate', 'dorsal_ventral_ccf_coordinate', 'left_right_ccf_coordinate']].values
+    dist_mat[visual_regions.index(area1), visual_regions.index(area2)] = max(directed_hausdorff(coor1, coor2)[0], directed_hausdorff(coor2, coor1)[0])
+  hm = sns.heatmap(dist_mat, ax=ax, cbar=True, cmap='Greens')#, mask=mask
+  cbar = hm.collections[0].colorbar
+  cbar.ax.tick_params(labelsize=20)
+
+  ax.set_title('mouse {}'.format(s_ind+1), size=20)
+  ax.set_xticklabels(region_labels, size=13)
+  ax.set_yticklabels(region_labels, size=13)
+  # ax.set_xticks([])
+  # ax.set_yticks([])
+  ax.invert_xaxis()
+  hm.tick_params(left=False)  # remove the ticks
+  hm.tick_params(bottom=False)
+  hm.tick_params(top=False)
+fig.tight_layout()
+# plt.show()
+plt.savefig('./plots/distance_between_areas.pdf', transparent=True)
 # %%
 # Figure S5C
 def get_within_cross_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
@@ -8236,7 +8509,7 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 def plot_physdist_within_cross_comm_significance(origin_df, pair_type='all'):
   df = origin_df.copy()
   # df = df[df['stimulus']!='Flashes'] # remove flashes
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.5*(len(combined_stimulus_names)), 5))
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(1.6*(len(combined_stimulus_names)), 5))
   palette = ['k','.6']
   barplot = sns.barplot(x='stimulus', y='distance', hue="type", hue_order=['within community', 'cross community'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6, errorbar=('ci', 95))
   # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
@@ -8403,7 +8676,7 @@ def scatter_purity_distance(df, G_dict, area_dict, regions, dist_type='within'):
 
 scatter_purity_distance(purity_distance_df, S_ccg_dict, area_dict, visual_regions, dist_type=dist_type)
 # %%
-# Figure S7F
+# Figure S9A
 def get_distance_within_cross_motif(G_dict, signed_motif_types, phys_dist):
   rows, cols = get_rowcol(G_dict)
   within_motif_dict, cross_motif_dict = {}, {}
@@ -8448,9 +8721,9 @@ def get_distance_within_cross_motif(G_dict, signed_motif_types, phys_dist):
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
 distance_within_cross_motif_df = get_distance_within_cross_motif(G_ccg_dict, sig_motif_types, phys_dist)
 #%%
-# Figure S7F
+# Figure S9A
 def plot_distance_within_cross_motif_significance(df):
-  fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)), 5))
+  fig, ax = plt.subplots(1,1, figsize=(1.3*(len(combined_stimulus_names)), 5))
   palette = ['k','w']
   y = 'distance'
   barplot = sns.barplot(x='stimulus', y=y, hue="type", palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
@@ -8500,9 +8773,10 @@ def save_within_motif_otherwise_legend():
   df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
   barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
   handles, labels = ax.get_legend_handles_labels()
-  legend = ax.legend(handles, ['within-eFFLb motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=1) # change legend order to within/cross similar module then cross random
+  legend = ax.legend(handles, ['within-eFFLb motif', 'otherwise'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=25, frameon=False, ncol=2) # change legend order to within/cross similar module then cross random
   plt.axis('off')
-  export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
+  # export_legend(legend, './plots/within_motif_otherwise_legend.pdf')
+  export_legend(legend, './plots/within_motif_otherwise_legend_2cols.pdf')
   plt.tight_layout()
   # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
   plt.show()
@@ -8632,4 +8906,120 @@ save_within_motif_otherwise_legend()
 #   # plt.savefig('./plots/distance_within_cross_sig99_motif_{}.pdf'.format(pair_type), transparent=True)
 
 # plot_physdist_within_cross_motif_significance(physdist_within_cross_motif_df, pair_type=pair_type)
+# %%
+# get motif ID dict
+def get_motif_IDs(G_dict, area_dict, signed_motif_types):
+  rows, cols = get_rowcol(G_dict)
+  motif_id_dict = {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+  for row_ind, row in enumerate(rows):
+    print(row)
+    node_area = area_dict[row]
+    motif_id_dict[row] = {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      print(combined_stimulus_name)
+      motif_id_dict[row][combined_stimulus_name] = {s_type:[] for s_type in signed_motif_types}
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col]
+        motifs_by_type = find_triads(G) # faster
+        for signed_motif_type in signed_motif_types:
+          motif_type = signed_motif_type.replace('+', '').replace('-', '')
+          motifs = motifs_by_type[motif_type]
+          for motif in motifs:
+            smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+            if (smotif_type == signed_motif_type) and (not tuple(list(motif.nodes())) in motif_id_dict[row][combined_stimulus_name][smotif_type]):
+              motif_id_dict[row][combined_stimulus_name][smotif_type].append(tuple(list(motif.nodes())))
+  return motif_id_dict
+
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+motif_id_dict = get_motif_IDs(G_ccg_dict, area_dict, sig_motif_types)
+# %%
+# number of motifs VS number of stimuli during which the same motif with the same nodes are seen
+def get_num_motif_num_stim(motif_id_dict, signed_motif_types):
+  num_motif_num_stim = np.zeros((len(signed_motif_types), len(session2keep), 6))
+  for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+    for s_ind, session_id in enumerate(session2keep):
+      all_motif_ids = []
+      for combined_stimulus_name in combined_stimulus_names:
+        all_motif_ids += motif_id_dict[session_id][combined_stimulus_name][signed_motif_type]
+      values, counts = np.unique(all_motif_ids, return_counts=True, axis=0)
+      for threshold in range(1, 7):
+        num_motif_num_stim[smt_ind, s_ind, threshold-1] = sum(counts>=threshold) / len(counts)
+  return num_motif_num_stim
+
+num_motif_num_stim = get_num_motif_num_stim(motif_id_dict, sig_motif_types)
+# %%
+# plot number of motifs VS number of stimuli during which the same motif with the same nodes are seen
+def plot_num_motif_num_stim(num_motif_num_stim, signed_motif_types):
+  fig, axes = plt.subplots(2,3, figsize=(9, 5)) #
+  for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+    ax = axes[smt_ind//3, smt_ind%3]
+    for s_ind, session_id in enumerate(session2keep):
+      ax.plot(range(1, 7), num_motif_num_stim[smt_ind, s_ind], c='k', alpha=1, marker='o', linewidth=2, markersize=5)
+    ax.plot(range(1, 7), num_motif_num_stim[smt_ind].mean(0), c='r', linestyle='--', alpha=0.4, marker='o', linewidth=2, markersize=5)
+    ax.set_xlabel('Number of stimulus types', fontsize=14,color='k') #, weight='bold'
+    ax.set_ylabel('Fraction of motifs', fontsize=14,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.5)
+    # ax.set_yscale('log')
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/fraction_motif_num_stim.pdf', transparent=True)
+  # plt.savefig('./plots/fraction_motif_num_stim_log.pdf', transparent=True)
+  
+plot_num_motif_num_stim(num_motif_num_stim, sig_motif_types)
+# %%
+from matplotlib_venn import venn3
+
+set1 = set(['A', 'B', 'C'])
+set2 = set(['A', 'B', 'D'])
+set3 = set(['A', 'E', 'F'])
+set4 = set(['D', 'F', 'G'])
+
+venn3([set1, set2, set3, set4], ('Group1', 'Group2', 'Group3', 'Group4'))
+
+plt.show()
+# %%
+from venn import pseudovenn
+from matplotlib.pyplot import subplots
+from itertools import chain, islice
+from string import ascii_uppercase
+from numpy.random import choice
+letters = iter(ascii_uppercase)
+
+dataset_dict = {
+    name: set(choice(1000, 700, replace=False))
+    for name in islice(letters, 6)
+}
+pseudovenn(dataset_dict, cmap="plasma")
+# %%
+# number of motifs VS number of stimuli during which the same motif with the same nodes are seen
+def get_motif_stim_dict(motif_id_dict, signed_motif_types):
+  motif_stim_dict = {smt:{} for smt in signed_motif_types}
+  for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+    motif_stim_dict[signed_motif_type] = {session_id:{} for session_id in session2keep}
+    for s_ind, session_id in enumerate(session2keep):
+      all_motif_ids = []
+      for combined_stimulus_name in combined_stimulus_names:
+        # all_motif_ids += motif_id_dict[session_id][combined_stimulus_name][signed_motif_type]
+        motif_stim_dict[signed_motif_type][session_id][combined_stimulus_name] = set(motif_id_dict[session_id][combined_stimulus_name][signed_motif_type])
+  return motif_stim_dict
+
+motif_stim_dict = get_motif_stim_dict(motif_id_dict, sig_motif_types)
+# %%
+# pseudo venn diagram for 6 circles
+pseudovenn(motif_stim_dict[sig_motif_types[4]][session2keep[6]], cmap="plasma")
+# %%
+# venn diagram for 6 triangles
+from venn import venn
+venn(motif_stim_dict[sig_motif_types[4]][session2keep[6]], cmap="plasma")
 # %%
