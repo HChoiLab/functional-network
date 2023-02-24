@@ -2006,6 +2006,44 @@ def plot_dH_row(rows, cols, row_ind, real_H, subs_H, resolution_list):
   
 plot_dH_row(rows, cols, 7, real_Hamiltonian, subs_Hamiltonian, resolution_list)
 #%%
+# Figure S4A
+########################### visualize the delta_Q obtained from delta_H
+def plot_dH2Q_row(G_dict, rows, cols, row_ind, real_H, subs_H, resolution_list): 
+  fig, axes = plt.subplots(1, len(combined_stimulus_names), figsize=(3.5*len(combined_stimulus_names), 3), tight_layout=True)
+  real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
+  rows, cols = get_rowcol(G_dict)
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col]
+      tw = sum([abs(G.get_edge_data(*edge)['weight']) for edge in G.edges()])
+      real_Q[row_ind, col_ind] = - real_H[row_ind, col_ind] / tw
+      subs_Q[row_ind, col_ind] = - subs_H[row_ind, col_ind] / tw
+  # find minimum of minima & maximum of maxima
+  minmin = (real_Q.mean(-1) - subs_Q.mean(-1)).min()
+  maxmax = (real_Q.mean(-1) - subs_Q.mean(-1)).max()
+  divnorm=colors.TwoSlopeNorm(vmin=minmin, vcenter=0, vmax=maxmax)
+  row = rows[row_ind]
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    ax = axes[cs_ind]
+    col = combined_stimuli[cs_ind][0]
+    col_ind = cols.index(col)
+    metric_mean = real_Q[row_ind, col_ind].mean(-1)
+    metric_subs = subs_Q[row_ind, col_ind].mean(-1)
+    im = ax.imshow((metric_mean - metric_subs).T, cmap="gist_heat_r") #, norm=divnorm
+    cbar = plt.colorbar(im, ax=ax,fraction=0.046, pad=0.04)
+    cbar.ax.tick_params(labelsize=14)
+    ax.set_xticks(.5 + np.arange(0, len(resolution_list), 4))
+    ax.set_xticklabels(labels=resolution_list[::4], fontsize=14)
+    ax.set_yticks(.5 + np.arange(0, len(resolution_list), 4))
+    ax.set_yticklabels(labels=resolution_list[::4], fontsize=14)
+    ax.set_xlabel(r'$\gamma^+$', fontsize=20,color='k') #, weight='bold'
+    if col_ind == 0:
+      ax.set_ylabel(r'$\gamma^-$', fontsize=20,color='k') #, weight='bold'
+  # plt.show()
+  plt.savefig('./plots/dH2Q_{}.pdf'.format(row), transparent=True)
+  
+plot_dH2Q_row(G_ccg_dict, rows, cols, 7, real_Hamiltonian, subs_Hamiltonian, resolution_list)
+#%%
 def stat_modular_structure_Hamiltonian_comms(G_dict, measure, n, resolution_list, max_pos_neg_reso=None, comms_dict=None, real_H=None, subs_H=None, max_method='none', cc=False):
   rows, cols = get_rowcol(G_dict)
   num_comm, hamiltonian, subs_Hamiltonian, num_lcomm, cov_lcomm = [np.full([len(rows), len(cols)], np.nan) for _ in range(5)]
@@ -2314,7 +2352,57 @@ def plot_zscore_Hamiltonian(G_dict, resolution_list, max_pos_neg_reso, real_H, s
   # plt.show()
   plt.savefig('./plots/zscore_Hamiltonian_{}.pdf'.format(max_method), transparent=True)
 
-plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
+def plot_zscore_Hamiltonian2Q(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_method='none', cc=False):
+  rows, cols = get_rowcol(G_dict)
+  real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
+  rows, cols = get_rowcol(G_dict)
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col]
+      tw = sum([abs(G.get_edge_data(*edge)['weight']) for edge in G.edges()])
+      real_Q[row_ind, col_ind] = - real_H[row_ind, col_ind] / tw
+      subs_Q[row_ind, col_ind] = - subs_H[row_ind, col_ind] / tw
+  zscore_Hamiltonian2Q, ps = [[] for _ in range(len(combined_stimuli))], [[] for _ in range(len(combined_stimuli))]
+  runs = real_Hamiltonian.shape[-1]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      q, rq = [], []
+      for run in range(runs):
+        max_reso = max_pos_neg_reso[row_ind, col_ind]
+        q.append(real_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+        rq.append(subs_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+      # return h, rh
+      # zscore_Hamiltonian2Q[combine_stimulus(col)[0]] += ztest(h, rh)[0]
+      zscore_Hamiltonian2Q[combine_stimulus(col)[0]].append(ztest(q, rq)[0])
+      ps[combine_stimulus(col)[0]].append(ztest(q, rq)[1])
+  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 1.2))
+  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH2Q) for dH2Q in zscore_Hamiltonian2Q], width=.07, align='center', alpha=1., linewidth=5, facecolor='w', edgecolor='black', capsize=10) #
+  
+  # arrowed_spines(fig, ax)
+  ax.set_xlim(-.4, 5.5)
+  ax.set_ylim(0., 70)
+
+  annots = arrowed_spines(ax, locations=['bottom right'], lw=4.)
+
+  ax.set_xticks([])
+  # ax.set_xticklabels(combined_stimulus_names, fontsize=25)
+  for axis in ['top', 'left']:
+    ax.spines[axis].set_linewidth(3.)
+    ax.spines[axis].set_color('k')
+  ax.xaxis.tick_top()
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.yaxis.set_tick_params(labelsize=30)
+  ax.tick_params(width=3)
+  # ax.set_ylabel(r'$Z_{H}$', size=60)
+  ax.invert_yaxis()
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/zscore_Hamiltonian2Q_{}.pdf'.format(max_method), transparent=True)
+
+# plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
+plot_zscore_Hamiltonian2Q(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 #%%
 def get_table_histogram(session_id, stimulus_name, regions, resolution):
   data_directory = './data/ecephys_cache_dir'
@@ -2823,7 +2911,7 @@ def plot_connectionp_signal_correlation(df):
     x, y = data['signal correlation'].values.flatten(), data['probability of connection'].values.flatten()
 
     # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
-    numbin = 6
+    numbin = 5
     binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
@@ -6477,7 +6565,7 @@ dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
 df_ind = 3
 plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 #%%
-# Figure 4C
+# Figure 3A
 def scatter_ZscoreVSdensity(origin_df, G_dict):
   df = origin_df.copy()
   df['density'] = 0
@@ -6543,6 +6631,97 @@ def scatter_ZscoreVSdensity(origin_df, G_dict):
   plt.savefig(f'./plots/mean_Zscore_density.pdf', transparent=True)
 
 scatter_ZscoreVSdensity(whole_df4, G_ccg_dict)
+#%%
+# motif significance VS Zscore of modularity
+def scatter_ZintensityVSZQ(origin_df, G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H):
+  rows, cols = get_rowcol(G_dict)
+  real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
+  rows, cols = get_rowcol(G_dict)
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col]
+      tw = sum([abs(G.get_edge_data(*edge)['weight']) for edge in G.edges()])
+      real_Q[row_ind, col_ind] = - real_H[row_ind, col_ind] / tw
+      subs_Q[row_ind, col_ind] = - subs_H[row_ind, col_ind] / tw
+  zscore_Hamiltonian2Q = np.zeros((len(rows), len(cols)))
+  runs = real_Hamiltonian.shape[-1]
+  for row_ind, row in enumerate(rows):
+    # print(row)
+    for col_ind, col in enumerate(cols):
+      q, rq = [], []
+      for run in range(runs):
+        max_reso = max_pos_neg_reso[row_ind, col_ind]
+        q.append(real_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+        rq.append(subs_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+      # zscore_Hamiltonian2Q[combine_stimulus(col)[0]].append(ztest(q, rq)[0])
+      zscore_Hamiltonian2Q[row_ind, col_ind] = ztest(q, rq)[0]
+  
+  df = origin_df.copy()
+  TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  
+  color = '.1' 
+  # palette = [plt.cm.tab20(i) for i in range(13)]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  fig, ax = plt.subplots(figsize=(5, 5))
+  df['intensity z score'] = df['intensity z score'].abs()
+  X, Y = [], []
+  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+    combined_stimulus_name = combined_stimulus_names[cs_ind]
+    for stimulus_name in combined_stimulus:
+      # print(stimulus_name)
+      st_ind = stimulus_names.index(stimulus_name)
+      x, y = [], []
+      for session_id in session2keep:
+        se_ind = rows.index(session_id)
+        data = df[(df['stimulus']==stimulus_name) & (df['session']==session_id)]
+        # print(data['density'].values)
+        x.append(zscore_Hamiltonian2Q[se_ind, st_ind])
+        y.append(np.nanmean(data['intensity z score'].values))
+      X += x
+      Y += y
+      # ax.scatter(x, y, facecolors='none', edgecolors=stimulus_type_color[st_ind], label=stimulus_types[st_ind], alpha=.9, linewidths=2)
+      ax.scatter(x, y, ec='.1', fc='none', marker=stimulus2marker[combined_stimulus_name], s=10*marker_size_dict[stimulus2marker[combined_stimulus_name]], alpha=.9, linewidths=1.5)
+      # ax.scatter(x, y, ec='.1', fc='none', marker=marker_list[cs_ind], s=6*markersize_list[cs_ind], alpha=.9, linewidths=2)
+  
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = zip(*((x, y) for x, y in zip(X, Y) if x > 0))
+  X, Y = np.array(X), np.array(Y)
+  # print(np.isnan(X).any())
+  # print(np.isnan(Y).any())
+  # print(X.min(), X.max())
+  # print(Y.min(), Y.max())
+  slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+  line = slope*np.log10(X)+intercept
+  locx, locy = .35, .8
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  # plt.legend(loc='upper left', fontsize=14, frameon=False)
+  ax.xaxis.set_tick_params(labelsize=25)
+  ax.yaxis.set_tick_params(labelsize=25)
+  # plt.xlabel('Z_Q')
+  ylabel = 'Absolute motif significance' # 'Absolute Z score'
+  plt.xscale('log')
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=28,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout(rect=[0, 0, 1, .9])
+  # plt.show()
+  plt.savefig('./plots/mean_Zintensity_ZQ.pdf', transparent=True)
+
+scatter_ZintensityVSZQ(whole_df4, G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian)
 #%%
 ######################## Spearman's r of Z score
 def plot_zscoreVSrank(df):
@@ -8045,7 +8224,6 @@ for session_id in session2keep:
       phys_dist[session_id][i, j] = dist
       phys_dist[session_id][j, i] = dist
 # %%
-# Figure S
 ########################################## get connection probability VS physical distance
 def get_connectionp_physdist(G_dict, phys_dist):
   rows = phys_dist.keys()
@@ -8150,6 +8328,7 @@ def plot_connectionp_physdist(df):
 
 plot_connectionp_physdist(connectionp_physdist_df)
 #%%
+# Figure S3A
 # connection probability VS distance for within module neurons only
 def get_connectionp_physdist_within(G_dict, phys_dist):
   rows = phys_dist.keys()
@@ -8194,6 +8373,7 @@ start_time = time.time()
 connectionp_physdist_within_df = get_connectionp_physdist_within(G_ccg_dict, phys_dist)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
+# Figure S3A
 # plot connection probability VS distance for within-module neuron pairs only
 def plot_connectionp_physdist_within(df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 5)) #
@@ -8212,7 +8392,7 @@ def plot_connectionp_physdist_within(df):
     x, y = data['distance'].values.flatten(), data['probability of connection'].values.flatten()
 
     # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
-    numbin = 6
+    numbin = 5
     binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
     connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
     ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
@@ -8256,15 +8436,155 @@ def plot_connectionp_physdist_within(df):
 
 plot_connectionp_physdist_within(connectionp_physdist_within_df)
 #%%
+def save_distance_label():
+  fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
+  palette = ['k', 'w']
+  df = pd.DataFrame([[0,0,0]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', ec='w', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  plt.axis('off')
+  ax.text(0.5, 0.5, 'Distance (\u03bcm)', horizontalalignment='center',
+          verticalalignment='center', transform=ax.transAxes, fontsize=25)
+  # plt.title('Distance (\u03bcm)')
+  plt.tight_layout()
+  plt.savefig('./plots/distance_unit.pdf', transparent=True)
+  # plt.show()
+
+save_distance_label()
+#%%
+# Figure S3B,C
+########################################## regard bidirectional edges as 2
+########################################## get positive and negative connection probability VS distance for within area pairs only
+def get_pos_neg_p_distance(G_dict, phys_dist, pairtype='all', areatype='all'):
+  rows = phys_dist.keys()
+  pos_connect_dict, neg_connect_dict, dis_connect_dict, distance_dict = [{row:{csn:[] for csn in combined_stimulus_names} for row in rows} for _ in range(4)]
+  for row_ind, row in enumerate(rows):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    distance_mat = phys_dist[row]
+    for combined_stimulus_name in combined_stimulus_names:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      pos_connect, neg_connect, dis_connect, distance = [], [], [], []
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[row][col].copy()
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          areal_status = active_area[nodei] == active_area[nodej] if areatype == 'within' else True # for within-area neuron pairs only if within
+          dist = distance_mat[nodei, nodej] # abs(distanceelation[nodei, nodej])
+          if (not np.isnan(dist)) and (dist != 0) and areal_status:
+            if G.has_edge(nodei, nodej):
+              distance.append(dist)
+              w = G[nodei][nodej]['weight']
+              if w > 0:
+                pos_connect.append(1)
+                neg_connect.append(0)
+              elif w < 0:
+                pos_connect.append(0)
+                neg_connect.append(1)
+            if G.has_edge(nodej, nodei):
+              distance.append(dist)
+              w = G[nodej][nodei]['weight']
+              if w > 0:
+                pos_connect.append(1)
+                neg_connect.append(0)
+              elif w < 0:
+                pos_connect.append(0)
+                neg_connect.append(1)
+            if pairtype == 'all':
+              if (not G.has_edge(nodei, nodej)) and (not G.has_edge(nodej, nodei)):
+                dis_connect.append(dist)
+                distance.append(dist)
+                pos_connect.append(0)
+                neg_connect.append(0)
+
+      distance_dict[row][combined_stimulus_name] += distance
+      pos_connect_dict[row][combined_stimulus_name] += pos_connect
+      neg_connect_dict[row][combined_stimulus_name] += neg_connect
+      dis_connect_dict[row][combined_stimulus_name] += dis_connect
+
+  pos_df, neg_df, dis_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names:
+    print(combined_stimulus_name)
+    for row in session2keep:
+      pos_connect, neg_connect, dis_connect, distance = pos_connect_dict[row][combined_stimulus_name], neg_connect_dict[row][combined_stimulus_name], dis_connect_dict[row][combined_stimulus_name], distance_dict[row][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      pos_df = pd.concat([pos_df, pd.DataFrame(np.concatenate((np.array(distance)[:,None], np.array(pos_connect)[:,None], np.array([combined_stimulus_name] * len(pos_connect))[:,None], np.array([row] * len(pos_connect))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+      neg_df = pd.concat([neg_df, pd.DataFrame(np.concatenate((np.array(distance)[:,None], np.array(neg_connect)[:,None], np.array([combined_stimulus_name] * len(neg_connect))[:,None], np.array([row] * len(neg_connect))[:,None]), 1), columns=['distance', 'type', 'stimulus', 'session'])], ignore_index=True)
+      dis_df = pd.concat([dis_df, pd.DataFrame(np.concatenate((np.array(dis_connect)[:,None], np.array([combined_stimulus_name] * len(dis_connect))[:,None], np.array([row] * len(dis_connect))[:,None]), 1), columns=['distance', 'stimulus', 'session'])], ignore_index=True)
+  pos_df['distance'] = pd.to_numeric(pos_df['distance'])
+  pos_df['type'] = pd.to_numeric(pos_df['type'])
+  neg_df['distance'] = pd.to_numeric(neg_df['distance'])
+  neg_df['type'] = pd.to_numeric(neg_df['type'])
+  dis_df['distance'] = pd.to_numeric(dis_df['distance'])
+  return pos_df, neg_df, dis_df
+
+start_time = time.time()
+# pairtype = 'all'
+pairtype = 'connected'
+# areatype = 'within'
+areatype = 'all'
+pos_connectionp_distance_df, neg_connectionp_distance_df, dis_connected_distance_df = get_pos_neg_p_distance(G_ccg_dict, phys_dist, pairtype=pairtype, areatype=areatype)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# Figure S3B,C
+def plot_pos_neg_connectionp_distance(df, dname='pos',pairtype='connected', areatype='all'):
+  # for row in session2keep:
+  #   print(row)
+    fig, axes = plt.subplots(1,len(combined_stimulus_names), figsize=(5*(len(combined_stimulus_names)), 5)) #, sharey=True
+
+    for cs_ind in range(len(axes)):
+      ax = axes[cs_ind]
+      data = df[(df.stimulus==combined_stimulus_names[cs_ind])].copy() #  remove spontaneous and flash
+      x, y = data['distance'].values.flatten(), data['type'].values.flatten()
+
+      # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+      numbin = 6
+      binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+      connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+      ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+      for i in range(len(binned_x)):
+        ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=26)
+
+      # First binning, then do Cochran–Armitage test
+      dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+      table = sm.stats.Table(dff)
+      p_value = table.test_ordinal_association().pvalue
+      
+      # p_value = CA_test(xy)
+      if pairtype == 'all':
+        locx, locy = .5, .7
+      else:
+        locx, locy = .5, .1
+      ax.text(locx, locy, 'p={:.1e}'.format(p_value), horizontalalignment='center',
+          verticalalignment='center', transform=ax.transAxes, fontsize=25)
+      ax.xaxis.set_tick_params(labelsize=30)
+      ax.yaxis.set_tick_params(labelsize=30)
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(2.5)
+        ax.spines[axis].set_color('k')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=2.5)
+      # ylabel = 'Probability of finding pairs with\nexcitatory functional connection' if dname == 'pos' else 'Probability of finding pairs with\ninhibitory functional connection'
+      # if cs_ind == 0:
+      #   ax.set_ylabel(ylabel, fontsize=30)
+      # ax.set_xlabel('Signal correlation', fontsize=25)
+
+    plt.tight_layout(rect=[.01, 0, 1, 1])
+    # plt.show()
+    plt.savefig('./plots/{}_p_{}_distance_{}.pdf'.format(pairtype, dname, areatype), transparent=True)
+
+plot_pos_neg_connectionp_distance(pos_connectionp_distance_df, 'pos', pairtype=pairtype, areatype=areatype)
+plot_pos_neg_connectionp_distance(neg_connectionp_distance_df, 'neg', pairtype=pairtype, areatype=areatype)
+#%%
 # plot the whole distribution of physical distance
 fig, ax = plt.subplots(1,1, figsize=(5, 4))
-sns.histplot(data=connectionp_physdist_df[connectionp_physdist_df['stimulus']=='Resting\nstate'].distance, stat='probability', kde=True, linewidth=0)
+sns.histplot(data=connectionp_physdist_df[(connectionp_physdist_df['stimulus']=='Resting\nstate') & (connectionp_physdist_df['type']=='connected')].distance, stat='probability', kde=True, linewidth=0)
 # plt.hist(connectionp_physdist_df.distance, 20)
 plt.xlabel('Distance')
-plt.savefig('./plots/distance_distribution.pdf', trasparent=True)
+plt.savefig('./plots/distance_distribution_connected_pairs.pdf', trasparent=True)
 # plt.show()
 #%%
-# get distance distribution pairwise for all visual areas
+# get distance distribution  pairwise for all visual areas for connected neuron pairs !!!!!!!!!!!
 def get_physdist_areawise(G_dict, phys_dist, visual_regions):
   rows, cols = get_rowcol(G_dict)
   dist_dict = {row:{regiona:{regionb:[] for regionb in visual_regions} for regiona in visual_regions} for row in session2keep}
@@ -8277,15 +8597,20 @@ def get_physdist_areawise(G_dict, phys_dist, visual_regions):
     # node_idx = sorted(active_area.keys())
     for col in cols:
       G = G_dict[row][col]
+      adj = nx.to_numpy_array(G)
+      adj[adj!=0] = 1
+      sorted_nodes = np.array(sorted(active_area.keys()))
+      o_adj = np.zeros((len(area_dict[row]), len(area_dict[row]))) # create the original adjacency matrix
+      o_adj[sorted_nodes[:,None], sorted_nodes] = adj
       for r_ind, region in enumerate(visual_regions):
         node_idx = area_nodes[r_ind]
         for nodei, nodej in itertools.combinations(node_idx, 2):
           dist_ij = distance_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
-          if dist_ij != 0:
+          if (dist_ij != 0) and (((nodei, nodej) in G.edges()) or ((nodej, nodei) in G.edges())):
             dist_dict[row][region][region].append(dist_ij)
       for regiona, regionb in itertools.combinations(range(len(visual_regions)), 2):
         node_idxa, node_idxb = area_nodes[regiona], area_nodes[regionb]
-        dist_list = distance_mat[np.array(node_idxa)[:, None], node_idxb].flatten().tolist()
+        dist_list = (distance_mat[np.array(node_idxa)[:, None], node_idxb] * o_adj[np.array(node_idxa)[:, None], node_idxb]).flatten().tolist() # disconnected neuron pairs will have 0 distance
         dist_list = [ele for ele in dist_list if (not np.isnan(ele)) and (ele != 0)]
         dist_dict[row][visual_regions[regiona]][visual_regions[regionb]] = dist_list
         dist_dict[row][visual_regions[regionb]][visual_regions[regiona]] = dist_list
@@ -8347,11 +8672,11 @@ for i in range(axes.shape[0]):
       ax.spines[axis].set_color('k')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.xaxis.set_tick_params(labelsize=23)
-    ax.yaxis.set_tick_params(labelsize=23)
+    ax.xaxis.set_tick_params(labelsize=25)
+    ax.yaxis.set_tick_params(labelsize=25)
 plt.tight_layout()
 # plt.show()
-plt.savefig('./plots/distance_distribution_areawise.pdf', trasparent=True)
+plt.savefig('./plots/distance_distribution_areawise_connected_pairs.pdf', trasparent=True)
 #%%
 # import re, seaborn as sns
 # import numpy as np
@@ -8453,7 +8778,7 @@ fig.tight_layout()
 plt.savefig('./plots/distance_between_areas.pdf', transparent=True)
 # %%
 # Figure S5C
-def get_within_cross_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
+def get_within_across_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
   rows = list(phys_dist.keys())
   within_comm_dict, cross_comm_dict = {}, {}
   runs = len(comms_dict[rows[0]][cols[0]])
@@ -8501,7 +8826,7 @@ def get_within_cross_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
 # pair_type = 'all'
 pair_type = 'connected'
 start_time = time.time()
-physdist_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, phys_dist, best_comms_dict, pair_type=pair_type)
+physdist_within_cross_comm_df = get_within_across_comm(G_ccg_dict, phys_dist, best_comms_dict, pair_type=pair_type)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
 # Figure S5C
@@ -8551,6 +8876,166 @@ def plot_physdist_within_cross_comm_significance(origin_df, pair_type='all'):
   plt.savefig('./plots/physical_distance_within_cross_comm_{}.pdf'.format(pair_type), transparent=True)
 
 plot_physdist_within_cross_comm_significance(physdist_within_cross_comm_df, pair_type=pair_type)
+#%%
+# get CCG/Z_CCG against distance for within/across module connections
+def get_within_across_comm_data(G_dict, phys_dist, comms_dict, pair_type='all'):
+  rows = list(phys_dist.keys())
+  runs = len(comms_dict[rows[0]][cols[0]])
+  df = pd.DataFrame()
+  data = []
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    dist_mat = phys_dist[row]
+    for combined_stimulus_name in combined_stimulus_names:
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        print(col)
+        col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
+        if pair_type == 'all': # all neuron pairs
+          neuron_pairs = list(itertools.combinations(node_idx, 2))
+        elif pair_type == 'connected': # limited to connected pairs only
+          neuron_pairs = G.to_undirected().edges()
+        comms_list = comms_dict[row][col]
+        for nodei, nodej in neuron_pairs: # for all neurons
+          dist_ij = dist_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if (not np.isnan(dist_ij)) and (dist_ij != 0):
+            CCG, Z_CCG = [], []
+            if (nodei, nodej) in G.edges():
+              CCG.append(abs(G[nodei][nodej]['weight']))
+              Z_CCG.append(abs(G[nodei][nodej]['confidence']))
+            if (nodej, nodei) in G.edges():
+              CCG.append(abs(G[nodej][nodei]['weight']))
+              Z_CCG.append(abs(G[nodej][nodei]['confidence']))
+            for run in range(runs):
+              comms = comms_list[run]
+              node_to_community = comm2partition(comms)
+              if node_to_community[nodei] == node_to_community[nodej]:
+                m_type = 'within'
+              else:
+                m_type = 'across'
+              data.append([dist_ij, np.mean(CCG), np.mean(Z_CCG), m_type, combined_stimulus_name, row])
+              # df = pd.concat([df, pd.DataFrame(np.array([[dist_ij, np.mean(CCG), np.mean(Z_CCG), m_type, combined_stimulus_name, row]]), columns=['distance', 'CCG', 'Z_CCG', 'type', 'stimulus', 'session'])], ignore_index=True)
+  df = pd.DataFrame(data, columns=['distance', 'CCG', 'Z_CCG', 'type', 'stimulus', 'session'])
+  df['distance'] = pd.to_numeric(df['distance'])
+  df['CCG'] = pd.to_numeric(df['CCG'])
+  df['Z_CCG'] = pd.to_numeric(df['Z_CCG'])
+  return df
+
+# pair_type = 'all'
+pair_type = 'connected'
+start_time = time.time()
+data_physdist_df = get_within_across_comm_data(G_ccg_dict, phys_dist, best_comms_dict, pair_type=pair_type)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+def get_within_across_comm_signal_correlation(G_dict, phys_dist, comms_dict, signal_correlation_dict, pair_type='all'):
+  rows = list(phys_dist.keys())
+  runs = len(comms_dict[rows[0]][cols[0]])
+  df = pd.DataFrame()
+  data = []
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    active_area = active_area_dict[row]
+    node_idx = sorted(active_area.keys())
+    dist_mat = phys_dist[row]
+    for combined_stimulus_name in combined_stimulus_names[2:]:
+      sc_mat = signal_correlation_dict[row][combined_stimulus_name]
+      for col in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        print(col)
+        col_ind = stimulus_names.index(col)
+        G = G_dict[row][col]
+        if pair_type == 'all': # all neuron pairs
+          neuron_pairs = list(itertools.combinations(node_idx, 2))
+        elif pair_type == 'connected': # limited to connected pairs only
+          neuron_pairs = G.to_undirected().edges()
+        comms_list = comms_dict[row][col]
+        for nodei, nodej in neuron_pairs: # for all neurons
+          dist_ij = dist_mat[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if (not np.isnan(dist_ij)) and (dist_ij != 0):
+            sc = abs(sc_mat[nodei][nodej])
+            if (not np.isnan(sc)):
+              for run in range(runs):
+                comms = comms_list[run]
+                node_to_community = comm2partition(comms)
+                if node_to_community[nodei] == node_to_community[nodej]:
+                  m_type = 'within'
+                else:
+                  m_type = 'across'
+                data.append([dist_ij, sc, m_type, combined_stimulus_name, row])
+                # df = pd.concat([df, pd.DataFrame(np.array([[dist_ij, np.mean(CCG), np.mean(Z_CCG), m_type, combined_stimulus_name, row]]), columns=['distance', 'CCG', 'Z_CCG', 'type', 'stimulus', 'session'])], ignore_index=True)
+  df = pd.DataFrame(data, columns=['distance', 'signal_correlation', 'type', 'stimulus', 'session'])
+  df['distance'] = pd.to_numeric(df['distance'])
+  df['signal_correlation'] = pd.to_numeric(df['signal_correlation'])
+  return df
+
+# pair_type = 'all'
+pair_type = 'connected'
+start_time = time.time()
+signal_correlation_physdist_df = get_within_across_comm_signal_correlation(G_ccg_dict, phys_dist, best_comms_dict, signal_correlation_dict, pair_type=pair_type)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# plot the CCG/Z_CCG against distance for within and across module connections
+def plot_data_distance_within_across_module(df, d_type='CCG'):
+  if d_type == 'signal_correlation':
+    stimuli = combined_stimulus_names[2:]
+  else:
+    stimuli = combined_stimulus_names
+  fig, axes = plt.subplots(1, len(stimuli), figsize=(4*len(stimuli), 3))
+  for cs_ind, combined_stimulus_name in enumerate(stimuli):
+    print(combined_stimulus_name)
+    ax = axes[cs_ind]
+    df_select = df[(df['type']=='within') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])].groupby(['distance']).mean()[d_type]
+    X1 = df_select.index.tolist()
+    Y1 = df_select.values.tolist()
+    if 0 in X1:
+      ind = X1.index(0)
+      X1 = [X1[i] for i in range(len(X1)) if i != ind]
+      Y1 = [Y1[i] for i in range(len(Y1)) if i != ind]
+    df_select = df[(df['type']=='across') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])].groupby(['distance']).mean()[d_type]
+    X2 = df_select.index.tolist()
+    Y2 = df_select.values.tolist()
+    if 0 in X2:
+      ind = X2.index(0)
+      X2 = [X2[i] for i in range(len(X2)) if i != ind]
+      Y2 = [Y2[i] for i in range(len(Y2)) if i != ind]
+    # X1 = df[(df['type']=='within') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])]['distance'].values.tolist()
+    # Y1 = df[(df['type']=='within') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])][d_type].values.tolist()
+    # X2 = df[(df['type']=='across') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])]['distance'].values.tolist()
+    # Y2 = df[(df['type']=='across') & (df['stimulus']==combined_stimulus_name) & (df['session']==session_ids[0])][d_type].values.tolist()
+    X1, Y1 = (list(t) for t in zip(*sorted(zip(X1, Y1))))
+    X1, Y1 = np.array(X1), np.array(Y1)
+    X2, Y2 = (list(t) for t in zip(*sorted(zip(X2, Y2))))
+    X2, Y2 = np.array(X2), np.array(Y2)
+    
+    ax.plot(X1, Y1, color='blue',marker='o', markerfacecolor='white', label='within-module', markersize=2, alpha=.6)
+    ax.plot(X2, Y2, color='green',marker='o', markerfacecolor='white', label='across-module', markersize=2, alpha=.6)
+    # ax.legend(loc='upper right', fontsize=7)
+    # xlabel = 'Weighted Degree' if weight is not None else 'Degree'
+    # ax.set_xlabel(xlabel, fontsize=22)
+    # ax.set_ylabel('Frequency', fontsize=22)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.set_xscale('log')
+    # ax.set_yscale('log')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.xaxis.set_tick_params(labelsize=20)
+    ax.yaxis.set_tick_params(labelsize=20)
+    if cs_ind == 0:
+      handles, labels = ax.get_legend_handles_labels()
+      ax.legend(handles, labels, title='', bbox_to_anchor=(.4, .9), loc='upper left', fontsize=16, frameon=False)
+      
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/distance_{}_within_across_module.pdf'.format(d_type), transparent=True)
+
+# plot_data_distance_within_across_module(data_physdist_df, d_type='CCG')
+# plot_data_distance_within_across_module(data_physdist_df, d_type='Z_CCG')
+plot_data_distance_within_across_module(signal_correlation_physdist_df, d_type='signal_correlation')
 #%%
 # Figure S5C
 def get_purity_distance(G_dict, area_dict, regions, best_comms_dict, pair_type, dist_type):
@@ -8989,19 +9474,19 @@ venn3([set1, set2, set3, set4], ('Group1', 'Group2', 'Group3', 'Group4'))
 
 plt.show()
 # %%
-from venn import pseudovenn
+from venn import pseudovenn, venn
 from matplotlib.pyplot import subplots
 from itertools import chain, islice
 from string import ascii_uppercase
 from numpy.random import choice
-letters = iter(ascii_uppercase)
+# letters = iter(ascii_uppercase)
 
-dataset_dict = {
-    name: set(choice(1000, 700, replace=False))
-    for name in islice(letters, 6)
-}
-pseudovenn(dataset_dict, cmap="plasma")
-# %%
+# dataset_dict = {
+#     name: set(choice(1000, 700, replace=False))
+#     for name in islice(letters, 6)
+# }
+# pseudovenn(dataset_dict, cmap="plasma")
+
 # number of motifs VS number of stimuli during which the same motif with the same nodes are seen
 def get_motif_stim_dict(motif_id_dict, signed_motif_types):
   motif_stim_dict = {smt:{} for smt in signed_motif_types}
@@ -9020,6 +9505,106 @@ motif_stim_dict = get_motif_stim_dict(motif_id_dict, sig_motif_types)
 pseudovenn(motif_stim_dict[sig_motif_types[4]][session2keep[6]], cmap="plasma")
 # %%
 # venn diagram for 6 triangles
-from venn import venn
 venn(motif_stim_dict[sig_motif_types[4]][session2keep[6]], cmap="plasma")
+# %%
+def plot_multi_venn(motif_stim_dict, signed_motif_types):
+  fig, axes = plt.subplots(len(session2keep),len(sig_motif_types), figsize=(5*len(sig_motif_types), 5*len(session2keep))) #
+  for s_ind, session_id in enumerate(session2keep):
+    for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+      ax = axes[s_ind, smt_ind]
+      venn(motif_stim_dict[signed_motif_type][session_id], cmap="plasma", ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/multi_venn.pdf', transparent=True)
+  
+plot_multi_venn(motif_stim_dict, sig_motif_types)
+# %%
+def plot_multi_pseudo_venn(motif_stim_dict, signed_motif_types):
+  fig, axes = plt.subplots(len(session2keep),len(sig_motif_types), figsize=(5*len(sig_motif_types), 5*len(session2keep))) #
+  for s_ind, session_id in enumerate(session2keep):
+    for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+      ax = axes[s_ind, smt_ind]
+      pseudovenn(motif_stim_dict[signed_motif_type][session_id], cmap="plasma", ax=ax)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/multi_pseudo_venn.pdf', transparent=True)
+  
+plot_multi_pseudo_venn(motif_stim_dict, sig_motif_types)
+# %%
+# get motif stimulus list dictionary for each mouse and each stimulus and each motif type
+def get_motif_stim_list_dict(motif_id_dict, signed_motif_types):
+  motif_stim_dict = {smt:{} for smt in signed_motif_types}
+  for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+    motif_stim_dict[signed_motif_type] = {session_id:{} for session_id in session2keep}
+    for s_ind, session_id in enumerate(session2keep):
+      for combined_stimulus_name in combined_stimulus_names:
+        motif_stim_dict[signed_motif_type][session_id][combined_stimulus_name] = motif_id_dict[session_id][combined_stimulus_name][signed_motif_type]
+  return motif_stim_dict
+
+# merge all individuals into one large set
+def merge_mice(motif_stim_list_dict):
+  merge_ind_motif_stim_list_dict = {smt:{csn:[] for csn in combined_stimulus_names} for smt in motif_stim_list_dict}
+  for smt in motif_stim_list_dict:
+    for csn in combined_stimulus_names:
+      for s_ind, session_id in enumerate(session2keep):
+        merge_ind_motif_stim_list_dict[smt][csn] += [tuple([s_ind]) + ele for ele in motif_stim_list_dict[smt][session_id][csn]] # s_ind to differentiate neurons
+  return merge_ind_motif_stim_list_dict
+      
+motif_stim_list_dict = get_motif_stim_list_dict(motif_id_dict, sig_motif_types)
+merge_ind_motif_stim_list_dict = merge_mice(motif_stim_list_dict)
+# # %%
+# # make multiple upset plot, one for each mouse and each motif type
+# from upsetplot import from_contents, plot
+# def plot_multi_upsetplot(motif_stim_list_dict, signed_motif_types):
+#   # fig, axes = plt.subplots(len(session2keep),len(sig_motif_types), figsize=(5*len(sig_motif_types), 5*len(session2keep))) #
+#   for s_ind, session_id in enumerate(session2keep):
+#     for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+#       # ax = axes[s_ind, smt_ind]
+#       motif_stim = from_contents(motif_stim_list_dict[signed_motif_type][session_id])
+#       # fig, ax = plt.subplots(1,1, figsize=(5, 5)) #
+#       fig = plt.figure(figsize=(10, 6))
+#       plot(motif_stim, sort_categories_by='-input', sort_by='cardinality', fig=fig) # , sort_by='cardinality'
+#       # plt.tight_layout()
+#       fig.show()
+#   # plt.savefig('./plots/multi_upsetplot.pdf', transparent=True)
+
+# plot_multi_upsetplot(motif_stim_list_dict, sig_motif_types)
+# %%
+# make multiple upset plot for each motif type, combine across mouse
+from upsetplot import from_contents, plot
+def plot_multi_upsetplot_combined(motif_stim_list_dict, signed_motif_types):
+  for sig_motif_type in sig_motif_types:
+    motif_stim = from_contents(merge_ind_motif_stim_list_dict[sig_motif_type])
+    motif_stim.index.rename(['',' ','  ','   ','    ','     '], inplace=True)
+    fig = plt.figure(figsize=(10, 6))
+    plot(motif_stim, sort_categories_by='input', sort_by='cardinality', fig=fig) # , sort_by='cardinality'
+    # plt.suptitle('Ordered by cardinality')
+    fig.savefig('./plots/upset_plot_{}.pdf'.format(sig_motif_type.replace('+', '').replace('-', '')), transparent=True)
+    # plt.show()
+
+plot_multi_upsetplot_combined(motif_stim_list_dict, sig_motif_types)
+# %%
+# Figure 3F
+# make example upset plot for each motif type, combine across mouse
+from upsetplot import from_contents, plot, UpSet
+mpl.rcParams['font.size'] = 18
+def plot_certain_upsetplot_combined(merge_ind_motif_stim_list_dict, sig_motif_type, cutoff=10):
+  motif_stim = from_contents(merge_ind_motif_stim_list_dict[sig_motif_type])
+  motif_stim.index.rename(['',' ','  ','   ','    ','     '], inplace=True)
+  # values, counts = np.unique(np.array(motif_stim.index), return_counts=True)
+  # motif_stim = motif_stim.iloc[motif_stim.index.isin(values[counts>=cutoff])]
+  fig = plt.figure(figsize=(10, 6))
+  p = UpSet(data = motif_stim, 
+      sort_categories_by='input', 
+      sort_by='cardinality', 
+      min_subset_size=cutoff, 
+      totals_plot_elements=2, 
+      intersection_plot_elements=5)
+  p.plot(fig=fig)
+  # plot(motif_stim, sort_categories_by='-input', sort_by='cardinality', min_subset_size=cutoff, fig=fig) # , sort_by='cardinality'
+  fig.tight_layout()
+  fig.savefig('./plots/upset_plot_{}_cutoff_{}.pdf'.format(sig_motif_type.replace('+', '').replace('-', ''), cutoff), transparent=True)
+  # plt.show()
+
+plot_certain_upsetplot_combined(merge_ind_motif_stim_list_dict, sig_motif_types[0], 20)
 # %%
