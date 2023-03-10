@@ -647,9 +647,9 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
       G = G_dict[row][col].copy()
       for edge in G.edges():
         if active_area[edge[0]] == active_area[edge[1]]:
-          intra_data.append(G[edge[0]][edge[1]][name])
+          intra_data.append(abs(G[edge[0]][edge[1]][name]))
         else:
-          inter_data.append(G[edge[0]][edge[1]][name])
+          inter_data.append(abs(G[edge[0]][edge[1]][name]))
       if remove_0 is True:
         intra_data = [i for i in intra_data if i > 0]
         inter_data = [i for i in inter_data if i > 0]
@@ -670,9 +670,10 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   plt.plot(np.arange(xliml, xlimu, 0.1), np.arange(xliml, xlimu, 0.1), 'k--', alpha=0.4)
   plt.xticks(fontsize=18) #, weight='bold'
   plt.yticks(fontsize=18) # , weight='bold'
-  name2label = {'offset':'lag ' + r'$\tau$', 'duration':'duration ' + r'$D$', 'delay':r'$\tau+D$'}
-  plt.xlabel('Within-area {} (ms)'.format(name2label[name]))
-  ylabel = 'Cross-area {} (ms)'.format(name2label[name])
+  name2label = {'offset':'lag ' + r'$\tau$', 'duration':'duration ' + r'$D$', 'delay':r'$\tau+D$', 'weight':'strength', 'confidence':r'$Z_{CCG}$'}
+  xlabel = 'Within-area {} (ms)'.format(name2label[name]) if name not in ['weight', 'confidence'] else 'Within-area {}'.format(name2label[name])
+  ylabel = 'Across-area {} (ms)'.format(name2label[name]) if name not in ['weight', 'confidence'] else 'Across-area {}'.format(name2label[name])
+  plt.xlabel(xlabel)
   plt.ylabel(ylabel)
   # plt.title(name, fontsize=25)
   ax.set_xlabel(ax.get_xlabel(), fontsize=20, color='k') #, weight='bold'
@@ -692,13 +693,12 @@ def plot_intra_inter_scatter_G(G_dict, name, active_area_dict, remove_0=False):
   plt.savefig(figname.format(name), transparent=True)
 
 plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, False)
-# plot_intra_inter_scatter_G(S_ccg_dict, 'delay', active_area_dict, True)
 plot_intra_inter_scatter_G(S_ccg_dict, 'offset', active_area_dict, False)
-# plot_intra_inter_scatter_G(S_ccg_dict, 'offset', active_area_dict, True)
 plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, False)
-# plot_intra_inter_scatter_G(S_ccg_dict, 'duration', active_area_dict, True)
+plot_intra_inter_scatter_G(G_ccg_dict, 'weight', active_area_dict, False)
+plot_intra_inter_scatter_G(G_ccg_dict, 'confidence', active_area_dict, False)
 #%%
-# Figure 1 E
+# Figure 1E
 ############################ new excitatory VS inhibitory connections
 def plot_new_ex_in_bar(G_dict, density=False):
   df = pd.DataFrame()
@@ -1882,6 +1882,7 @@ with open('./files/metrics.pkl', 'rb') as f:
   metrics = pickle.load(f)
 
 resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
 max_reso_subs = get_max_dH_resolution_eachtrial(rows, cols, resolution_list, metrics)
 
 ################# community with Hamiltonian
@@ -2403,6 +2404,181 @@ def plot_zscore_Hamiltonian2Q(G_dict, resolution_list, max_pos_neg_reso, real_H,
 
 # plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 plot_zscore_Hamiltonian2Q(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
+#%%
+# plot module assignment against resolution parameter
+def plot_module_gamma(G_dict, row_ind, comms_dict):
+  rows, cols = get_rowcol(G_dict)
+  row = rows[row_ind]
+  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(12*len(combined_stimuli), 12))
+  comm_inds = [49, 5, 102, 5, 13, 157]
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    comm_ind = comm_inds[cs_ind]
+    col = combined_stimuli[cs_ind][-1]
+    ax = axes[cs_ind]
+    col_ind = cols.index(col)
+    # ax.set_title(combined_stimulus_name, fontsize=25)
+    print(col)
+    G = G_dict[row][col]
+    nx.set_node_attributes(G, active_area_dict[row], "area")
+    # max_reso = max_pos_neg_reso[row_ind][col_ind][comm_ind]
+    comms_list = best_comms_dict[row][col]
+    comms = comms_list[comm_ind]
+    # comms = [comm for comm in comms if len(comm)>=th] # only plot large communities
+    node_to_community = comm2partition(comms)
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    # comms2plot = range(len(comms))
+    nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
+    node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
+    print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
+    
+  plt.tight_layout()
+  # plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
+  plt.show()
+
+# to_plots = [(7, 5)]
+# to_plots = [(5, 2), (6, 2), (7, 49)]
+# row_ind, comm_ind = to_plots[2]
+# 4
+plot_module_gamma(G_ccg_dict, 7, best_comms_dict)
+#%%
+# Combine clustering results based on voting-based method: keep clusters that appear the most during all runs
+# Find eligible and ineligible nodes (not partitioned into single-node cluster during any stimuli)
+def combine_clustering_results(comms_list):
+  node_ids = np.unique([node for comms in comms_list for comm in comms for node in comm])
+  cluster_dict = {}
+  # Loop over each run of the clustering algorithm
+  for comms in comms_list:
+      # Loop over each cluster in the current run
+      for cluster in comms:
+          # Update the cluster assignment count for each node in the cluster
+          for node in cluster:
+              if node in cluster_dict:
+                  cluster_dict[node].add(frozenset(cluster))
+              else:
+                  cluster_dict[node] = {frozenset(cluster)}
+  # Initialize a list of unassigned nodes
+  assigned_nodes = []
+  unassigned_nodes = node_ids.tolist()
+  # Initialize an empty list to store the final clustering result
+  combined_comms = []
+  # Loop over the unassigned nodes and assign them to a cluster
+  while len(unassigned_nodes) > 0:
+      # Initialize a dictionary to keep track of the cluster assignment counts for the current node
+      node_cluster_counts = {}
+      # Loop over the unassigned nodes
+      for node in unassigned_nodes:
+          # Check if the current node has any cluster assignments
+          if node in cluster_dict:
+              # Loop over the cluster assignment counts for the current node
+              for cluster in cluster_dict[node]:
+                  if cluster in node_cluster_counts:
+                      node_cluster_counts[cluster] += 1
+                  else:
+                      node_cluster_counts[cluster] = 1
+      # Assign the current node to the cluster with the highest vote count
+      best_cluster = max(node_cluster_counts, key=node_cluster_counts.get)
+      # Each node can only be assigned to one cluster
+      best_cluster = [node for node in best_cluster if node not in assigned_nodes]
+      combined_comms.append(sorted(list(best_cluster)))
+      # Remove the current node and its assigned cluster from the unassigned nodes and cluster assignments
+      unassigned_nodes = np.setdiff1d(unassigned_nodes, list(best_cluster))
+      assigned_nodes += list(best_cluster)
+      for node in best_cluster:
+          if node in cluster_dict:
+              cluster_dict.pop(node)
+  return combined_comms
+
+# find nodes that are assigned to single-node module at least once
+def find_ineligible_nodes(combined_comms):
+  nodes = []
+  for comm in combined_comms:
+    if len(comm) <= 1:
+      nodes += comm
+  return nodes
+
+session_ind = 7
+ineligible_nodes = []
+for stimulus_name in stimulus_names:
+  comms_list = best_comms_dict[session_ids[session_ind]][stimulus_name]
+  combined_comms = combine_clustering_results(comms_list)
+  ineligible_nodes += find_ineligible_nodes(combined_comms)
+ineligible_nodes = np.unique(ineligible_nodes)
+eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
+# comms_list = best_comms_dict['797828357']['spontaneous']
+# combined_comms = combine_clustering_results(comms_list)
+# combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
+#%%
+# with open('./files/comms_dict.pkl', 'rb') as f:
+#   comms_dict = pickle.load(f)
+# # create comms_reso with combined_comms for each reso, and remove all ineligible nodes
+# comms_reso_all = {stimulus_name:{} for stimulus_name in stimulus_names}
+# for stimulus_name in stimulus_names:
+#   print(stimulus_name)
+#   for reso in comms_dict[session_ids[session_ind]][stimulus_name]:
+#     comms_list = comms_dict[session_ids[session_ind]][stimulus_name][reso]
+#     combined_comms = combine_clustering_results(comms_list)
+#     # remove all ineligible nodes
+#     combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
+#     comms_reso_all[stimulus_name][reso] = combined_comms
+# # save combined community partition across runs for each resolution
+# with open('./files/comms_reso_all.pkl', 'wb') as f:
+#   pickle.dump(comms_reso_all, f)
+#%% 
+# load combined community partition across runs for each resolution
+with open('./files/comms_reso_all.pkl', 'rb') as f:
+  comms_reso_all = pickle.load(f)
+# get fixed reso-
+comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
+for stimulus_name in stimulus_names:
+  print(stimulus_name)
+  for resolution in resolution_list:
+    comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, 0)]
+#%%
+############## TODO: sort nodes by their similarity or area!!!!!!!!!!
+# Plot the heatmap of module assignment for each node given each resolution parameter (positive with fixed negative gamma=0)
+# Define a hash function to map nodes to colors
+def color_hash(s):
+  np.random.seed(int(hash(s) % 2**32))
+  return tuple(np.random.random(3))
+
+def plot_heatmap_module_resolution(comms_reso_fixedneg):
+  for stimulus_name in stimulus_names:
+    comms_reso = comms_reso_fixedneg[stimulus_name]
+    resolution_list = np.arange(0, 2.1, 0.1)
+    resolution_list = [round(reso, 2) for reso in resolution_list]
+    num_nodes = len(eligible_nodes)
+    # Initialize an array of zeros to hold the colors
+    hmp = np.zeros((num_nodes, len(resolution_list), 3))
+    # Loop over the resolutions in reverse order
+    for reso_ind, reso in enumerate(resolution_list[::-1]):
+      reso_ind = len(resolution_list) - 1 - reso_ind
+      reso_comms = comms_reso[reso]
+      # Loop over the communities in this resolution
+      for comm in reso_comms:
+        # If this is the first time we've seen this community, assign it a random color
+        if reso_ind == len(comms_reso)-1:
+          hmp[np.array(list([eligible_nodes.index(node) for node in comm])), reso_ind, :] = color_hash(str(comm))
+        else:
+          # Find the largest subcluster from the previous resolution
+          max_subcomm = max(comms_reso[resolution_list[reso_ind+1]], key=lambda x: len(set(x) & set(comm)))
+          # Get the color of the largest subcluster
+          colors_last = [tuple(hmp[eligible_nodes.index(node), reso_ind+1, :]) for node in max_subcomm]
+          max_subcomm_color = max(set(colors_last), key=colors_last.count)
+          # Assign this color to the current community
+          hmp[np.array(list([eligible_nodes.index(node) for node in comm])), reso_ind, :] = max_subcomm_color
+    # Plot the heatmap
+    plt.figure()
+    plt.imshow(hmp, aspect='auto')
+    plt.xticks(np.arange(len(resolution_list)), resolution_list)
+    # plt.yticks(np.arange(num_nodes), range(num_nodes))
+    plt.xlabel(r'$\gamma^+$')
+    plt.ylabel('Node')
+    plt.title(stimulus_name)
+    plt.savefig('./plots/heatmap_module_resolution_{}.pdf'.format(stimulus_name), transparent=True)
+    # plt.show()
+    
+plot_heatmap_module_resolution(comms_reso_fixedneg)
 #%%
 def get_table_histogram(session_id, stimulus_name, regions, resolution):
   data_directory = './data/ecephys_cache_dir'
@@ -5384,7 +5560,7 @@ def plot_chunked_signalcorrVSwpurity_markers(wpurity_df, sig_corr, pairtype='pos
 
 plot_chunked_signalcorrVSwpurity_markers(wpurity_df, sig_corr, pairtype)
 #%%
-# Figure S5C
+# new Figure S9B
 # Better
 # plot chunked signal correlation for within/cross module pairs
 def get_within_cross_comm_chunked(G_dict, signal_correlation_dict, comms_dict, pair_type='all'):
@@ -5436,7 +5612,7 @@ start_time = time.time()
 signalcorr_within_cross_comm_df = get_within_cross_comm_chunked(G_ccg_dict, chunked_signal_correlation_dict, best_comms_dict, pair_type=pair_type)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-# Figure S5C
+# new Figure S9B
 # Better
 # plot chunked signal correlation for within/cross pairs
 def plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, within_cross_df, pairtype='within'):
@@ -5494,7 +5670,7 @@ def plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, within_cro
 # plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, signalcorr_within_cross_comm_df, pairtype='cross')
 plot_chunked_within_cross_signalcorrVSwpurity_markers(wpurity_df, signalcorr_within_cross_comm_df, pairtype='all_connected')
 #%%
-# Figure S5B
+# old Figure S9B
 # Z score between signal correlation distributions of pos, neg and disconnected neuron pairs
 # correlation coefficient between w_purity and Z score is neg_dis=0.72 > pos_dis=0.52 > pos_neg=0.29, unsigned connected_dis = 0.53
 def get_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_correlation_dict, pairtype):
@@ -5565,6 +5741,7 @@ def get_signalcorr_wpurity(G_dict, area_dict, regions, best_comms_dict, signal_c
 pairtype='neg_dis'
 z_sc, wpurity_df = get_signalcorr_wpurity(G_ccg_dict, area_dict, visual_regions, best_comms_dict, signal_correlation_dict, pairtype=pairtype)
 #%%
+# old Figure S9B
 def plot_signalcorrVSwpurity_markers(wpurity_df, z_sc, pairtype='neg_dis'):
   fig, ax = plt.subplots(1, 1, figsize=(4, 4))
   X, Y = [], []
@@ -5608,6 +5785,103 @@ def plot_signalcorrVSwpurity_markers(wpurity_df, z_sc, pairtype='neg_dis'):
   # plt.show()
 
 plot_signalcorrVSwpurity_markers(wpurity_df, z_sc, pairtype)
+#%%
+# Figure S9D
+# Better
+# plot chunked signal correlation for within/cross module pairs
+def get_WcoverageVSdensity(G_dict, area_dict, regions, best_comms_dict):
+  rows, cols = get_rowcol(G_dict)
+  df = pd.DataFrame()
+  density = np.zeros((len(session2keep), len(combined_stimulus_names)))
+  for row_ind, row in enumerate(session2keep):
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      d = []
+      for col in combined_stimuli[cs_ind]:
+        d.append(nx.density(G_dict[row][col]))
+      density[row_ind, cs_ind] = np.mean(d)
+  for row_ind, row in enumerate(session2keep):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      w_purity_col, w_coverage_col = [], []
+      data = {}
+      G = G_dict[row][col].copy()
+      node_area = area_dict[row]
+      all_regions = [node_area[node] for node in sorted(G.nodes())]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(len(best_comms_dict[row][col])):
+        comms_list = best_comms_dict[row][col]
+        comms = comms_list[run]
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[row][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          size = counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          if size in data:
+            data[size][0].append(purity)
+            data[size][1].append(coverage)
+          else:
+            data[size] = [[purity], [coverage]]
+        c_size, c_purity, c_coverage = [k for k,v in data.items()], [v[0] for k,v in data.items()], [v[1] for k,v in data.items()]
+        all_size = np.repeat(c_size, [len(p) for p in c_purity])
+        c_size = all_size / sum(all_size)
+        w_purity_col.append(sum([cs * cp for cs, cp in zip(c_size, [p for ps in c_purity for p in ps])]))
+        w_coverage_col.append(sum([cs * cc for cs, cc in zip(c_size, [c for css in c_coverage for c in css])]))
+
+        assert len(all_regions) == len(comm2label(comms)), '{}, {}'.format(len(all_regions), len(comm2label(comms)))
+        # print(len(regions), len(comm2label(comms)))
+        # ri_list.append(adjusted_rand_score(all_regions, comm2label(comms)))
+      df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_coverage_col)[:,None], np.array([combine_stimulus(col)[1]] * len(w_coverage_col))[:,None], np.array([row] * len(w_purity_col))[:,None]), 1), columns=['weighted coverage', 'combined stimulus', 'session'])], ignore_index=True)
+  df['weighted coverage'] = pd.to_numeric(df['weighted coverage'])
+  return density, df
+
+density, wcoverage_df = get_WcoverageVSdensity(G_ccg_dict, area_dict, visual_regions, best_comms_dict)
+#%%
+# Figure S9D
+def plot_wcoverage_markersVSdensity(wcoverage_df, density):
+  fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+  X, Y = [], []
+  for s_ind, session in enumerate(session2keep):
+    data = wcoverage_df[wcoverage_df['session']==session].groupby('combined stimulus')
+    x = density[s_ind]
+    y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()[1:]
+    # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
+    # err = stats.t.ppf((1 + 0.95) / 2., data.size().loc[combined_stimulus_names]-1) * data.sem().loc[combined_stimulus_names].values.flatten()
+    X += list(x)
+    Y += list(y)
+    for ind, (xi, yi) in enumerate(zip(x, y)):
+      ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+    # for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+    #   ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+    #   ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind+1]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind+1]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+  line = slope*X+intercept
+  locx, locy = .45, .9
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  ax.text(locx, locy, text, horizontalalignment='center',
+    verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  ax.xaxis.set_tick_params(labelsize=20)
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('Density', fontsize=22)
+  ax.set_ylabel('WA coverage', fontsize=22)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/wcoverage_markersVSdensity.pdf', transparent=True)
+  # plt.show()
+
+plot_wcoverage_markersVSdensity(wcoverage_df, density)
 # %%
 def rand_index_community_region_allnodes(comms_dict, area_dict, max_neg_reso=None):
   fig, ax = plt.subplots(figsize=(6, 4))
@@ -5972,7 +6246,7 @@ def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
   rows, cols = get_rowcol(G_dict)
   fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(8, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
   for s_ind, stimulus_name in enumerate(combined_stimulus_names):
-    ax = axes[s_ind]
+    ax = axes[len(axes)-1-s_ind] # spontaneous in the bottom
     # ax.set_title(stimulus_name.replace('\n', ' '), fontsize=15, rotation=0)
     all_pair_count = defaultdict(lambda: [])
     for col in combined_stimuli[s_ind]:
@@ -6530,7 +6804,7 @@ def plot_zscore_allmotif_lollipop(df, model_name):
     print(combined_stimulus_name)
     data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
     data = data.groupby('signed motif type').mean()
-    ax = axes[s_ind]
+    ax = axes[len(axes)-1-s_ind] # spontaneous in the bottom
     # ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
     for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
       color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
@@ -7805,7 +8079,7 @@ def single_circular_lollipop(data, ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7
   HEIGHTS = np.array(data)
   PLUS = 0
   ax.set_facecolor("white")
-  ax.set_theta_offset(np.pi / 2)
+  ax.set_theta_offset(-np.pi / 2)
   ax.set_theta_direction(-1)
   ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=lwv)
   ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS, low=low, high=high, logscale=logscale)) #
@@ -7894,7 +8168,7 @@ def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_thr
       logscale = True
     # print(zscores)
     single_circular_lollipop(zscores, df_ind, sorted_types, COLORS, ax, lwv=2.5, lw0=3., neggrid=neggrid, posgrid=posgrid, low=low, high=high, logscale=logscale)
-    ax.set_title(model_names[df_ind], fontsize=25)
+    # ax.set_title(model_names[df_ind], fontsize=25)
   fig.subplots_adjust(wspace=0.) #
   plt.tight_layout()
   # plt.show()
@@ -7975,7 +8249,7 @@ def plot_pair_distributions(G_dict, row_ind):
   fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(4, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
   # fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
   for cs_ind, combined_stimulus in enumerate(combined_stimuli):
-    ax = axes[cs_ind]
+    ax = axes[len(axes)-1-cs_ind] # spontaneous in the bottom
     col = combined_stimulus[0]
     # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
     G = G_dict[row][col].copy()
@@ -8057,7 +8331,7 @@ def plot_signed_pair_distributions(G_dict, row_ind):
   fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(8, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
   # fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(6*len(combined_stimuli), 3))
   for cs_ind, combined_stimulus in enumerate(combined_stimuli):
-    ax = axes[cs_ind]
+    ax = axes[len(axes)-1-cs_ind] # spontaneous in the bottom
     col = combined_stimulus[0]
     # ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=25, rotation=0)
     G = G_dict[row][col].copy()
