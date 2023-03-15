@@ -2505,6 +2505,9 @@ for stimulus_name in stimulus_names:
   ineligible_nodes += find_ineligible_nodes(combined_comms)
 ineligible_nodes = np.unique(ineligible_nodes)
 eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
+area_size = [len([node for node in eligible_nodes if area_dict['797828357'][node]==region]) for region in visual_regions]
+sorted_enodes = [[node for node in eligible_nodes if area_dict['797828357'][node]==region] for region in visual_regions]
+sorted_enodes = [node for area in sorted_enodes for node in area]
 # comms_list = best_comms_dict['797828357']['spontaneous']
 # combined_comms = combine_clustering_results(comms_list)
 # combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
@@ -2535,21 +2538,86 @@ for stimulus_name in stimulus_names:
   for resolution in resolution_list:
     comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, 0)]
 #%%
-############## TODO: sort nodes by their similarity or area!!!!!!!!!!
+############## sort nodes by their area first, then by similarity in module ID
 # Plot the heatmap of module assignment for each node given each resolution parameter (positive with fixed negative gamma=0)
-# Define a hash function to map nodes to colors
-def color_hash(s):
-  np.random.seed(int(hash(s) % 2**32))
-  return tuple(np.random.random(3))
+from matplotlib.colors import ListedColormap
 
-def plot_heatmap_module_resolution(comms_reso_fixedneg):
-  for stimulus_name in stimulus_names:
+def rgba2hex(rgba):
+    r = int(rgba[0] * 255)
+    g = int(rgba[1] * 255)
+    b = int(rgba[2] * 255)
+    a = int(rgba[3] * 255)
+    return f'#{a:02x}{r:02x}{g:02x}{b:02x}'
+
+def get_zscoreQ(G_dict, max_pos_neg_reso, real_H, subs_H):
+  rows, cols = get_rowcol(G_dict)
+  real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
+  rows, cols = get_rowcol(G_dict)
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      G = G_dict[row][col]
+      tw = sum([abs(G.get_edge_data(*edge)['weight']) for edge in G.edges()])
+      real_Q[row_ind, col_ind] = - real_H[row_ind, col_ind] / tw
+      subs_Q[row_ind, col_ind] = - subs_H[row_ind, col_ind] / tw
+  zscore_Hamiltonian2Q, ps = [[] for _ in range(len(combined_stimuli))], [[] for _ in range(len(combined_stimuli))]
+  runs = real_Hamiltonian.shape[-1]
+  for row_ind, row in enumerate(rows):
+    for col_ind, col in enumerate(cols):
+      q, rq = [], []
+      for run in range(runs):
+        max_reso = max_pos_neg_reso[row_ind, col_ind]
+        q.append(real_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+        rq.append(subs_Q[row_ind, col_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+      zscore_Hamiltonian2Q[combine_stimulus(col)[0]].append(ztest(q, rq)[0])
+      ps[combine_stimulus(col)[0]].append(ztest(q, rq)[1])
+  return np.array([np.mean(dH2Q) for dH2Q in zscore_Hamiltonian2Q])
+
+def path_hamm_distance(r, c, m=2, weights=None): # total hamming distance between m adjacent rows
+  if weights is None:
+    weights = np.ones(c.shape[1])
+  n = len(c[0])
+  hamm_dist = 0
+  for i in range(m):
+    # hamm_dist += sum([np.count_nonzero(c[r[p+i]] != c[r[p+i-1]]) for p in range(len(r)-i)]) # no weight
+    hamm_dist += sum([((c[r[p+i]] != c[r[p+i-1]]).astype(int) * weights).sum() for p in range(len(r)-i)]) # with weight
+  return hamm_dist / (n * m)
+
+two_opt_swap = lambda r,i,k: np.concatenate((r[0:i],r[k:-len(r)+i-1:-1],r[k+1:len(r)]))
+
+def two_opt(cities, improvement_threshold, m=2, weights=None, num_runs=1000, seed=3):
+    best_route = None
+    best_distance = float('inf')
+    np.random.seed(seed)
+    for i in range(num_runs):
+        route = np.arange(cities.shape[0]) # Make an array of row numbers corresponding to cities.
+        np.random.shuffle(route)
+        if best_route is None:
+          best_route = route
+        improvement_factor = 1 # Initialize the improvement factor.
+        distance_to_beat = float('inf')
+        while improvement_factor > improvement_threshold: # If the route is still improving, keep going!
+            distance_to_beat = best_distance # Record the distance at the beginning of the loop.
+            for swap_first in range(1,len(route)-2): # From each city except the first and last,
+                for swap_last in range(swap_first+1,len(route)): # to each of the cities following,
+                    new_route = two_opt_swap(route,swap_first,swap_last) # try reversing the order of these cities
+                    new_distance = path_hamm_distance(new_route,cities,m,weights) # and check the total distance with this modification.
+                    if new_distance < best_distance: # If the path distance is an improvement,
+                        route = new_route # make this the accepted best route
+                        best_distance = new_distance # and update the distance corresponding to this route.
+                        best_route = route
+            improvement_factor = 1 - best_distance/distance_to_beat # Calculate how much the route has improved.
+    return best_route # When the route is no longer improving substantially, stop searching and return the route.
+
+def get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixedneg, sorted_row_order=None):
+  num_nodes = len(sorted_enodes)
+  # Initialize an array of zeros to hold the colors
+  all_hmp = np.zeros((num_nodes, 6 * len(resolution_list))) # only based on natural stimuli, not all stimuli
+  hmp = np.zeros((len(combined_stimulus_names), num_nodes, len(resolution_list)))
+  for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+    stimulus_name = combined_stimulus[0]
     comms_reso = comms_reso_fixedneg[stimulus_name]
-    resolution_list = np.arange(0, 2.1, 0.1)
-    resolution_list = [round(reso, 2) for reso in resolution_list]
-    num_nodes = len(eligible_nodes)
-    # Initialize an array of zeros to hold the colors
-    hmp = np.zeros((num_nodes, len(resolution_list), 3))
+    all_unique_comms = []
+    ############## Assign module ID based on ID of largest submodule from resolution + 1
     # Loop over the resolutions in reverse order
     for reso_ind, reso in enumerate(resolution_list[::-1]):
       reso_ind = len(resolution_list) - 1 - reso_ind
@@ -2558,27 +2626,539 @@ def plot_heatmap_module_resolution(comms_reso_fixedneg):
       for comm in reso_comms:
         # If this is the first time we've seen this community, assign it a random color
         if reso_ind == len(comms_reso)-1:
-          hmp[np.array(list([eligible_nodes.index(node) for node in comm])), reso_ind, :] = color_hash(str(comm))
+          if set(comm) not in all_unique_comms:
+            all_unique_comms.append(set(comm))
+          hmp[cs_ind, np.array(list([sorted_enodes.index(node) for node in comm])), reso_ind] = all_unique_comms.index(set(comm))
         else:
-          # Find the largest subcluster from the previous resolution
-          max_subcomm = max(comms_reso[resolution_list[reso_ind+1]], key=lambda x: len(set(x) & set(comm)))
-          # Get the color of the largest subcluster
-          colors_last = [tuple(hmp[eligible_nodes.index(node), reso_ind+1, :]) for node in max_subcomm]
-          max_subcomm_color = max(set(colors_last), key=colors_last.count)
+          #################### only inherit the largest subcluster from the previous resolution
+          # Find the largest subcluster from the previous resolution and get the color of the largest subcluster
+          previous_comms = comms_reso[resolution_list[reso_ind+1]]
+          # max_subcomm = max(previous_comms, key=lambda x: len(set(x) & set(comm)))
+          overlaps = [len(set(x) & set(comm)) for x in previous_comms]
+          max_locs = np.argwhere(overlaps == np.max(overlaps)).flatten()
+          if len(max_locs) > 1:
+            print('Yes there are equal size subclusters!!!!!!!!!!!!')
+            subcolors = [hmp[cs_ind, sorted_enodes.index(node), reso_ind+1] for node in [previous_comms[max_loc][0] for max_loc in max_locs]]
+            color_area = [(hmp[cs_ind, :, reso_ind+1:] == color).sum() for color in subcolors]
+            max_subcomm = previous_comms[max_locs[np.argmax(color_area)]]
+          else:
+            max_subcomm = previous_comms[max_locs[0]]
+          colors_previous = [hmp[cs_ind, sorted_enodes.index(node), reso_ind+1] for node in max_subcomm]
+          assert len(np.unique(colors_previous)) <= 1, 'The cluster ID is not correct!!!'
+          max_subcomm_color = np.unique(colors_previous)[0]
+          
+          # #################### inherit the largest subcluster from all the previous resolutions combined
+          # colors_all_prevous = [color for node in comm for color in hmp[cs_ind, sorted_enodes.index(node), reso_ind+1:]]
+          # max_subcomm_color = max(set(colors_all_prevous), key=colors_all_prevous.count)
+          
           # Assign this color to the current community
-          hmp[np.array(list([eligible_nodes.index(node) for node in comm])), reso_ind, :] = max_subcomm_color
+          hmp[cs_ind, np.array(list([sorted_enodes.index(node) for node in comm])), reso_ind] = max_subcomm_color
+    # print(len(all_unique_comms))
     # Plot the heatmap
-    plt.figure()
-    plt.imshow(hmp, aspect='auto')
-    plt.xticks(np.arange(len(resolution_list)), resolution_list)
-    # plt.yticks(np.arange(num_nodes), range(num_nodes))
-    plt.xlabel(r'$\gamma^+$')
-    plt.ylabel('Node')
-    plt.title(stimulus_name)
-    plt.savefig('./plots/heatmap_module_resolution_{}.pdf'.format(stimulus_name), transparent=True)
-    # plt.show()
-    
-plot_heatmap_module_resolution(comms_reso_fixedneg)
+    area_inds = [0] + np.cumsum(area_size).tolist()
+    # if cs_ind >= start_ind: # natural stimuli
+    for area_i in range(len(area_size)):
+      all_hmp[area_inds[area_i]:area_inds[area_i+1], (cs_ind)*len(resolution_list):(cs_ind+1)*len(resolution_list)] = hmp[cs_ind, area_inds[area_i]:area_inds[area_i+1]]
+  hmp = hmp.astype(int)
+  ############## Sort nodes based on their combined similarity over all stimuli for each area
+  # zscoreQ = get_zscoreQ(G_ccg_dict, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian)
+  # zscoreQ = np.repeat(zscoreQ, len(resolution_list))
+  # zscoreQ = zscoreQ[start_ind*len(resolution_list):]
+  zscoreQ = np.array([2,1,3,4,10,10]) # some random weights instead of Z score as weights for hamming distance
+  zscoreQ = np.repeat(zscoreQ, len(resolution_list))
+  # zscoreQ = zscoreQ[start_ind*len(resolution_list):]
+  seed = 10
+  print('seed={}'.format(seed))
+  if sorted_row_order is None:
+    sorted_row_order = []
+    for area_i in range(len(area_size)):
+      print(region_labels[area_i])
+      nodes2sort = all_hmp[area_inds[area_i]:area_inds[area_i+1]] #.reshape(area_inds[area_i+1]-area_inds[area_i], -1)
+      # Find a good row order with 2-opt so that adjacent rows are similar
+      sorted_inds = two_opt(nodes2sort,0.001,m=10,weights=zscoreQ,num_runs=100,seed=seed)
+      # sorted_inds = get_order_genetic_algorithm(nodes2sort, n_population=1000, mutation_rate=0.3, seed=4)[0] # the first optimal order
+      origin_nodes = np.arange(area_inds[area_i], area_inds[area_i+1])
+      sorted_nodes = np.array(origin_nodes)[sorted_inds]
+      sorted_row_order += sorted_nodes.tolist()
+  for cs_ind in range(hmp.shape[0]):
+    hmp[cs_ind] = hmp[cs_ind, np.array(sorted_row_order)]
+  ############## Align hmp values across different stimuli
+  # Reverse the order so that natural stimuli are matched first
+  # hmp = np.flip(np.stack(label_arrays([a.squeeze() for a in np.split(hmp, 6, axis=0)][::-1]), 0), 0)
+  return sorted_row_order, hmp
+
+def heatmap2color(hmp, sorted_values):
+  light_colors = [plt.cm.Set3(i) for i in ([0, 1]+list(range(3,12)))] + [plt.cm.Pastel2(7)] + [plt.cm.Accent(0)]
+  all_colors = light_colors + [plt.cm.tab20(i) for i in range(20)] + [plt.cm.Dark2(i) for i in range(8)] + [plt.cm.tab20b(i) for i in ([0, 4, 12, 16])] + [plt.cm.Set1(i) for i in range(9)] # TODO: Set1 to repick
+  chmp = np.zeros((*hmp.shape, 4))
+  for x in range(hmp.shape[0]):
+    for y in range(hmp.shape[1]):
+      for z in range(hmp.shape[2]):
+        chmp[x, y, z] = all_colors[sorted_values.index(hmp[x, y, z])] #rgba2hex(all_colors[hmp[x, y, z]])
+  return chmp
+
+def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all):
+  # start_ind = 0 # index of stimuli to consider in ordering
+  # all_colors = [plt.cm.Set1(i) for i in range(9)] + [plt.cm.Set3(i) for i in range(12)] + [plt.cm.tab10(i) for i in range(10)] + [plt.cm.Accent(i) for i in range(8)]
+  # from light to dark: from large to small modules
+  # custom_cmap = ListedColormap(all_colors)
+  num_row = 3
+  new_resos = resolution_list[::10] # change it with num_row
+  sorted_row_order = None 
+  hmps = []
+  for row_ind in range(num_row):
+    neg_reso = new_resos[row_ind]
+    print('gamma+ = {}'.format(neg_reso))
+    comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
+    for stimulus_name in stimulus_names:
+      for resolution in resolution_list:
+        comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, neg_reso)]
+    sorted_row_order, hmp = get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixedneg, sorted_row_order)
+    hmps += [a.squeeze() for a in np.split(hmp, 6, axis=0)]
+  # return hmps
+  all_relabeled_hmps = label_arrays(hmps)
+  all_relabeled_hmps = [np.stack(all_relabeled_hmps[row_ind*6:(row_ind+1)*6], 0) for row_ind in range(3)]
+  # row_relabeled_hmps = label_arrays(hmps, base=0)
+  # for hmp_ind, row_relabeled_hmp in enumerate(row_relabeled_hmps):
+  #   row_relabeled_hmps[hmp_ind] = np.transpose(row_relabeled_hmp.reshape(len(sorted_enodes), len(combined_stimulus_names), len(resolution_list)), axes=[1, 0, 2])
+  # return all_relabeled_hmps
+  values, counts = np.unique(np.concatenate(all_relabeled_hmps), return_counts=True)
+  sorted_values, _ = zip(*sorted(zip(values, counts), key=lambda x:x[1], reverse=True)) # larger areas have smaller indices
+  print('number of unique colors: {}'.format(len(values)))
+  chmps = []
+  for row_relabeled_hmp in all_relabeled_hmps:
+    chmps.append(heatmap2color(row_relabeled_hmp, sorted_values))
+  # 30 different colors after aligning
+  fig, axes = plt.subplots(num_row, len(combined_stimuli), figsize=(3*len(combined_stimuli), 4*num_row))
+  for row_ind in range(num_row):
+    for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+      ax = axes[row_ind, cs_ind]
+      ax.imshow(chmps[row_ind][cs_ind], interpolation='none', aspect='auto')
+      # ax.pcolor(hmp[cs_ind], cmap=custom_cmap)
+      # ax.pcolor(hmp[cs_ind, np.array(sorted_row_order)], cmap=custom_cmap)
+      for area_loc in np.cumsum(area_size)[:-1]:
+        ax.axhline(y=area_loc-0.5, color='k', linestyle='--') # -0.5 so that it won't cross a node
+      ax.set_xticks(.5 + np.arange(0, len(resolution_list), 5))
+      ax.set_xticklabels(labels=resolution_list[::5], fontsize=18)
+      # ax.invert_yaxis()
+      ax.set_xlabel(r'$\gamma^+$', fontsize=18)
+      ax.yaxis.set_tick_params(labelsize=18)
+      if cs_ind == 0:
+        ax.set_ylabel('Node', fontsize=18)
+      if row_ind == 0:
+        ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
+  plt.tight_layout()
+  plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled.pdf', transparent=True)
+  # plt.show()
+  return all_relabeled_hmps
+  
+resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
+all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all)
+#%%
+# ######################### Compare all pairwise similarity and loop from max to min
+# def label_arrays(arrs, base=None):
+#     # Step 1: store the location for all unique elements separately for each array
+#     unique_elements = []
+#     for arr in arrs:
+#         unique_elements.append(np.unique(arr))
+#     element_locations = []
+#     for i, arr in enumerate(arrs):
+#         locations = []
+#         for element in unique_elements[i]:
+#           locations.append(list(zip(*np.where(arr == element))))
+#           # locations.append(np.where(arr == element))
+#         element_locations.append(locations)
+#     max_num = max([len(unique_element) for unique_element in unique_elements])
+#     # Step 2: compute the pairwise number of overlapping locations between unique elements from different arrays
+#     overlaps = np.zeros((len(arrs), len(arrs), max_num, max_num))
+#     for i in range(len(arrs)):
+#         for j in range(i+1, len(arrs)):
+#             overlaps_ij = np.zeros((len(unique_elements[i]), len(unique_elements[j])))
+#             for k, element_i in enumerate(unique_elements[i]):
+#                 for l, element_j in enumerate(unique_elements[j]):
+#                   overlaps_ij[k, l] = len(set(element_locations[i][k]).intersection(element_locations[j][l]))
+#             overlaps[i, j, :len(unique_elements[i]), :len(unique_elements[j])] = overlaps_ij
+#     # Step 3: Loop from max to min over the pairwise overlap
+#     labels = {i:{} for i in range(len(arrs))}
+#     if base is not None: # base is fixed and considered labeled already, use 0 as the base!!!
+#       for element in unique_elements[base]:
+#         labels[base][element] = element
+#       label_num = max(unique_elements[base]) + 1
+#     else:
+#       label_num = 0
+#     while overlaps.max() > 0:
+#       max_locs = np.argwhere(overlaps == np.max(overlaps))
+#       if max_locs.shape[0] > 1: # choose the one with largest jaccard index
+#         jac = [len(set(element_locations[i][max_i]).intersection(element_locations[j][max_j])) / len(set(element_locations[i][max_i]).union(element_locations[j][max_j])) for i, j, max_i, max_j in max_locs]
+#         i, j, max_i, max_j = max_locs[np.argmax(jac)]
+#       else:
+#         i, j, max_i, max_j = np.unravel_index(np.argmax(overlaps), overlaps.shape)
+#       max_idx = (max_i, max_j)
+#       if (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] not in labels[j]):
+#         labels[i][unique_elements[i][max_i]] = label_num
+#         labels[j][unique_elements[j][max_j]] = label_num
+#         overlaps[i, j, max_i, :] = 0
+#         overlaps[i, j, :, max_j] = 0
+#         label_num += 1
+#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
+#       elif (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] in labels[j]) and (labels[j][unique_elements[j][max_j]] not in [labels[i][e] for e in unique_elements[i] if e in labels[i]]):
+#         labels[i][unique_elements[i][max_i]] = labels[j][unique_elements[j][max_j]]
+#         overlaps[i, j, max_i, :] = 0
+#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
+#       elif (unique_elements[j][max_j] not in labels[j]) and (unique_elements[i][max_i] in labels[i]) and (labels[i][unique_elements[i][max_i]] not in [labels[j][e] for e in unique_elements[j] if e in labels[j]]):
+#         labels[j][unique_elements[j][max_j]] = labels[i][unique_elements[i][max_i]]
+#         overlaps[i, j, :, max_j] = 0
+#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
+#       else:
+#         overlaps[i, j, max_idx] = 0
+#     # Step 3 (continued): Loop over the rest unlabeled elements for all arrays and assign each of them a new label
+#     labeled_arrs = []
+#     for a_ind, arr in enumerate(arrs):
+#         labeled_arr = np.zeros_like(arr, dtype=int)
+#         for i, row in enumerate(arr):
+#             for j, element in enumerate(row):
+#                 labeled_arr[i, j] = labels[a_ind].get(element, label_num)
+#                 if element not in labels[a_ind]:
+#                     labels[a_ind][element] = label_num
+#                     label_num += 1
+#         assert len(np.unique(arr)) == len(np.unique(labeled_arr))
+#         labeled_arrs.append(labeled_arr)
+#     return labeled_arrs
+
+# # Example usage
+# # arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
+# # arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
+# # arr3 = np.array([['h', 'h', 'i', 'i'], ['j', 'j', 'k', 'i'], ['l', 'm', 'm', 'm']])
+# arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
+# arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
+# arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 6, 6, 1]])
+# labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays([arr1, arr2, arr3])
+# print(labeled_arr1)
+# print(labeled_arr2)
+# print(labeled_arr3)
+#%%
+######################### Compare all pairwise similarity and loop from max to min
+######################### match corresponding areas for the rest maps as well!!!
+def label_arrays(arrs, base=None):
+    # Step 1: store the location for all unique elements separately for each array
+    unique_elements = []
+    for arr in arrs:
+        unique_elements.append(np.unique(arr))
+    element_locations = []
+    for i, arr in enumerate(arrs):
+        locations = []
+        for element in unique_elements[i]:
+          locations.append(list(zip(*np.where(arr == element))))
+          # locations.append(np.where(arr == element))
+        element_locations.append(locations)
+    max_num = max([len(unique_element) for unique_element in unique_elements])
+    # Step 2: compute the pairwise number of overlapping locations between unique elements from different arrays
+    overlaps = np.zeros((len(arrs), len(arrs), max_num, max_num))
+    for i in range(len(arrs)):
+        for j in range(i+1, len(arrs)):
+            overlaps_ij = np.zeros((len(unique_elements[i]), len(unique_elements[j])))
+            for k, element_i in enumerate(unique_elements[i]):
+                for l, element_j in enumerate(unique_elements[j]):
+                  overlaps_ij[k, l] = len(set(element_locations[i][k]).intersection(element_locations[j][l]))
+            overlaps[i, j, :len(unique_elements[i]), :len(unique_elements[j])] = overlaps_ij
+    # Step 3: Loop from max to min over the pairwise overlap
+    labels = {i:{} for i in range(len(arrs))}
+    if base is not None: # base is fixed and considered labeled already, use 0 as the base!!!
+      for element in unique_elements[base]:
+        labels[base][element] = element
+      label_num = max(unique_elements[base]) + 1
+    else:
+      label_num = 0
+    while overlaps.max() > 0:
+      max_locs = np.argwhere(overlaps == np.max(overlaps))
+      if max_locs.shape[0] > 1: # choose the one with largest jaccard index
+        jac = [len(set(element_locations[i][max_i]).intersection(element_locations[j][max_j])) / len(set(element_locations[i][max_i]).union(element_locations[j][max_j])) for i, j, max_i, max_j in max_locs]
+        i, j, max_i, max_j = max_locs[np.argmax(jac)]
+      else:
+        i, j, max_i, max_j = np.unravel_index(np.argmax(overlaps), overlaps.shape)     
+      if (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] not in labels[j]):
+        if max_i == np.argmax(overlaps[i, j], 0)[np.argmax(overlaps[i, j, max_i])]: # if they are mutually the most overlapping areas
+          labeled = {}
+          labels[i][unique_elements[i][max_i]] = label_num
+          labels[j][unique_elements[j][max_j]] = label_num
+          labeled[i] = max_i
+          labeled[j] = max_j
+          # labeled[i] = unique_elements[i][max_i]
+          # labeled[j] = unique_elements[j][max_j]
+          for k in range(len(arrs)): # loop over the rest corresponding areas
+            if (label_num == 15) and (k==17):
+              print('Come on!')
+            ks = []
+            if (k > i) and (k > j):
+              if (max_i == np.argmax(overlaps[i, k], 0)[np.argmax(overlaps[i, k, max_i])]):
+                ks.append(np.argmax(overlaps[i, k, max_i]))
+              if (max_j == np.argmax(overlaps[j, k], 0)[np.argmax(overlaps[j, k, max_j])]):
+                ks.append(np.argmax(overlaps[j, k, max_j]))
+              if len(ks):
+                max_k = np.random.choice(ks)
+              else: # find the element with most overlaps with both max_i and max_j
+                max_k = np.argmax(overlaps[i, k, max_i] + overlaps[j, k, max_j])
+              if unique_elements[k][max_k] not in labels[k]:
+                labels[k][unique_elements[k][max_k]] = label_num
+                labeled[k] = max_k
+            elif (k > i) and (k < j):
+              if (max_i == np.argmax(overlaps[i, k], 0)[np.argmax(overlaps[i, k, max_i])]):
+                ks.append(np.argmax(overlaps[i, k, max_i]))
+              if (max_j == np.argmax(overlaps[k, j], 1)[np.argmax(overlaps[k, j, :, max_j])]):
+                ks.append(np.argmax(overlaps[k, j, :, max_j]))
+              if len(ks):
+                max_k = np.random.choice(ks)
+              else: # find the element with most overlaps with both max_i and max_j
+                max_k = np.argmax(overlaps[i, k, max_i] + overlaps[k, j, :, max_j])
+              if unique_elements[k][max_k] not in labels[k]:
+                labels[k][unique_elements[k][max_k]] = label_num
+                labeled[k] = max_k
+            elif (k < i) and (k > j): # TODO: impossible
+              if (max_i == np.argmax(overlaps[k, i], 1)[np.argmax(overlaps[k, i, :, max_i])]):
+                ks.append(np.argmax(overlaps[k, i, :, max_i]))
+              if (max_j == np.argmax(overlaps[j, k], 0)[np.argmax(overlaps[j, k, max_j])]):
+                ks.append(np.argmax(overlaps[j, k, max_j]))
+              if len(ks):
+                max_k = np.random.choice(ks)
+              else: # find the element with most overlaps with both max_i and max_j
+                max_k = np.argmax(overlaps[k, i, :, max_i] + overlaps[j, k, max_j])
+              if unique_elements[k][max_k] not in labels[k]:
+                labels[k][unique_elements[k][max_k]] = label_num
+                labeled[k] = max_k
+            elif (k < i) and (k < j):
+              if (max_i == np.argmax(overlaps[k, i], 1)[np.argmax(overlaps[k, i, :, max_i])]):
+                ks.append(np.argmax(overlaps[k, i, :, max_i]))
+              if (max_j == np.argmax(overlaps[k, j], 1)[np.argmax(overlaps[k, j, :, max_j])]):
+                ks.append(np.argmax(overlaps[k, j, :, max_j]))
+              if len(ks):
+                max_k = np.random.choice(ks)
+              else: # find the element with most overlaps with both max_i and max_j
+                max_k = np.argmax(overlaps[k, i, :, max_i] + overlaps[k, j, :, max_j])
+              if unique_elements[k][max_k] not in labels[k]:
+                labels[k][unique_elements[k][max_k]] = label_num
+                labeled[k] = max_k
+          # Remove all matched module IDs
+          labeled_ids = sorted(labeled.items())
+          for ind1, (source, max_s) in enumerate(labeled_ids):
+            for ind2 in range(ind1+1, len(labeled_ids)):
+              target, max_t = labeled_ids[ind2]
+              overlaps[source, target, max_s, :] = 0
+              overlaps[source, target, :, max_t] = 0
+          print('matching array and original label {} -> {}'.format(dict(sorted(labeled.items())), label_num))
+          label_num += 1
+        else:
+          overlaps[i, j, max_i, max_j] = 0
+      elif (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] in labels[j]) and (labels[j][unique_elements[j][max_j]] not in [labels[i][e] for e in unique_elements[i] if e in labels[i]]):
+        labels[i][unique_elements[i][max_i]] = labels[j][unique_elements[j][max_j]]
+        overlaps[i, j, max_i, :] = 0
+        print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
+      elif (unique_elements[j][max_j] not in labels[j]) and (unique_elements[i][max_i] in labels[i]) and (labels[i][unique_elements[i][max_i]] not in [labels[j][e] for e in unique_elements[j] if e in labels[j]]):
+        labels[j][unique_elements[j][max_j]] = labels[i][unique_elements[i][max_i]]
+        overlaps[i, j, :, max_j] = 0
+        print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
+      # elif (unique_elements[j][max_j] in labels[j]) and (unique_elements[i][max_i] in labels[i]):
+      #   if (labels[j][unique_elements[j][max_j]] in list(labels[i].values())) or (labels[i][unique_elements[i][max_i]] in list(labels[j].values())):
+      else:
+        overlaps[i, j, max_i, max_j] = 0
+      
+        # print('{}, {}, {}, {} not mutually max'.format(i, j, max_i, max_j))
+    # Step 3 (continued): Loop over the rest unlabeled elements for all arrays and assign each of them a new label
+    labeled_arrs = []
+    for a_ind, arr in enumerate(arrs):
+        labeled_arr = np.zeros_like(arr, dtype=int)
+        for i, row in enumerate(arr):
+            for j, element in enumerate(row):
+                labeled_arr[i, j] = labels[a_ind].get(element, label_num)
+                if element not in labels[a_ind]:
+                    labels[a_ind][element] = label_num
+                    label_num += 1
+        assert len(np.unique(arr)) == len(np.unique(labeled_arr))
+        labeled_arrs.append(labeled_arr)
+    return labeled_arrs
+
+# Example usage
+# arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
+# arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
+# arr3 = np.array([['h', 'h', 'i', 'i'], ['j', 'j', 'k', 'i'], ['l', 'm', 'm', 'm']])
+arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
+arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
+arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 6, 6, 1]])
+labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays([arr1, arr2, arr3])
+print(labeled_arr1)
+print(labeled_arr2)
+print(labeled_arr3)
+#%%
+import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import minimum_spanning_tree
+
+def get_components(mst):
+    component_dict = {}
+    for edge in mst:
+        for i in range(2):
+            if edge[i] not in component_dict:
+                component_dict[edge[i]] = set([edge[i]])
+        component_dict[edge[0]].update(component_dict[edge[1]])
+        component_dict[edge[1]] = component_dict[edge[0]]
+    return list(component_dict.values())
+
+def update_labels(labels, a_ind, element, label_num):
+    """
+    Update labels for Kruskal's algorithm
+
+    Args:
+        labels: list, current labels
+        a_ind: int, index of the array to update labels for
+        element: int, element to be added to the array
+        label_num: int, the label number to use for the new element
+
+    Returns:
+        updated labels
+    """
+    if labels[a_ind][element] == -1:
+        # Element has not been seen before, assign a new label
+        labels[a_ind][element] = label_num
+    else:
+        # Element has been seen before, update all elements with the same label
+        label_to_update = labels[a_ind][element]
+        for i in range(len(labels[a_ind])):
+            if labels[a_ind][i] == label_to_update:
+                labels[a_ind][i] = label_num
+    return labels
+
+def label_arrays_kruskal(arrs):
+    # Step 1: store the location for all unique elements separately for each array
+    unique_elements = []
+    for arr in arrs:
+        unique_elements.append(np.unique(arr))
+    element_locations = []
+    for i, arr in enumerate(arrs):
+        locations = []
+        for element in unique_elements[i]:
+          locations.append(list(zip(*np.where(arr == element))))
+          # locations.append(np.where(arr == element))
+        element_locations.append(locations)
+
+    # Step 2: compute the pairwise number of overlapping locations between unique elements from different arrays
+    num_arrs = len(arrs)
+    num_uniques = [len(u) for u in unique_elements]
+    overlaps = np.zeros((num_arrs, num_arrs, max(num_uniques), max(num_uniques)))
+    for i in range(num_arrs):
+        for j in range(i+1, num_arrs):
+            overlaps_ij = np.zeros((num_uniques[i], num_uniques[j]))
+            for k, element_i in enumerate(unique_elements[i]):
+                for l, element_j in enumerate(unique_elements[j]):
+                    overlaps_ij[k, l] = len(set(element_locations[i][k]).intersection(element_locations[j][l]))
+            overlaps[i, j, :num_uniques[i], :num_uniques[j]] = overlaps_ij
+
+    # Step 3: create an edge list for the minimum spanning tree of the pairwise overlap graph
+    edges = []
+    for i in range(num_arrs):
+        for j in range(i+1, num_arrs):
+            for k in range(num_uniques[i]):
+                for l in range(num_uniques[j]):
+                    edges.append((i*num_uniques[i]+k, j*num_uniques[j]+l, -overlaps[i, j, k, l]))
+
+    # Step 4: apply Kruskal's algorithm to find the minimum spanning tree of the pairwise overlap graph
+    edge_list = np.array(edges)
+    mst = minimum_spanning_tree(coo_matrix((edge_list[:, 2], (edge_list[:, 0], edge_list[:, 1])), shape=(num_arrs*np.max(num_uniques), num_arrs*np.max(num_uniques)))).toarray()
+
+    # Step 5: assign labels based on the connected components of the minimum spanning tree
+    labels = {i:{} for i in range(num_arrs)}
+    label_num = 0
+    for i, component in enumerate(get_components(mst)):
+        print(i, component)
+        for element_idx in component:
+            a_ind = int(element_idx / np.max(num_uniques))
+            element_ind = int(element_idx % np.max(num_uniques))
+            if element_ind < num_uniques[a_ind]:
+                element = unique_elements[a_ind][element_ind]
+                if element not in labels[a_ind]:
+                    labels[a_ind][element] = label_num
+                else:
+                    labels = update_labels(labels, a_ind, element, label_num)
+        label_num += 1
+    print(labels)
+    # Step 6: loop over the rest unlabeled elements for all arrays and assign each of them a new label
+    labeled_arrs = []
+    for a_ind, arr in enumerate(arrs):
+        labeled_arr = np.zeros_like(arr, dtype=int)
+        for i, row in enumerate(arr):
+            for j, element in enumerate(row):
+                labeled_arr[i, j] = labels[a_ind].get(element, label_num)
+                if element not in labels[a_ind]:
+                    labels[a_ind][element] = label_num
+                    label_num += 1
+        assert len(np.unique(arr)) == len(np.unique(labeled_arr))
+        labeled_arrs.append(labeled_arr)
+    return labeled_arrs
+
+# Example usage
+# arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
+# arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
+# arr3 = np.array([['h', 'h', 'i', 'i'], ['j', 'j', 'k', 'i'], ['l', 'm', 'm', 'm']])
+arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
+arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
+arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 6, 1]])
+labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays_kruskal([arr1, arr2, arr3])
+print(labeled_arr1)
+print(labeled_arr2)
+print(labeled_arr3)
+#%%
+from sklearn.cluster import SpectralClustering
+from sklearn.metrics import pairwise_distances_argmin_min
+
+# Generate some sample data
+map1 = np.random.randint(0, 3, size=(60, 20))
+map2 = np.random.randint(0, 4, size=(60, 20))
+map3 = np.random.randint(0, 5, size=(60, 20))
+
+# Compute the pairwise distances between the maps
+distances = pairwise_distances_argmin_min([map1.flatten(), map2.flatten(), map3.flatten()], Y=None)[0]
+
+# Compute the maximum number of clusters in the maps
+mc = max([map1.max(), map2.max(), map3.max()]) + 1
+
+# Define a function to align cluster IDs in a map
+def align_map(map, distances, mc):
+    # Apply spectral clustering to the map
+    labels = SpectralClustering(n_clusters=mc).fit_predict(map.flatten().reshape(-1, 1))
+    # Align the cluster IDs based on the pairwise distances
+    for i, d in enumerate(distances):
+        if d == 0:
+            continue
+        elif d == 1:
+            indices = np.where(map == i)
+            map[indices] = mc + labels[indices[0]]
+        else:
+            indices = np.where(map == i)
+            map[indices] = mc * 2 + labels[indices[0]]
+    # Map the cluster IDs to a contiguous range
+    unique_labels = np.unique(map)
+    map_map = dict(zip(unique_labels, range(len(unique_labels))))
+    return np.vectorize(map_map.get)(map)
+
+# Align the cluster IDs in all maps
+new_map1 = align_map(map1, distances, mc)
+new_map2 = align_map(map2, distances, mc)
+new_map3 = align_map(map3, distances, mc)
+
+# Print the aligned maps
+print(new_map1)
+print(new_map2)
+print(new_map3)
+#%%
+fig, axes = plt.subplots(1, 3, figsize=(3*3, 3))
+axes[0].imshow(map1, aspect='auto')
+axes[1].imshow(map2, aspect='auto')
+axes[2].imshow(map3, aspect='auto')
+plt.show()
+fig, axes = plt.subplots(1, 3, figsize=(3*3, 3))
+axes[0].imshow(new_map1, aspect='auto')
+axes[1].imshow(new_map2, aspect='auto')
+axes[2].imshow(new_map3, aspect='auto')
+plt.show()
 #%%
 def get_table_histogram(session_id, stimulus_name, regions, resolution):
   data_directory = './data/ecephys_cache_dir'
