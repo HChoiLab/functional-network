@@ -2637,7 +2637,7 @@ def get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixed
           overlaps = [len(set(x) & set(comm)) for x in previous_comms]
           max_locs = np.argwhere(overlaps == np.max(overlaps)).flatten()
           if len(max_locs) > 1:
-            print('Yes there are equal size subclusters!!!!!!!!!!!!')
+            # print('Yes there are equal size subclusters!!!!!!!!!!!!')
             subcolors = [hmp[cs_ind, sorted_enodes.index(node), reso_ind+1] for node in [previous_comms[max_loc][0] for max_loc in max_locs]]
             color_area = [(hmp[cs_ind, :, reso_ind+1:] == color).sum() for color in subcolors]
             max_subcomm = previous_comms[max_locs[np.argmax(color_area)]]
@@ -2664,7 +2664,7 @@ def get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixed
   # zscoreQ = get_zscoreQ(G_ccg_dict, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian)
   # zscoreQ = np.repeat(zscoreQ, len(resolution_list))
   # zscoreQ = zscoreQ[start_ind*len(resolution_list):]
-  zscoreQ = np.array([2,1,3,4,10,10]) # some random weights instead of Z score as weights for hamming distance
+  zscoreQ = np.array([4,1,3,4,10,10]) # some random weights instead of Z score as weights for hamming distance
   zscoreQ = np.repeat(zscoreQ, len(resolution_list))
   # zscoreQ = zscoreQ[start_ind*len(resolution_list):]
   seed = 10
@@ -2688,8 +2688,8 @@ def get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixed
   return sorted_row_order, hmp
 
 def heatmap2color(hmp, sorted_values):
-  light_colors = [plt.cm.Set3(i) for i in ([0, 1]+list(range(3,12)))] + [plt.cm.Pastel2(7)] + [plt.cm.Accent(0)]
-  all_colors = light_colors + [plt.cm.tab20(i) for i in range(20)] + [plt.cm.Dark2(i) for i in range(8)] + [plt.cm.tab20b(i) for i in ([0, 4, 12, 16])] + [plt.cm.Set1(i) for i in range(9)] # TODO: Set1 to repick
+  light_colors = [plt.cm.Set3(i) for i in ([0, 1]+list(range(3,12)))] + [plt.cm.Accent(0)] #  + [plt.cm.Pastel2(7)] too close to plt.cm.Set3(8)
+  all_colors = light_colors + [plt.cm.tab20(i) for i in range(20)] + [plt.cm.Dark2(i) for i in range(8)] + [plt.cm.tab20b(i) for i in ([0, 4, 12, 16])] + [plt.cm.Set1(i) for i in range(9)] + [plt.cm.Set2(i) for i in range(8)] # TODO: Set1 and Set2 to repick or remove
   chmp = np.zeros((*hmp.shape, 4))
   for x in range(hmp.shape[0]):
     for y in range(hmp.shape[1]):
@@ -2697,150 +2697,7 @@ def heatmap2color(hmp, sorted_values):
         chmp[x, y, z] = all_colors[sorted_values.index(hmp[x, y, z])] #rgba2hex(all_colors[hmp[x, y, z]])
   return chmp
 
-def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all):
-  # start_ind = 0 # index of stimuli to consider in ordering
-  # all_colors = [plt.cm.Set1(i) for i in range(9)] + [plt.cm.Set3(i) for i in range(12)] + [plt.cm.tab10(i) for i in range(10)] + [plt.cm.Accent(i) for i in range(8)]
-  # from light to dark: from large to small modules
-  # custom_cmap = ListedColormap(all_colors)
-  num_row = 3
-  new_resos = resolution_list[::10] # change it with num_row
-  sorted_row_order = None 
-  hmps = []
-  for row_ind in range(num_row):
-    neg_reso = new_resos[row_ind]
-    print('gamma+ = {}'.format(neg_reso))
-    comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
-    for stimulus_name in stimulus_names:
-      for resolution in resolution_list:
-        comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, neg_reso)]
-    sorted_row_order, hmp = get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixedneg, sorted_row_order)
-    hmps += [a.squeeze() for a in np.split(hmp, 6, axis=0)]
-  # return hmps
-  all_relabeled_hmps = label_arrays(hmps)
-  all_relabeled_hmps = [np.stack(all_relabeled_hmps[row_ind*6:(row_ind+1)*6], 0) for row_ind in range(3)]
-  # row_relabeled_hmps = label_arrays(hmps, base=0)
-  # for hmp_ind, row_relabeled_hmp in enumerate(row_relabeled_hmps):
-  #   row_relabeled_hmps[hmp_ind] = np.transpose(row_relabeled_hmp.reshape(len(sorted_enodes), len(combined_stimulus_names), len(resolution_list)), axes=[1, 0, 2])
-  # return all_relabeled_hmps
-  values, counts = np.unique(np.concatenate(all_relabeled_hmps), return_counts=True)
-  sorted_values, _ = zip(*sorted(zip(values, counts), key=lambda x:x[1], reverse=True)) # larger areas have smaller indices
-  print('number of unique colors: {}'.format(len(values)))
-  chmps = []
-  for row_relabeled_hmp in all_relabeled_hmps:
-    chmps.append(heatmap2color(row_relabeled_hmp, sorted_values))
-  # 30 different colors after aligning
-  fig, axes = plt.subplots(num_row, len(combined_stimuli), figsize=(3*len(combined_stimuli), 4*num_row))
-  for row_ind in range(num_row):
-    for cs_ind, combined_stimulus in enumerate(combined_stimuli):
-      ax = axes[row_ind, cs_ind]
-      ax.imshow(chmps[row_ind][cs_ind], interpolation='none', aspect='auto')
-      # ax.pcolor(hmp[cs_ind], cmap=custom_cmap)
-      # ax.pcolor(hmp[cs_ind, np.array(sorted_row_order)], cmap=custom_cmap)
-      for area_loc in np.cumsum(area_size)[:-1]:
-        ax.axhline(y=area_loc-0.5, color='k', linestyle='--') # -0.5 so that it won't cross a node
-      ax.set_xticks(.5 + np.arange(0, len(resolution_list), 5))
-      ax.set_xticklabels(labels=resolution_list[::5], fontsize=18)
-      # ax.invert_yaxis()
-      ax.set_xlabel(r'$\gamma^+$', fontsize=18)
-      ax.yaxis.set_tick_params(labelsize=18)
-      if cs_ind == 0:
-        ax.set_ylabel('Node', fontsize=18)
-      if row_ind == 0:
-        ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
-  plt.tight_layout()
-  plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled.pdf', transparent=True)
-  # plt.show()
-  return all_relabeled_hmps
-  
-resolution_list = np.arange(0, 2.1, 0.1)
-resolution_list = [round(reso, 2) for reso in resolution_list]
-all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all)
-#%%
-# ######################### Compare all pairwise similarity and loop from max to min
-# def label_arrays(arrs, base=None):
-#     # Step 1: store the location for all unique elements separately for each array
-#     unique_elements = []
-#     for arr in arrs:
-#         unique_elements.append(np.unique(arr))
-#     element_locations = []
-#     for i, arr in enumerate(arrs):
-#         locations = []
-#         for element in unique_elements[i]:
-#           locations.append(list(zip(*np.where(arr == element))))
-#           # locations.append(np.where(arr == element))
-#         element_locations.append(locations)
-#     max_num = max([len(unique_element) for unique_element in unique_elements])
-#     # Step 2: compute the pairwise number of overlapping locations between unique elements from different arrays
-#     overlaps = np.zeros((len(arrs), len(arrs), max_num, max_num))
-#     for i in range(len(arrs)):
-#         for j in range(i+1, len(arrs)):
-#             overlaps_ij = np.zeros((len(unique_elements[i]), len(unique_elements[j])))
-#             for k, element_i in enumerate(unique_elements[i]):
-#                 for l, element_j in enumerate(unique_elements[j]):
-#                   overlaps_ij[k, l] = len(set(element_locations[i][k]).intersection(element_locations[j][l]))
-#             overlaps[i, j, :len(unique_elements[i]), :len(unique_elements[j])] = overlaps_ij
-#     # Step 3: Loop from max to min over the pairwise overlap
-#     labels = {i:{} for i in range(len(arrs))}
-#     if base is not None: # base is fixed and considered labeled already, use 0 as the base!!!
-#       for element in unique_elements[base]:
-#         labels[base][element] = element
-#       label_num = max(unique_elements[base]) + 1
-#     else:
-#       label_num = 0
-#     while overlaps.max() > 0:
-#       max_locs = np.argwhere(overlaps == np.max(overlaps))
-#       if max_locs.shape[0] > 1: # choose the one with largest jaccard index
-#         jac = [len(set(element_locations[i][max_i]).intersection(element_locations[j][max_j])) / len(set(element_locations[i][max_i]).union(element_locations[j][max_j])) for i, j, max_i, max_j in max_locs]
-#         i, j, max_i, max_j = max_locs[np.argmax(jac)]
-#       else:
-#         i, j, max_i, max_j = np.unravel_index(np.argmax(overlaps), overlaps.shape)
-#       max_idx = (max_i, max_j)
-#       if (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] not in labels[j]):
-#         labels[i][unique_elements[i][max_i]] = label_num
-#         labels[j][unique_elements[j][max_j]] = label_num
-#         overlaps[i, j, max_i, :] = 0
-#         overlaps[i, j, :, max_j] = 0
-#         label_num += 1
-#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
-#       elif (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] in labels[j]) and (labels[j][unique_elements[j][max_j]] not in [labels[i][e] for e in unique_elements[i] if e in labels[i]]):
-#         labels[i][unique_elements[i][max_i]] = labels[j][unique_elements[j][max_j]]
-#         overlaps[i, j, max_i, :] = 0
-#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
-#       elif (unique_elements[j][max_j] not in labels[j]) and (unique_elements[i][max_i] in labels[i]) and (labels[i][unique_elements[i][max_i]] not in [labels[j][e] for e in unique_elements[j] if e in labels[j]]):
-#         labels[j][unique_elements[j][max_j]] = labels[i][unique_elements[i][max_i]]
-#         overlaps[i, j, :, max_j] = 0
-#         print('arr{}:{}--arr{}:{} -> {}'.format(i, unique_elements[i][max_i], j, unique_elements[j][max_j], labels[i][unique_elements[i][max_i]]))
-#       else:
-#         overlaps[i, j, max_idx] = 0
-#     # Step 3 (continued): Loop over the rest unlabeled elements for all arrays and assign each of them a new label
-#     labeled_arrs = []
-#     for a_ind, arr in enumerate(arrs):
-#         labeled_arr = np.zeros_like(arr, dtype=int)
-#         for i, row in enumerate(arr):
-#             for j, element in enumerate(row):
-#                 labeled_arr[i, j] = labels[a_ind].get(element, label_num)
-#                 if element not in labels[a_ind]:
-#                     labels[a_ind][element] = label_num
-#                     label_num += 1
-#         assert len(np.unique(arr)) == len(np.unique(labeled_arr))
-#         labeled_arrs.append(labeled_arr)
-#     return labeled_arrs
-
-# # Example usage
-# # arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
-# # arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
-# # arr3 = np.array([['h', 'h', 'i', 'i'], ['j', 'j', 'k', 'i'], ['l', 'm', 'm', 'm']])
-# arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
-# arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
-# arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 6, 6, 1]])
-# labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays([arr1, arr2, arr3])
-# print(labeled_arr1)
-# print(labeled_arr2)
-# print(labeled_arr3)
-#%%
-######################### Compare all pairwise similarity and loop from max to min
-######################### match corresponding areas for the rest maps as well!!!
-def label_arrays(arrs, base=None):
+def label_arrays(arrs):
     # Step 1: store the location for all unique elements separately for each array
     unique_elements = []
     for arr in arrs:
@@ -2864,12 +2721,7 @@ def label_arrays(arrs, base=None):
             overlaps[i, j, :len(unique_elements[i]), :len(unique_elements[j])] = overlaps_ij
     # Step 3: Loop from max to min over the pairwise overlap
     labels = {i:{} for i in range(len(arrs))}
-    if base is not None: # base is fixed and considered labeled already, use 0 as the base!!!
-      for element in unique_elements[base]:
-        labels[base][element] = element
-      label_num = max(unique_elements[base]) + 1
-    else:
-      label_num = 0
+    label_num = 0
     while overlaps.max() > 0:
       max_locs = np.argwhere(overlaps == np.max(overlaps))
       if max_locs.shape[0] > 1: # choose the one with largest jaccard index
@@ -2884,60 +2736,39 @@ def label_arrays(arrs, base=None):
           labels[j][unique_elements[j][max_j]] = label_num
           labeled[i] = max_i
           labeled[j] = max_j
-          # labeled[i] = unique_elements[i][max_i]
-          # labeled[j] = unique_elements[j][max_j]
           for k in range(len(arrs)): # loop over the rest corresponding areas
-            if (label_num == 15) and (k==17):
+            if label_num == 6:
               print('Come on!')
-            ks = []
-            if (k > i) and (k > j):
-              if (max_i == np.argmax(overlaps[i, k], 0)[np.argmax(overlaps[i, k, max_i])]):
-                ks.append(np.argmax(overlaps[i, k, max_i]))
-              if (max_j == np.argmax(overlaps[j, k], 0)[np.argmax(overlaps[j, k, max_j])]):
-                ks.append(np.argmax(overlaps[j, k, max_j]))
+            if (k != i) and (k != j):
+              ind_i, ind_j = (k < i) * 1, (k < j) * 1 # relative size between k and i,j decides its indices
+              k4i, k4j = np.take(overlaps[min(k, i), max(k, i)], max_i, axis=ind_i), np.take(overlaps[min(k, j), max(k, j)], max_j, axis=ind_j)
+              max_locsk4i, max_locsk4j = np.argwhere(k4i == np.max(k4i)).flatten(), np.argwhere(k4j == np.max(k4j)).flatten()
+              exist_i, exist_j = (max_i == np.argmax(overlaps[min(k, i), max(k, i)], ind_i)[max_locsk4i]), (max_j == np.argmax(overlaps[min(k, j), max(k, j)], ind_j)[max_locsk4j])
+              ks = []
+              if exist_i.sum() > 1: # more than one maximal overlap, choose the one with largest jaccard index
+                jac = [len(set(element_locations[i][max_i]).intersection(element_locations[k][max_k])) / len(set(element_locations[i][max_i]).union(element_locations[k][max_k])) for max_k in max_locsk4i]
+                max_k4i = max_locsk4i[np.argmax(jac)] # if still the same jaccard index, choose the first one
+                ks.append(max_k4i)
+              elif exist_i.sum() == 1:
+                max_k4i = max_locsk4i[exist_i][0]
+                ks.append(max_k4i)
+              if exist_j.sum() > 1: # more than one maximal overlap, choose the one with largest jaccard index
+                jac = [len(set(element_locations[j][max_j]).intersection(element_locations[k][max_k])) / len(set(element_locations[j][max_j]).union(element_locations[k][max_k])) for max_k in max_locsk4j]
+                max_k4j = max_locsk4j[np.argmax(jac)] # if still the same jaccard index, choose the first one
+                ks.append(max_k4j)
+              elif exist_j.sum() == 1:
+                max_k4j = max_locsk4j[exist_j][0]
+                ks.append(max_k4j)
               if len(ks):
                 max_k = np.random.choice(ks)
               else: # find the element with most overlaps with both max_i and max_j
-                max_k = np.argmax(overlaps[i, k, max_i] + overlaps[j, k, max_j])
+                max_k = np.argmax(k4i.flatten() + k4j.flatten())
+              if max_k >= len(unique_elements[k]):
+                print('Why')
               if unique_elements[k][max_k] not in labels[k]:
                 labels[k][unique_elements[k][max_k]] = label_num
                 labeled[k] = max_k
-            elif (k > i) and (k < j):
-              if (max_i == np.argmax(overlaps[i, k], 0)[np.argmax(overlaps[i, k, max_i])]):
-                ks.append(np.argmax(overlaps[i, k, max_i]))
-              if (max_j == np.argmax(overlaps[k, j], 1)[np.argmax(overlaps[k, j, :, max_j])]):
-                ks.append(np.argmax(overlaps[k, j, :, max_j]))
-              if len(ks):
-                max_k = np.random.choice(ks)
-              else: # find the element with most overlaps with both max_i and max_j
-                max_k = np.argmax(overlaps[i, k, max_i] + overlaps[k, j, :, max_j])
-              if unique_elements[k][max_k] not in labels[k]:
-                labels[k][unique_elements[k][max_k]] = label_num
-                labeled[k] = max_k
-            elif (k < i) and (k > j): # TODO: impossible
-              if (max_i == np.argmax(overlaps[k, i], 1)[np.argmax(overlaps[k, i, :, max_i])]):
-                ks.append(np.argmax(overlaps[k, i, :, max_i]))
-              if (max_j == np.argmax(overlaps[j, k], 0)[np.argmax(overlaps[j, k, max_j])]):
-                ks.append(np.argmax(overlaps[j, k, max_j]))
-              if len(ks):
-                max_k = np.random.choice(ks)
-              else: # find the element with most overlaps with both max_i and max_j
-                max_k = np.argmax(overlaps[k, i, :, max_i] + overlaps[j, k, max_j])
-              if unique_elements[k][max_k] not in labels[k]:
-                labels[k][unique_elements[k][max_k]] = label_num
-                labeled[k] = max_k
-            elif (k < i) and (k < j):
-              if (max_i == np.argmax(overlaps[k, i], 1)[np.argmax(overlaps[k, i, :, max_i])]):
-                ks.append(np.argmax(overlaps[k, i, :, max_i]))
-              if (max_j == np.argmax(overlaps[k, j], 1)[np.argmax(overlaps[k, j, :, max_j])]):
-                ks.append(np.argmax(overlaps[k, j, :, max_j]))
-              if len(ks):
-                max_k = np.random.choice(ks)
-              else: # find the element with most overlaps with both max_i and max_j
-                max_k = np.argmax(overlaps[k, i, :, max_i] + overlaps[k, j, :, max_j])
-              if unique_elements[k][max_k] not in labels[k]:
-                labels[k][unique_elements[k][max_k]] = label_num
-                labeled[k] = max_k
+            
           # Remove all matched module IDs
           labeled_ids = sorted(labeled.items())
           for ind1, (source, max_s) in enumerate(labeled_ids):
@@ -2961,8 +2792,7 @@ def label_arrays(arrs, base=None):
       #   if (labels[j][unique_elements[j][max_j]] in list(labels[i].values())) or (labels[i][unique_elements[i][max_i]] in list(labels[j].values())):
       else:
         overlaps[i, j, max_i, max_j] = 0
-      
-        # print('{}, {}, {}, {} not mutually max'.format(i, j, max_i, max_j))
+
     # Step 3 (continued): Loop over the rest unlabeled elements for all arrays and assign each of them a new label
     labeled_arrs = []
     for a_ind, arr in enumerate(arrs):
@@ -2977,17 +2807,68 @@ def label_arrays(arrs, base=None):
         labeled_arrs.append(labeled_arr)
     return labeled_arrs
 
+def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all):
+  # start_ind = 0 # index of stimuli to consider in ordering
+  num_row = 3
+  new_resos = resolution_list[::10] # change it with num_row
+  sorted_row_order = None
+  hmps = []
+  for row_ind in range(num_row):
+    neg_reso = new_resos[row_ind]
+    print('gamma+ = {}'.format(neg_reso))
+    comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
+    for stimulus_name in stimulus_names:
+      for resolution in resolution_list:
+        comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, neg_reso)]
+    sorted_row_order, hmp = get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixedneg, sorted_row_order)
+    hmps += [a.squeeze() for a in np.split(hmp, 6, axis=0)]
+  # return hmps
+  all_relabeled_hmps = label_arrays(hmps)
+  all_relabeled_hmps = [np.stack(all_relabeled_hmps[row_ind*6:(row_ind+1)*6], 0) for row_ind in range(3)]
+  values, counts = np.unique(np.concatenate(all_relabeled_hmps), return_counts=True)
+  sorted_values, _ = zip(*sorted(zip(values, counts), key=lambda x:x[1], reverse=True)) # larger areas have smaller indices
+  print('number of unique colors: {}'.format(len(values)))
+  chmps = []
+  for row_relabeled_hmp in all_relabeled_hmps:
+    chmps.append(heatmap2color(row_relabeled_hmp, sorted_values))
+  # 30 different colors after aligning
+  fig, axes = plt.subplots(num_row, len(combined_stimuli), figsize=(3*len(combined_stimuli), 4*num_row))
+  for row_ind in range(num_row):
+    for cs_ind, combined_stimulus in enumerate(combined_stimuli):
+      ax = axes[row_ind, cs_ind]
+      ax.imshow(chmps[row_ind][cs_ind], interpolation='none', aspect='auto')
+      # ax.pcolor(hmp[cs_ind], cmap=custom_cmap)
+      for area_loc in np.cumsum(area_size)[:-1]:
+        ax.axhline(y=area_loc-0.5, color='k', linestyle='--') # -0.5 so that it won't cross a node
+      ax.set_xticks(.5 + np.arange(0, len(resolution_list), 5))
+      ax.set_xticklabels(labels=resolution_list[::5], fontsize=18)
+      # ax.invert_yaxis()
+      ax.set_xlabel(r'$\gamma^+$', fontsize=18)
+      ax.yaxis.set_tick_params(labelsize=18)
+      if cs_ind == 0:
+        ax.set_ylabel('Node', fontsize=18)
+      if row_ind == 0:
+        ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
+  plt.tight_layout()
+  plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled.pdf', transparent=True)
+  # plt.show()
+  return sorted_values, all_relabeled_hmps
+  
+resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
+sorted_values, all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all)
+
 # Example usage
 # arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
 # arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
 # arr3 = np.array([['h', 'h', 'i', 'i'], ['j', 'j', 'k', 'i'], ['l', 'm', 'm', 'm']])
-arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
-arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
-arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 6, 6, 1]])
-labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays([arr1, arr2, arr3])
-print(labeled_arr1)
-print(labeled_arr2)
-print(labeled_arr3)
+# arr1 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 1, 1, 1]])
+# arr2 = np.array([[2, 2, 0, 0], [3, 3, 3, 0], [4, 1, 1, 1]])
+# arr3 = np.array([[2, 2, 0, 0], [3, 3, 5, 0], [4, 6, 6, 1]])
+# labeled_arr1, labeled_arr2, labeled_arr3 = label_arrays([arr1, arr2, arr3])
+# print(labeled_arr1)
+# print(labeled_arr2)
+# print(labeled_arr3)
 #%%
 import numpy as np
 from scipy.sparse import coo_matrix
