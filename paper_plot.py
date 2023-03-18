@@ -132,7 +132,7 @@ S_ccg_dict = add_offset(S_ccg_dict, offset_dict)
 S_ccg_dict = add_duration(S_ccg_dict, duration_dict)
 S_ccg_dict = add_delay(S_ccg_dict)
 ######### split G_dict into pos and neg
-pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict, measure=measure)
+pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict)
 #%%
 ####################### Figure 1 #######################
 ########################################################
@@ -2405,43 +2405,6 @@ def plot_zscore_Hamiltonian2Q(G_dict, resolution_list, max_pos_neg_reso, real_H,
 # plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 plot_zscore_Hamiltonian2Q(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 #%%
-# plot module assignment against resolution parameter
-def plot_module_gamma(G_dict, row_ind, comms_dict):
-  rows, cols = get_rowcol(G_dict)
-  row = rows[row_ind]
-  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(12*len(combined_stimuli), 12))
-  comm_inds = [49, 5, 102, 5, 13, 157]
-  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
-    comm_ind = comm_inds[cs_ind]
-    col = combined_stimuli[cs_ind][-1]
-    ax = axes[cs_ind]
-    col_ind = cols.index(col)
-    # ax.set_title(combined_stimulus_name, fontsize=25)
-    print(col)
-    G = G_dict[row][col]
-    nx.set_node_attributes(G, active_area_dict[row], "area")
-    # max_reso = max_pos_neg_reso[row_ind][col_ind][comm_ind]
-    comms_list = best_comms_dict[row][col]
-    comms = comms_list[comm_ind]
-    # comms = [comm for comm in comms if len(comm)>=th] # only plot large communities
-    node_to_community = comm2partition(comms)
-    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
-    comms2plot = get_unique_elements(between_community_edges.keys())
-    # comms2plot = range(len(comms))
-    nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
-    node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
-    print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
-    
-  plt.tight_layout()
-  # plt.savefig('./plots/all_graph_topology_{}.pdf'.format(row), transparent=True)
-  plt.show()
-
-# to_plots = [(7, 5)]
-# to_plots = [(5, 2), (6, 2), (7, 49)]
-# row_ind, comm_ind = to_plots[2]
-# 4
-plot_module_gamma(G_ccg_dict, 7, best_comms_dict)
-#%%
 # Combine clustering results based on voting-based method: keep clusters that appear the most during all runs
 # Find eligible and ineligible nodes (not partitioned into single-node cluster during any stimuli)
 def combine_clustering_results(comms_list):
@@ -2497,21 +2460,47 @@ def find_ineligible_nodes(combined_comms):
       nodes += comm
   return nodes
 
-session_ind = 7
+# find nodes that are assigned to single-node module at least once
+def find_eligible_nodes(combined_comms):
+  nodes = []
+  for comm in combined_comms:
+    if len(comm) > 1:
+      nodes += comm
+  return nodes
+
+# session_ind = 7 # 3, 4, 7
+# ineligible_nodes = []
+# for stimulus_name in stimulus_names:
+#   comms_list = best_comms_dict[session_ids[session_ind]][stimulus_name]
+#   combined_comms = combine_clustering_results(comms_list)
+#   ineligible_nodes += find_ineligible_nodes(combined_comms)
+# ineligible_nodes = np.unique(ineligible_nodes)
+# eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
+# area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
+# sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
+# sorted_enodes = [node for area in sorted_enodes for node in area]
+# area_size
+
+def find_inactive_nodes(G):
+  nodes = []
+  for node in G.nodes():
+    if G.degree(node) < 1:
+      nodes.append(node)
+  return nodes
+
+session_ind = 7 # 3, 4, 7
 ineligible_nodes = []
 for stimulus_name in stimulus_names:
-  comms_list = best_comms_dict[session_ids[session_ind]][stimulus_name]
-  combined_comms = combine_clustering_results(comms_list)
-  ineligible_nodes += find_ineligible_nodes(combined_comms)
+  ineligible_nodes += find_inactive_nodes(pos_G_dict[session_ids[session_ind]][stimulus_name])
 ineligible_nodes = np.unique(ineligible_nodes)
 eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
-area_size = [len([node for node in eligible_nodes if area_dict['797828357'][node]==region]) for region in visual_regions]
-sorted_enodes = [[node for node in eligible_nodes if area_dict['797828357'][node]==region] for region in visual_regions]
+area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
+sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
 sorted_enodes = [node for area in sorted_enodes for node in area]
-# comms_list = best_comms_dict['797828357']['spontaneous']
-# combined_comms = combine_clustering_results(comms_list)
-# combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
+print(area_size)
 #%%
+# Save comms_reso_all for a certain mouse
+# start_time = time.time()
 # with open('./files/comms_dict.pkl', 'rb') as f:
 #   comms_dict = pickle.load(f)
 # # create comms_reso with combined_comms for each reso, and remove all ineligible nodes
@@ -2525,11 +2514,12 @@ sorted_enodes = [node for area in sorted_enodes for node in area]
 #     combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
 #     comms_reso_all[stimulus_name][reso] = combined_comms
 # # save combined community partition across runs for each resolution
-# with open('./files/comms_reso_all.pkl', 'wb') as f:
+# with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'wb') as f:
 #   pickle.dump(comms_reso_all, f)
-#%% 
+# print("--- %s minutes" % ((time.time() - start_time)/60))
+# %% 
 # load combined community partition across runs for each resolution
-with open('./files/comms_reso_all.pkl', 'rb') as f:
+with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'rb') as f:
   comms_reso_all = pickle.load(f)
 # get fixed reso-
 comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
@@ -2697,6 +2687,12 @@ def heatmap2color(hmp, sorted_values):
         chmp[x, y, z] = all_colors[sorted_values.index(hmp[x, y, z])] #rgba2hex(all_colors[hmp[x, y, z]])
   return chmp
 
+def jaccard_index(A, B):
+  return len(set(A).intersection(B)) / len(set(A).union(B))
+
+######################### Compare all pairwise similarity and loop from max to min
+######################### match corresponding areas for the rest maps as well!!!
+
 def label_arrays(arrs):
     # Step 1: store the location for all unique elements separately for each array
     unique_elements = []
@@ -2725,7 +2721,7 @@ def label_arrays(arrs):
     while overlaps.max() > 0:
       max_locs = np.argwhere(overlaps == np.max(overlaps))
       if max_locs.shape[0] > 1: # choose the one with largest jaccard index
-        jac = [len(set(element_locations[i][max_i]).intersection(element_locations[j][max_j])) / len(set(element_locations[i][max_i]).union(element_locations[j][max_j])) for i, j, max_i, max_j in max_locs]
+        jac = [jaccard_index(element_locations[i][max_i],element_locations[j][max_j]) for i, j, max_i, max_j in max_locs]
         i, j, max_i, max_j = max_locs[np.argmax(jac)]
       else:
         i, j, max_i, max_j = np.unravel_index(np.argmax(overlaps), overlaps.shape)     
@@ -2737,32 +2733,31 @@ def label_arrays(arrs):
           labeled[i] = max_i
           labeled[j] = max_j
           for k in range(len(arrs)): # loop over the rest corresponding areas
-            if label_num == 6:
-              print('Come on!')
             if (k != i) and (k != j):
               ind_i, ind_j = (k < i) * 1, (k < j) * 1 # relative size between k and i,j decides its indices
               k4i, k4j = np.take(overlaps[min(k, i), max(k, i)], max_i, axis=ind_i), np.take(overlaps[min(k, j), max(k, j)], max_j, axis=ind_j)
               max_locsk4i, max_locsk4j = np.argwhere(k4i == np.max(k4i)).flatten(), np.argwhere(k4j == np.max(k4j)).flatten()
               exist_i, exist_j = (max_i == np.argmax(overlaps[min(k, i), max(k, i)], ind_i)[max_locsk4i]), (max_j == np.argmax(overlaps[min(k, j), max(k, j)], ind_j)[max_locsk4j])
+              max_overlap_k4i, max_overlap_k4j = max(overlaps[k, :, max_locsk4i, :].max(), overlaps[:, k, :, max_locsk4i].max()), max(overlaps[k, :, max_locsk4j, :].max(), overlaps[:, k, :, max_locsk4j].max())
               ks = []
-              if exist_i.sum() > 1: # more than one maximal overlap, choose the one with largest jaccard index
-                jac = [len(set(element_locations[i][max_i]).intersection(element_locations[k][max_k])) / len(set(element_locations[i][max_i]).union(element_locations[k][max_k])) for max_k in max_locsk4i]
-                max_k4i = max_locsk4i[np.argmax(jac)] # if still the same jaccard index, choose the first one
-                ks.append(max_k4i)
-              elif exist_i.sum() == 1:
-                max_k4i = max_locsk4i[exist_i][0]
-                ks.append(max_k4i)
-              if exist_j.sum() > 1: # more than one maximal overlap, choose the one with largest jaccard index
-                jac = [len(set(element_locations[j][max_j]).intersection(element_locations[k][max_k])) / len(set(element_locations[j][max_j]).union(element_locations[k][max_k])) for max_k in max_locsk4j]
-                max_k4j = max_locsk4j[np.argmax(jac)] # if still the same jaccard index, choose the first one
-                ks.append(max_k4j)
-              elif exist_j.sum() == 1:
-                max_k4j = max_locsk4j[exist_j][0]
-                ks.append(max_k4j)
+              if (k4i.max() > 0) and (exist_i.sum() >= 1) and (k4i[max_locsk4i] >= max_overlap_k4i).sum(): # if at least one overlapping, mutual max, and their overlapping area is the largest for k
+                ks += max_locsk4i[k4i[max_locsk4i] >= max_overlap_k4i].tolist()
+              if (k4j.max() > 0) and (exist_j.sum() >= 1) and (k4j[max_locsk4j] >= max_overlap_k4j).sum():
+                ks += max_locsk4j[k4j[max_locsk4j] >= max_overlap_k4j].tolist()
               if len(ks):
-                max_k = np.random.choice(ks)
-              else: # find the element with most overlaps with both max_i and max_j
+                values, counts = np.unique(ks, return_counts=True)
+                max_kinds = np.where(counts == np.max(counts))[0]
+                if len(max_kinds) > 1:
+                  jac = [jaccard_index(element_locations[i][max_i], element_locations[k][values[max_kind]]) for max_kind in max_kinds]
+                  max_k = values[np.argmax(jac)] # if still the same jaccard index, choose the first one
+                else:
+                  max_k = values[max_kinds[0]]
+              elif (k4i.max() > 0) and (k4j.max() > 0): # find the element with most overlaps with both max_i and max_j
                 max_k = np.argmax(k4i.flatten() + k4j.flatten())
+                if (jaccard_index(element_locations[i][max_i], element_locations[k][max_k]) + jaccard_index(element_locations[j][max_j], element_locations[k][max_k])) / 2 < 0.2: # too dissimilar
+                  continue
+              else: # no overlapping with any element in arr[k], since actual overlapping elements are already matched with other elements
+                continue
               if max_k >= len(unique_elements[k]):
                 print('Why')
               if unique_elements[k][max_k] not in labels[k]:
@@ -2807,7 +2802,7 @@ def label_arrays(arrs):
         labeled_arrs.append(labeled_arr)
     return labeled_arrs
 
-def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all):
+def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all, session_ind):
   # start_ind = 0 # index of stimuli to consider in ordering
   num_row = 3
   new_resos = resolution_list[::10] # change it with num_row
@@ -2819,7 +2814,12 @@ def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, co
     comms_reso_fixedneg = {stimulus_name:{} for stimulus_name in stimulus_names}
     for stimulus_name in stimulus_names:
       for resolution in resolution_list:
-        comms_reso_fixedneg[stimulus_name][resolution] = comms_reso_all[stimulus_name][(resolution, neg_reso)]
+        comms_reso_fixedneg[stimulus_name][resolution] = []
+        for comm in comms_reso_all[stimulus_name][(resolution, neg_reso)]:
+          nodes = sorted(list(set(comm) & set(sorted_enodes)))
+          if len(nodes):
+            comms_reso_fixedneg[stimulus_name][resolution].append(nodes)
+        
     sorted_row_order, hmp = get_heatmap2plot(sorted_enodes, area_size, resolution_list, comms_reso_fixedneg, sorted_row_order)
     hmps += [a.squeeze() for a in np.split(hmp, 6, axis=0)]
   # return hmps
@@ -2850,14 +2850,13 @@ def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, co
       if row_ind == 0:
         ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
   plt.tight_layout()
-  plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled.pdf', transparent=True)
+  plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled_{}.pdf'.format(session_ids[session_ind]), transparent=True)
   # plt.show()
   return sorted_values, all_relabeled_hmps
   
 resolution_list = np.arange(0, 2.1, 0.1)
 resolution_list = [round(reso, 2) for reso in resolution_list]
-sorted_values, all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all)
-
+sorted_values, all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, comms_reso_all, session_ind)
 # Example usage
 # arr1 = np.array([['a', 'a', 'b', 'b'], ['c', 'c', 'd', 'b'], ['e', 'f', 'f', 'f']])
 # arr2 = np.array([['b', 'b', 'c', 'c'], ['d', 'd', 'd', 'c'], ['e', 'g', 'g', 'g']])
@@ -2869,6 +2868,57 @@ sorted_values, all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes
 # print(labeled_arr1)
 # print(labeled_arr2)
 # print(labeled_arr3)
+#%%
+from matplotlib.colors import LinearSegmentedColormap
+######################## Heatmap of Adjusted Rand Index of multi-resolution modular structure
+def plot_heatmap_ARI_module_resolution(hmps, session_ind):
+  fig, ax = plt.subplots(1,1, figsize=(5.6,5))
+  num_row = len(hmps)
+  shape = hmps[0][0].shape
+  data_mat, hm_z = np.zeros((len(combined_stimulus_names), num_row * np.prod(shape))), np.zeros((len(combined_stimulus_names), len(combined_stimulus_names)))
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = []
+    for row_ind in range(num_row):
+      data.append(hmps[row_ind][s_ind])
+    data_mat[s_ind] = np.stack(data, 0).flatten()
+  # hm_z = np.zeros((len(combined_stimulus_names), len(combined_stimulus_names)))
+  # hm_z[:] = np.nan
+  # for cs1, cs2 in itertools.permutations(range(len(combined_stimulus_names)),2):
+  #   hm_z[cs1, cs2] = spearmanr(data_dict[combined_stimulus_names[cs1]], data_dict[combined_stimulus_names[cs2]])[0]
+  # mask = np.triu(hm_z)
+  for i, j in itertools.permutations(range(len(combined_stimulus_names)), 2):
+    hm_z[i, j] = adjusted_rand_score(data_mat[i], data_mat[j])
+  # hm_z = np.corrcoef(data_mat)
+  np.fill_diagonal(hm_z, np.nan)
+
+  # cmap = plt.get_cmap('hot')
+  # new_cmap = truncate_colormap(cmap, 0., 0.3)
+  
+  colors = ['w', '.3'] # first color is black, last is red
+  cm = LinearSegmentedColormap.from_list(
+        "Custom", colors, N=20)
+
+  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmin=0, cbar=True, annot=True, annot_kws={'fontsize':20})#, mask=mask
+  cbar = hm.collections[0].colorbar
+  cbar.ax.tick_params(labelsize=24)
+
+  # ax.set_xticks(0.5 + np.arange(len(combined_stimulus_names)))
+  # ax.set_xticklabels(labels=combined_stimulus_names, fontsize=12)
+  # ax.set_yticks(0.5 + np.arange(len(combined_stimulus_names)))
+  # ax.set_yticklabels(labels=combined_stimulus_names, fontsize=12)
+  # ax.xaxis.tick_top()
+  ax.set_xticks([])
+  ax.set_yticks([])
+  ax.invert_yaxis()
+  hm.tick_params(left=False)  # remove the ticks
+  hm.tick_params(bottom=False)
+  hm.tick_params(top=False)
+  fig.tight_layout()
+  plt.savefig('./plots/heatmap_black_ARI_module_resolution_{}.pdf'.format(session_ids[session_ind]), transparent=True)
+  # plt.show()
+
+plot_heatmap_ARI_module_resolution(all_relabeled_hmps, session_ind)
 #%%
 import numpy as np
 from scipy.sparse import coo_matrix
