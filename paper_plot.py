@@ -2498,7 +2498,7 @@ area_size = [len([node for node in eligible_nodes if area_dict[session_ids[sessi
 sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
 sorted_enodes = [node for area in sorted_enodes for node in area]
 print(area_size)
-#%%
+
 # Save comms_reso_all for a certain mouse
 # start_time = time.time()
 # with open('./files/comms_dict.pkl', 'rb') as f:
@@ -2517,7 +2517,7 @@ print(area_size)
 # with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'wb') as f:
 #   pickle.dump(comms_reso_all, f)
 # print("--- %s minutes" % ((time.time() - start_time)/60))
-# %% 
+
 # load combined community partition across runs for each resolution
 with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'rb') as f:
   comms_reso_all = pickle.load(f)
@@ -2717,6 +2717,7 @@ def label_arrays(arrs):
             overlaps[i, j, :len(unique_elements[i]), :len(unique_elements[j])] = overlaps_ij
     # Step 3: Loop from max to min over the pairwise overlap
     labels = {i:{} for i in range(len(arrs))}
+    to_existing = {} # store matching of which one has a global maximum else where
     label_num = 0
     while overlaps.max() > 0:
       max_locs = np.argwhere(overlaps == np.max(overlaps))
@@ -2728,8 +2729,28 @@ def label_arrays(arrs):
       if (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] not in labels[j]):
         if max_i == np.argmax(overlaps[i, j], 0)[np.argmax(overlaps[i, j, max_i])]: # if they are mutually the most overlapping areas
           labeled = {}
-          labels[i][unique_elements[i][max_i]] = label_num
-          labels[j][unique_elements[j][max_j]] = label_num
+          if ((i, max_i) not in to_existing) and ((j, max_j) not in to_existing):
+            labels[i][unique_elements[i][max_i]] = label_num
+            labels[j][unique_elements[j][max_j]] = label_num
+          else: # find the label with highest overlap with i or j
+            if (i, max_i) in to_existing:
+              i2l, max_i2l = to_existing[(i, max_i)]
+              ovi = np.take(overlaps[min(i2l, i), max(i2l, i)], max_i, axis=(i2l < i) * 1)[max_i2l]
+            else:
+              ovi, i2l, max_i2l = 0, 0, 0
+            if (j, max_j) in to_existing:
+              j2l, max_j2l = to_existing[(j, max_j)]
+              ovj = np.take(overlaps[min(j2l, j), max(j2l, j)], max_j, axis=(j2l < i) * 1)[max_j2l]
+            else:
+              ovj, j2l, max_j2l = 0, 0, 0
+            labelind, label_max = [(i2l, max_i2l), (j2l, max_j2l)][np.argmax([ovi, ovj])]
+            better_label = labels[labelind][label_max]
+            if (better_label not in labels[i].values()) and (better_label not in labels[j].values()): # better_label is not already matched
+              labels[i][unique_elements[i][max_i]] = better_label
+              labels[j][unique_elements[j][max_j]] = better_label
+            else:
+              labels[i][unique_elements[i][max_i]] = label_num
+              labels[j][unique_elements[j][max_j]] = label_num
           labeled[i] = max_i
           labeled[j] = max_j
           for k in range(len(arrs)): # loop over the rest corresponding areas
@@ -2740,10 +2761,18 @@ def label_arrays(arrs):
               exist_i, exist_j = (max_i == np.argmax(overlaps[min(k, i), max(k, i)], ind_i)[max_locsk4i]), (max_j == np.argmax(overlaps[min(k, j), max(k, j)], ind_j)[max_locsk4j])
               max_overlap_k4i, max_overlap_k4j = max(overlaps[k, :, max_locsk4i, :].max(), overlaps[:, k, :, max_locsk4i].max()), max(overlaps[k, :, max_locsk4j, :].max(), overlaps[:, k, :, max_locsk4j].max())
               ks = []
-              if (k4i.max() > 0) and (exist_i.sum() >= 1) and (k4i[max_locsk4i] >= max_overlap_k4i).sum(): # if at least one overlapping, mutual max, and their overlapping area is the largest for k
-                ks += max_locsk4i[k4i[max_locsk4i] >= max_overlap_k4i].tolist()
-              if (k4j.max() > 0) and (exist_j.sum() >= 1) and (k4j[max_locsk4j] >= max_overlap_k4j).sum():
-                ks += max_locsk4j[k4j[max_locsk4j] >= max_overlap_k4j].tolist()
+              if (k4i.max() > 0) and (exist_i.sum() >= 1): # if at least one overlapping, mutual max
+                if (k4i[max_locsk4i] >= max_overlap_k4i).sum(): # if their overlapping area is the largest for k
+                  ks += max_locsk4i[k4i[max_locsk4i] >= max_overlap_k4i].tolist()
+                else:
+                  for max_kk in max_locsk4i:
+                    to_existing[(k, max_kk)] = (i, max_i)
+              if (k4j.max() > 0) and (exist_j.sum() >= 1):
+                if (k4j[max_locsk4j] >= max_overlap_k4j).sum():
+                  ks += max_locsk4j[k4j[max_locsk4j] >= max_overlap_k4j].tolist()
+                else:
+                  for max_kk in max_locsk4j:
+                    to_existing[(k, max_kk)] = (j, max_j)
               if len(ks):
                 values, counts = np.unique(ks, return_counts=True)
                 max_kinds = np.where(counts == np.max(counts))[0]
@@ -2760,8 +2789,8 @@ def label_arrays(arrs):
                 continue
               if max_k >= len(unique_elements[k]):
                 print('Why')
-              if unique_elements[k][max_k] not in labels[k]:
-                labels[k][unique_elements[k][max_k]] = label_num
+              if (unique_elements[k][max_k] not in labels[k]) and (labels[i][unique_elements[i][max_i]] not in labels[k].values()): # not already matched
+                labels[k][unique_elements[k][max_k]] = labels[i][unique_elements[i][max_i]]
                 labeled[k] = max_k
             
           # Remove all matched module IDs
@@ -2771,8 +2800,9 @@ def label_arrays(arrs):
               target, max_t = labeled_ids[ind2]
               overlaps[source, target, max_s, :] = 0
               overlaps[source, target, :, max_t] = 0
-          print('matching array and original label {} -> {}'.format(dict(sorted(labeled.items())), label_num))
-          label_num += 1
+          print('matching array and original label {} -> {}'.format(dict(sorted(labeled.items())), labels[i][unique_elements[i][max_i]]))
+          if labels[i][unique_elements[i][max_i]] == label_num:
+            label_num += 1
         else:
           overlaps[i, j, max_i, max_j] = 0
       elif (unique_elements[i][max_i] not in labels[i]) and (unique_elements[j][max_j] in labels[j]) and (labels[j][unique_elements[j][max_j]] not in [labels[i][e] for e in unique_elements[i] if e in labels[i]]):
@@ -2798,7 +2828,7 @@ def label_arrays(arrs):
                 if element not in labels[a_ind]:
                     labels[a_ind][element] = label_num
                     label_num += 1
-        assert len(np.unique(arr)) == len(np.unique(labeled_arr))
+        assert len(np.unique(arr)) == len(np.unique(labeled_arr)), 'arr {}, number of unique elements for original and relabled arrays are {}, {}'.format(a_ind, len(np.unique(arr)), len(np.unique(labeled_arr))) # number of unique elements should not change after relabeling
         labeled_arrs.append(labeled_arr)
     return labeled_arrs
 
@@ -2843,12 +2873,13 @@ def plot_heatmap_module_resolution(sorted_enodes, area_size, resolution_list, co
       ax.set_xticks(.5 + np.arange(0, len(resolution_list), 5))
       ax.set_xticklabels(labels=resolution_list[::5], fontsize=18)
       # ax.invert_yaxis()
-      ax.set_xlabel(r'$\gamma^+$', fontsize=18)
+      if row_ind == 2:
+        ax.set_xlabel(r'$\gamma^+$', fontsize=18)
       ax.yaxis.set_tick_params(labelsize=18)
       if cs_ind == 0:
         ax.set_ylabel('Node', fontsize=18)
-      if row_ind == 0:
-        ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
+      # if row_ind == 0:
+      #   ax.set_title(combined_stimulus_names[cs_ind].replace('\n', ' '), fontsize=18)
   plt.tight_layout()
   plt.savefig('./plots/heatmap_module_resolution_allrows_relabeled_{}.pdf'.format(session_ids[session_ind]), transparent=True)
   # plt.show()
