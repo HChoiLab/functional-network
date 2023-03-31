@@ -10,6 +10,7 @@ from scipy.stats import shapiro
 from scipy.stats import normaltest
 from scipy.stats import entropy
 from scipy.stats import spearmanr
+from scipy.stats import ttest_ind
 from scipy.spatial import distance
 from scipy.special import softmax
 from scipy.optimize import curve_fit
@@ -78,7 +79,7 @@ stimulus_names = ['spontaneous', 'flash_dark', 'flash_light',
 stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
 stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
 
-combined_stimulus = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
+combined_stimuli = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
 combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
 combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bebada', '#bebada', '#fb8072', '#fb8072']
 
@@ -87,12 +88,12 @@ def stimulus2stype(stimulus):
   return t_ind, stimulus_types[t_ind]
 
 def combine_stimulus(stimulus):
-  t_ind = [i for i in range(len(combined_stimulus)) if stimulus in combined_stimulus[i]][0]
+  t_ind = [i for i in range(len(combined_stimuli)) if stimulus in combined_stimuli[i]][0]
   return t_ind, combined_stimulus_names[t_ind]
 
 def combined_stimulus2stype(stimulus):
   c_ind = [i for i in range(len(combined_stimulus_names)) if stimulus in combined_stimulus_names[i]][0]
-  ostimuli = combined_stimulus[c_ind][0]
+  ostimuli = combined_stimuli[c_ind][0]
   t_ind = [i for i in range(len(stimulus_by_type)) if ostimuli in stimulus_by_type[i]][0]
   return t_ind, stimulus_types[t_ind]
 
@@ -1755,7 +1756,7 @@ def remove_thalamic_area(active_area_dict, regions):
   return active_area_dict
 
 ############### regular network statistics
-def split_pos_neg(G_dict, measure):
+def split_pos_neg(G_dict):
   pos_G_dict, neg_G_dict = {}, {}
   rows, cols = get_rowcol(G_dict)
   if isinstance(G_dict[rows[0]][cols[0]], list):
@@ -1778,6 +1779,8 @@ def split_pos_neg(G_dict, measure):
           neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
           Gpos = nx.DiGraph()
           Gneg = nx.DiGraph()
+          Gpos.add_nodes_from(G.nodes())
+          Gneg.add_nodes_from(G.nodes())
           Gpos.add_edges_from(pos_edges)
           Gneg.add_edges_from(neg_edges)
           pos_G_dict[row][col].append(Gpos)
@@ -1788,6 +1791,8 @@ def split_pos_neg(G_dict, measure):
         neg_edges = [(u,v,w) for (u,v,w) in G.edges(data=True) if w['weight']<0]
         Gpos = nx.DiGraph()
         Gneg = nx.DiGraph()
+        Gpos.add_nodes_from(G.nodes())
+        Gneg.add_nodes_from(G.nodes())
         Gpos.add_edges_from(pos_edges)
         Gneg.add_edges_from(neg_edges)
         pos_G_dict[row][col] = Gpos
@@ -6686,9 +6691,15 @@ def get_motif_region(motif, node_area, motif_type):
     region = '_'.join(region)
   return region
 
-def get_motif_region_census(df, G_dict, area_dict, signed_motif_types):
+def get_motif_region_census(G_dict, area_dict, signed_motif_types):
   rows, cols = get_rowcol(G_dict)
   region_count_dict = {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
   for row_ind, row in enumerate(rows):
     print(row)
     node_area = area_dict[row]
@@ -6699,15 +6710,14 @@ def get_motif_region_census(df, G_dict, area_dict, signed_motif_types):
       G = G_dict[row][col]
       motifs_by_type = find_triads(G) # faster
       for signed_motif_type in signed_motif_types:
-        # if abs(df[(df['session']==row) & (df['stimulus']==col) & (df['signed motif type']==signed_motif_type)]['intensity z score'].tolist()[0]) > 1.96: # 95% confidence level
-          motif_type = signed_motif_type.replace('+', '').replace('-', '')
-          motifs = motifs_by_type[motif_type]
-          for motif in motifs:
-            smotif_type = motif_type + get_motif_sign_new(motif, motif_type, weight='sign')
-            if smotif_type == signed_motif_type:
-              region = get_motif_region(motif, node_area, motif_type)
-              # print(smotif_type, region)
-              region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+          if smotif_type == signed_motif_type:
+            region = get_motif_region(motif, node_area, motif_type)
+            # print(smotif_type, region)
+            region_count_dict[row][col][smotif_type+region] = region_count_dict[row][col].get(smotif_type+region, 0) + 1
       region_count_dict[row][col] = dict(sorted(region_count_dict[row][col].items(), key=lambda x:x[1], reverse=True))
   return region_count_dict
 
