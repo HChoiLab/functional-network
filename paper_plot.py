@@ -3375,7 +3375,7 @@ start_time = time.time()
 signalcorr_within_cross_comm_df = get_within_cross_comm(G_ccg_dict, signal_correlation_dict, best_comms_dict, pair_type=pair_type)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-# Figure 3B
+# Figure 3A
 def save_within_across_module_legend():
   fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
   palette = ['k','.6']
@@ -3427,7 +3427,9 @@ def plot_signal_correlation_within_cross_comm_significance(origin_df, pair_type=
   h, l = .05 * maxx, .05 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['signal correlation'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['signal correlation'].values.flatten()
-    _, p = ztest(within_comm, cross_comm, value=0)
+    print(combined_stimulus_name, shapiro(within_comm)[1], shapiro(cross_comm)[1])
+    _, p = ttest_ind(within_comm, cross_comm, alternative='greater')
+    # _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     within_sr = within_sr + h
@@ -5457,7 +5459,12 @@ def plot_data_within_cross_comm_same_area_significance(df, data_list, regions, n
   h, l = .05 * maxx, .05 * maxx
   for r_ind, region in enumerate(regions):
     within_comm, cross_comm = data[(data.region==region)&(data.type=='within community')]['data'].values.flatten(), data[(data.region==region)&(data.type=='cross community')]['data'].values.flatten()
-    _, p = ztest(within_comm, cross_comm, value=0)
+    print(combined_stimulus_name, shapiro(within_comm)[1], shapiro(cross_comm)[1])
+    if name == 'negative fraction':
+      _, p = ttest_ind(within_comm, cross_comm, alternative='less')
+    else:
+      _, p = ttest_ind(within_comm, cross_comm, alternative='greater')
+    # _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     within_sr = within_sr + h
@@ -6888,7 +6895,7 @@ signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_
 signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
 signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
 #%%
-# Figure S7F
+# Figure S6
 ################## plot weight/confidence difference between within motif/other neurons
 def get_data_within_cross_motif(G_dict, signed_motif_types, weight='confidence'):
   rows, cols = get_rowcol(G_dict)
@@ -6935,7 +6942,7 @@ sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '3
 confidence_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='confidence')
 weight_within_cross_motif_df = get_data_within_cross_motif(G_ccg_dict, sig_motif_types, weight='weight')
 #%%
-# Figure 4F, Figure S7D
+# Figure 4F, Figure S6
 def save_within_eFFLb_motif_otherwise_legend():
   fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
   palette = ['k', 'grey','w']
@@ -6951,7 +6958,7 @@ def save_within_eFFLb_motif_otherwise_legend():
 
 save_within_eFFLb_motif_otherwise_legend()
 #%%
-# Figure S7D
+# Figure S6
 def plot_data_within_cross_motif_significance(df, weight='confidence'):
   fig, ax = plt.subplots(1,1, figsize=(1.5*(len(combined_stimulus_names)-1), 5))
   palette = ['k','w']
@@ -6989,7 +6996,12 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
     h, l = .05 * maxx, .05 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
-    _, p = ztest(within_motif, cross_motif, value=0)
+    
+    print(combined_stimulus_name, shapiro(within_motif)[1], shapiro(cross_motif)[1])
+    _, p = ttest_ind(within_motif, cross_motif, alternative='greater')
+    # _, p1 = ranksums(within_eFFLb, within_motif, alternative='greater')
+    
+    # _, p = ztest(within_motif, cross_motif, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
     within_sr = within_sr + h
@@ -7004,7 +7016,7 @@ def plot_data_within_cross_motif_significance(df, weight='confidence'):
   plt.savefig('./plots/{}_within_cross_motif.pdf'.format(weight), transparent=True)
 
 plot_data_within_cross_motif_significance(confidence_within_cross_motif_df, weight='confidence')
-# plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
+plot_data_within_cross_motif_significance(weight_within_cross_motif_df, weight='weight')
 #%%
 # Figure 4F
 ################## plot signal correlation difference between within motif/other neurons
@@ -7113,9 +7125,15 @@ def plot_signalcorr_within_cross_motif_significance(origin_df, pair_type='all'):
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
     within_eFFLb, within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
     if len(within_motif):
-      _, p1 = ztest(within_eFFLb, within_motif, value=0)
+      # print(combined_stimulus_name, normaltest(within_eFFLb)[1], normaltest(within_motif)[1], normaltest(cross_motif)[1])
+      print(combined_stimulus_name, shapiro(within_eFFLb)[1], shapiro(within_motif)[1], shapiro(cross_motif)[1])
+      _, p1 = ranksums(within_eFFLb, within_motif, alternative='greater')
+      # _, p1 = ttest_ind(within_eFFLb, within_motif, alternative='greater')
+      # _, p1 = ztest(within_eFFLb, within_motif, value=0)
       diff_star1 = '*' * (len(alpha_list) - bisect(alpha_list, p1)) if len(alpha_list) > bisect(alpha_list, p1) else 'ns'
-    _, p2 = ztest(within_eFFLb, cross_motif, value=0)
+    _, p2 = ranksums(within_eFFLb, cross_motif, alternative='greater')
+    # _, p2 = ttest_ind(within_eFFLb, cross_motif, alternative='greater')
+    # _, p2 = ztest(within_eFFLb, cross_motif, value=0)
     diff_star2 = '*' * (len(alpha_list) - bisect(alpha_list, p2)) if len(alpha_list) > bisect(alpha_list, p2) else 'ns'
     eFFLb_sr, within_sr, cross_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
     eFFLb_sr += h
@@ -7190,8 +7208,14 @@ def plot_signal_correlation_within_cross_motif_paired_significance(df, pair_type
 plot_signal_correlation_within_cross_motif_paired_significance(signal_corr_within_cross_motif_df, pair_type)
 #%%
 ################## plot weight/confidence difference between within motif/other neurons
-def get_data_inside_outside_motif_comm(G_dict, comms_dict, max_neg_reso, signed_motif_types, weight='confidence'):
+def get_data_inside_outside_motif_comm(G_dict, comms_dict, signed_motif_types, weight='confidence'):
   rows, cols = get_rowcol(G_dict)
+  motif_types = []
+  motif_edges_, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges_[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight=weight)
   motif_dict = {}
   for row_ind, row in enumerate(rows):
     print(row)
@@ -7206,14 +7230,14 @@ def get_data_inside_outside_motif_comm(G_dict, comms_dict, max_neg_reso, signed_
         motif_type = signed_motif_type.replace('+', '').replace('-', '')
         motifs = motifs_by_type[motif_type]
         for motif in motifs:
-          smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
+          smotif_type = motif_type + get_motif_sign_new(motif, motif_edges_[motif_type], motif_sms[motif_type], weight=weight)
+          # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
           if smotif_type == signed_motif_type:
             motif_edges += list(motif.edges())
             other_edges -= set(list(motif.edges()))
-      for run in range(metrics['Hamiltonian'].shape[-1]):
-        max_reso = max_neg_reso[row_ind, col_ind, run]
-        comms_list = comms_dict[row][col][max_reso]
-        comms = comms_list[run]
+      for run in range(len(comms_dict[row][col])):
+        # max_reso = max_neg_reso[row_ind, col_ind, run]
+        comms = comms_dict[row][col][run]
         node_to_community = comm2partition(comms)
         for e in motif_edges:
           if node_to_community[e[0]] == node_to_community[e[1]]:
@@ -7240,8 +7264,8 @@ def get_data_inside_outside_motif_comm(G_dict, comms_dict, max_neg_reso, signed_
   return df
 
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
-confidence_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, comms_dict, max_reso_subs, sig_motif_types, weight='confidence')
-weight_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, comms_dict, max_reso_subs, sig_motif_types, weight='weight')
+confidence_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, best_comms_dict, sig_motif_types, weight='confidence')
+weight_within_cross_motif_comm_df = get_data_inside_outside_motif_comm(G_ccg_dict, best_comms_dict, sig_motif_types, weight='weight')
 #%%
 def plot_data_within_cross_motif_comm_significance(df, weight='confidence'):
   fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-1), 6))
@@ -7288,7 +7312,7 @@ def plot_data_within_cross_motif_comm_significance(df, weight='confidence'):
   # plt.show()
   plt.savefig('./plots/{}_within_cross_motif_comm.pdf'.format(weight), transparent=True)
 
-# plot_data_within_cross_motif_comm_significance(confidence_within_cross_motif_comm_df, weight='confidence')
+plot_data_within_cross_motif_comm_significance(confidence_within_cross_motif_comm_df, weight='confidence')
 plot_data_within_cross_motif_comm_significance(weight_within_cross_motif_comm_df, weight='weight')
 #%%
 ################## remove outlier from mean_df (outside 2 std)
@@ -9022,7 +9046,7 @@ for session_id in session_ids:
     num2id[session_id][i] = instruction.unit_id.iloc[i]
 # print(num2id)
 # %%
-# Figure S
+# Figure S6, 10
 ########################################## get physical distance
 phys_dist = {}
 for session_id in session2keep:
@@ -9593,7 +9617,7 @@ fig.tight_layout()
 # plt.show()
 plt.savefig('./plots/distance_between_areas.pdf', transparent=True)
 # %%
-# Figure S5C
+# Figure S10D
 def get_within_across_comm(G_dict, phys_dist, comms_dict, pair_type='all'):
   rows = list(phys_dist.keys())
   within_comm_dict, cross_comm_dict = {}, {}
@@ -9645,7 +9669,7 @@ start_time = time.time()
 physdist_within_cross_comm_df = get_within_across_comm(G_ccg_dict, phys_dist, best_comms_dict, pair_type=pair_type)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-# Figure S5C
+# Figure S10D
 ######################### merge all pairs from different mice into one distribution
 def plot_physdist_within_cross_comm_significance(origin_df, pair_type='all'):
   df = origin_df.copy()
@@ -9681,7 +9705,9 @@ def plot_physdist_within_cross_comm_significance(origin_df, pair_type='all'):
   h, l = .05 * maxx, .05 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     within_comm, cross_comm = df[(df.stimulus==combined_stimulus_name)&(df.type=='within community')]['distance'].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='cross community')]['distance'].values.flatten()
-    _, p = ztest(within_comm, cross_comm, value=0)
+    print(combined_stimulus_name, shapiro(within_comm)[1], shapiro(cross_comm)[1])
+    _, p = ttest_ind(within_comm, cross_comm, alternative='less')
+    # _, p = ztest(within_comm, cross_comm, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_comm)[1], confidence_interval(cross_comm)[1]
     within_sr = within_sr + h
@@ -9977,7 +10003,7 @@ def scatter_purity_distance(df, G_dict, area_dict, regions, dist_type='within'):
 
 scatter_purity_distance(purity_distance_df, S_ccg_dict, area_dict, visual_regions, dist_type=dist_type)
 # %%
-# Figure S9A
+# Figure S6A
 def get_distance_within_cross_motif(G_dict, signed_motif_types, phys_dist):
   rows, cols = get_rowcol(G_dict)
   within_motif_dict, cross_motif_dict = {}, {}
@@ -10022,7 +10048,7 @@ def get_distance_within_cross_motif(G_dict, signed_motif_types, phys_dist):
 sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
 distance_within_cross_motif_df = get_distance_within_cross_motif(G_ccg_dict, sig_motif_types, phys_dist)
 #%%
-# Figure S9A
+# Figure S6A
 def plot_distance_within_cross_motif_significance(df):
   fig, ax = plt.subplots(1,1, figsize=(1.3*(len(combined_stimulus_names)), 5))
   palette = ['k','w']
@@ -10053,7 +10079,10 @@ def plot_distance_within_cross_motif_significance(df):
   h, l = .05 * maxx, .05 * maxx
   for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
     within_motif, cross_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
-    _, p = ztest(within_motif, cross_motif, value=0)
+    print(combined_stimulus_name, shapiro(within_motif)[1], shapiro(cross_motif)[1])
+    _, p = ttest_ind(within_motif, cross_motif, alternative='less')
+    # _, p1 = ranksums(within_eFFLb, within_motif, alternative='greater')
+    # _, p = ztest(within_motif, cross_motif, value=0)
     diff_star = '*' * (len(alpha_list) - bisect(alpha_list, p)) if len(alpha_list) > bisect(alpha_list, p) else 'ns'
     within_sr, cross_sr = confidence_interval(within_motif)[1], confidence_interval(cross_motif)[1]
     within_sr = within_sr + h
