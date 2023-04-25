@@ -3672,7 +3672,7 @@ def plot_connectionp_signal_correlation(df):
 
 plot_connectionp_signal_correlation(connectionp_signalcorr_df)
 #%%
-# Figure S2B,C
+# Figure 1G, S2B,C
 ########################################## regard bidirectional edges as 2
 ########################################## get positive and negative connection probability VS signal correlation in a different way!!!
 def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
@@ -3738,8 +3738,8 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
   return pos_df, neg_df, dis_df
 
 start_time = time.time()
-# pairtype = 'all'
-pairtype = 'connected'
+pairtype = 'all'
+# pairtype = 'connected'
 pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
@@ -3869,6 +3869,78 @@ def save_distr_signalcorr_legend():
   plt.show()
 
 save_distr_signalcorr_legend()
+#%%
+# Figure 1G
+########################################## significance test for signal correlation of ex/in
+def significance_test_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
+  for cs_ind in range(4):
+    # +2 to remove spontaneous and flash
+    pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==row)
+    neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==row)
+    dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+2]].copy()
+    pos_x, neg_x, dis_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten(), dis_data['signal correlation'].values.flatten()
+    stat1, p1 = ranksums(pos_x, neg_x, alternative='greater')
+    stat2, p2 = ranksums(neg_x, dis_x, alternative='greater')
+    print(combined_stimulus_names[cs_ind+2].replace('\n', ' '), ', pos neg, ', stat1, p1)
+    print(combined_stimulus_names[cs_ind+2].replace('\n', ' '), ', neg dis, ', stat2, p2)
+
+significance_test_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df)
+#%%
+# Figure 1G
+########################################## plot p values from significance test for signal correlation of ex/in
+def plot_significance_test_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df, correction=False):
+  p1s, p2s, p3s = np.zeros(4), np.zeros(4), np.zeros(4)
+  for cs_ind in range(4):
+    # +2 to remove spontaneous and flash
+    pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==row)
+    neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==row)
+    dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+2]].copy()
+    pos_x, neg_x, dis_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten(), dis_data['signal correlation'].values.flatten()
+    stat1, p1 = ranksums(pos_x, neg_x, alternative='greater') # the resolution of pvalue is 1e-310, tested from ranksums(np.random.random(946)+1, np.random.random(946), alternative='greater')
+    stat2, p2 = ranksums(neg_x, dis_x, alternative='greater')
+    stat3, p3 = ranksums(np.concatenate((pos_x, neg_x)), dis_x, alternative='greater')
+    p1s[cs_ind] = p1
+    p2s[cs_ind] = p2
+    p3s[cs_ind] = p3
+    print(combined_stimulus_names[cs_ind+2].replace('\n', ' '), ', pos neg, ', stat1, p1)
+    print(combined_stimulus_names[cs_ind+2].replace('\n', ' '), ', neg dis, ', stat2, p2)
+    print(combined_stimulus_names[cs_ind+2].replace('\n', ' '), ', con dis, ', stat3, p3)
+  p1s_corrected, p2s_corrected, p3s_corrected = fdrcorrection(p1s)[1], fdrcorrection(p2s)[1], fdrcorrection(p3s)[1]
+  fig, ax = plt.subplots(1, 1, figsize=(3, 4.5))
+  for cs_ind in range(4):
+    if not correction:
+      p1, p2, p3 = p1s[cs_ind], p2s[cs_ind], p3s[cs_ind]
+    else:
+      p1, p2, p3 = p1s_corrected[cs_ind], p2s_corrected[cs_ind], p3s_corrected[cs_ind]
+    ax.scatter([cs_ind], p1, marker=stimulus2marker[combined_stimulus_names[cs_ind+2]], s=15*error_size_dict[stimulus2marker[combined_stimulus_names[cs_ind+2]]], linewidth=1.,color='r', facecolor='white')
+    ax.scatter([cs_ind], p2, marker=stimulus2marker[combined_stimulus_names[cs_ind+2]], s=15*error_size_dict[stimulus2marker[combined_stimulus_names[cs_ind+2]]], linewidth=1.,color='b', facecolor='white')
+    ax.scatter([cs_ind], p3, marker=stimulus2marker[combined_stimulus_names[cs_ind+2]], s=15*error_size_dict[stimulus2marker[combined_stimulus_names[cs_ind+2]]], linewidth=1.,color='grey', facecolor='white')
+  
+  ax.set(xlabel=None)
+  ax.xaxis.set_tick_params(length=0)
+  ax.set_xlim(-.8, len(combined_stimulus_names)-2.2)
+  # ax.invert_yaxis()
+  ax.set_xticks([])
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('')
+  ax.set_ylabel('P value', fontsize=20)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.yscale('log')
+  plt.tight_layout()
+  figname = './plots/pvalue_pos_neg_dis_sigcorr.pdf' if not correction else './plots/pvalue_corrected_pos_neg_dis_sigcorr.pdf'
+  plt.savefig(figname, transparent=True)
+  # plt.show()
+  print(fdrcorrection(p1s))
+  print(fdrcorrection(p2s))
+  print(fdrcorrection(p3s))
+
+plot_significance_test_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df, correction=False)
+plot_significance_test_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df, correction=True)
 #%%
 # Results not good!!!
 ########################################## get signal correlation VS area distance between communities
@@ -7088,7 +7160,7 @@ sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '3
 motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
 signal_corr_within_cross_motif_df = get_signalcorr_within_cross_motif(G_ccg_dict, sig_motif_types, motif_types, signal_correlation_dict, pair_type=pair_type)
 #%%
-# Figure 4F
+# Figure 3C
 def plot_signalcorr_within_cross_motif_significance(origin_df, pair_type='all'):
   df = origin_df.copy()
   # df = df[df['stimulus']!='Flashes'] # remove flashes
