@@ -12,6 +12,7 @@ from scipy.stats import entropy
 from scipy.stats import spearmanr
 from scipy.stats import ttest_ind
 from scipy.stats import ranksums
+from scipy.stats import kstest
 from scipy.spatial import distance
 from scipy.special import softmax
 from scipy.optimize import curve_fit
@@ -105,6 +106,18 @@ def unique(l):
 
 def safe_division(n, d):
     return n / d if d else 0
+
+def nonpara_confidence_interval(data, confidence_level=0.95):
+  # Choose the desired confidence level
+  alpha = 1 - confidence_level
+  # Generate 10,000 bootstrap samples and calculate the median for each one
+  bootstrap_results = np.array([np.median(np.random.choice(data, size=len(data), replace=True)) for i in range(10000)])
+  # Calculate the lower and upper bounds of the confidence interval
+  lower_bound = np.percentile(bootstrap_results, alpha/2 * 100)
+  upper_bound = np.percentile(bootstrap_results, (1 - alpha/2) * 100)
+  # Print the confidence interval
+  # print('95% confidence interval for the median:', (lower_bound, upper_bound))
+  return lower_bound, upper_bound
 
 class pattern_jitter():
     def __init__(self, num_sample, sequences, L, R=None, memory=True):
