@@ -2602,11 +2602,57 @@ def test_2A(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_metho
 test_2A(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 #%%
 data = np.array([2, 4, 7, 9, 10, 13, 16])
-
-
-  
 lower_bound, upper_bound = nonpara_confidence_interval(data, confidence_level=0.95)
 #%%
+# Figure S7B
+# find nodes that are assigned to single-node module at least once
+def find_ineligible_nodes(combined_comms):
+  nodes = []
+  for comm in combined_comms:
+    if len(comm) <= 1:
+      nodes += comm
+  return nodes
+
+# find nodes that are assigned to single-node module at least once
+def find_eligible_nodes(combined_comms):
+  nodes = []
+  for comm in combined_comms:
+    if len(comm) > 1:
+      nodes += comm
+  return nodes
+
+# session_ind = 7 # 3, 4, 7
+# ineligible_nodes = []
+# for stimulus_name in stimulus_names:
+#   comms_list = best_comms_dict[session_ids[session_ind]][stimulus_name]
+#   combined_comms = combine_clustering_results(comms_list)
+#   ineligible_nodes += find_ineligible_nodes(combined_comms)
+# ineligible_nodes = np.unique(ineligible_nodes)
+# eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
+# area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
+# sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
+# sorted_enodes = [node for area in sorted_enodes for node in area]
+# area_size
+
+def find_inactive_nodes(G):
+  nodes = []
+  for node in G.nodes():
+    if G.degree(node) < 1:
+      nodes.append(node)
+  return nodes
+
+session_ind = 7 # 3, 4, 7
+ineligible_nodes = []
+for stimulus_name in stimulus_names:
+  ineligible_nodes += find_inactive_nodes(pos_G_dict[session_ids[session_ind]][stimulus_name])
+ineligible_nodes = np.unique(ineligible_nodes)
+eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
+area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
+sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
+sorted_enodes = [node for area in sorted_enodes for node in area]
+print(area_size)
+#%%
+# Figure S7B
 # Combine clustering results based on voting-based method: keep clusters that appear the most during all runs
 # Find eligible and ineligible nodes (not partitioned into single-node cluster during any stimuli)
 def combine_clustering_results(comms_list):
@@ -2654,72 +2700,26 @@ def combine_clustering_results(comms_list):
               cluster_dict.pop(node)
   return combined_comms
 
-# find nodes that are assigned to single-node module at least once
-def find_ineligible_nodes(combined_comms):
-  nodes = []
-  for comm in combined_comms:
-    if len(comm) <= 1:
-      nodes += comm
-  return nodes
-
-# find nodes that are assigned to single-node module at least once
-def find_eligible_nodes(combined_comms):
-  nodes = []
-  for comm in combined_comms:
-    if len(comm) > 1:
-      nodes += comm
-  return nodes
-
-# session_ind = 7 # 3, 4, 7
-# ineligible_nodes = []
-# for stimulus_name in stimulus_names:
-#   comms_list = best_comms_dict[session_ids[session_ind]][stimulus_name]
-#   combined_comms = combine_clustering_results(comms_list)
-#   ineligible_nodes += find_ineligible_nodes(combined_comms)
-# ineligible_nodes = np.unique(ineligible_nodes)
-# eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
-# area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
-# sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
-# sorted_enodes = [node for area in sorted_enodes for node in area]
-# area_size
-
-def find_inactive_nodes(G):
-  nodes = []
-  for node in G.nodes():
-    if G.degree(node) < 1:
-      nodes.append(node)
-  return nodes
-
-session_ind = 7 # 3, 4, 7
-ineligible_nodes = []
-for stimulus_name in stimulus_names:
-  ineligible_nodes += find_inactive_nodes(pos_G_dict[session_ids[session_ind]][stimulus_name])
-ineligible_nodes = np.unique(ineligible_nodes)
-eligible_nodes = sorted([node for node in list(G_ccg_dict[session_ids[session_ind]][stimulus_names[0]].nodes()) if node not in ineligible_nodes])
-area_size = [len([node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region]) for region in visual_regions]
-sorted_enodes = [[node for node in eligible_nodes if area_dict[session_ids[session_ind]][node]==region] for region in visual_regions]
-sorted_enodes = [node for area in sorted_enodes for node in area]
-print(area_size)
-
 # Save comms_reso_all for a certain mouse
-# start_time = time.time()
-# with open('./files/comms_dict.pkl', 'rb') as f:
-#   comms_dict = pickle.load(f)
-# # create comms_reso with combined_comms for each reso, and remove all ineligible nodes
-# comms_reso_all = {stimulus_name:{} for stimulus_name in stimulus_names}
-# for stimulus_name in stimulus_names:
-#   print(stimulus_name)
-#   for reso in comms_dict[session_ids[session_ind]][stimulus_name]:
-#     comms_list = comms_dict[session_ids[session_ind]][stimulus_name][reso]
-#     combined_comms = combine_clustering_results(comms_list)
-#     # remove all ineligible nodes
-#     combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
-#     comms_reso_all[stimulus_name][reso] = combined_comms
-# # save combined community partition across runs for each resolution
-# with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'wb') as f:
-#   pickle.dump(comms_reso_all, f)
-# print("--- %s minutes" % ((time.time() - start_time)/60))
-
+start_time = time.time()
+with open('./files/comms_dict.pkl', 'rb') as f:
+  comms_dict = pickle.load(f)
+# create comms_reso with combined_comms for each reso, and remove all ineligible nodes
+comms_reso_all = {stimulus_name:{} for stimulus_name in stimulus_names}
+for stimulus_name in stimulus_names:
+  print(stimulus_name)
+  for reso in comms_dict[session_ids[session_ind]][stimulus_name]:
+    comms_list = comms_dict[session_ids[session_ind]][stimulus_name][reso]
+    combined_comms = combine_clustering_results(comms_list)
+    # remove all ineligible nodes
+    combined_comms = [[node for node in comm if node not in ineligible_nodes] for comm in combined_comms if len([node for node in comm if node not in ineligible_nodes])]
+    comms_reso_all[stimulus_name][reso] = combined_comms
+# save combined community partition across runs for each resolution
+with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'wb') as f:
+  pickle.dump(comms_reso_all, f)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# Figure S7B
 # load combined community partition across runs for each resolution
 with open('./files/comms_reso_all_{}.pkl'.format(session_ids[session_ind]), 'rb') as f:
   comms_reso_all = pickle.load(f)
@@ -3103,7 +3103,7 @@ sorted_values, all_relabeled_hmps = plot_heatmap_module_resolution(sorted_enodes
 # print(labeled_arr2)
 # print(labeled_arr3)
 #%%
-Figure S7C, D
+# Figure S7C, D
 from matplotlib.colors import LinearSegmentedColormap
 ######################## Heatmap of Adjusted Rand Index of multi-resolution modular structure
 def plot_heatmap_ARI_module_resolution(hmps, session_ind):
