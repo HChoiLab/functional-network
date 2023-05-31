@@ -509,39 +509,6 @@ def calculate_directed_metric(G, metric_name):
       metric = 0
   return metric
 
-def calculate_directed_metric(G, metric_name):
-  if metric_name == 'in_degree':
-    metric = G.in_degree()
-  elif metric_name == 'out_degree':
-    metric = G.out_degree()
-    if metric_name == 'efficiency':
-      metric = nx.global_efficiency(G)
-    elif metric_name == 'clustering':
-      metric = nx.average_clustering(G, weight='weight')
-    elif metric_name == 'transitivity':
-      metric = nx.transitivity(G)
-    elif metric_name == 'betweenness':
-      metric = np.mean(list(nx.betweenness_centrality(G, weight='weight').values()))
-    elif metric_name == 'closeness':
-      metric = np.mean(list(nx.closeness_centrality(G).values()))
-    elif metric_name == 'modularity':
-      try:
-        part = community.best_partition(G, weight='weight')
-        metric = community.modularity(part, G, weight='weight') 
-      except:
-        metric = 0
-    elif metric_name == 'assortativity':
-      metric = nx.degree_assortativity_coefficient(G, weight='weight')
-    elif metric_name == 'small-worldness':
-      if not nx.is_connected(G):
-        largest_cc = max(nx.connected_components(G), key=len)
-        G = nx.subgraph(G, largest_cc)
-      if nx.number_of_nodes(G) > 2 and nx.number_of_edges(G) > 2:
-        metric = nx.sigma(G)
-      else:
-        metric = 0
-  return metric
-
 def metric_stimulus_individual(G_dict, sign, measure, n, weight, cc):
   rows, cols = get_rowcol(G_dict)
   metric_names = get_metric_names(G_dict)
@@ -6425,19 +6392,20 @@ def get_signed_intensity_coherence_baseline(G_dict, motif_types, algorithm='dire
       print(row, col)
       intensity_dict[row][col], coherence_dict[row][col] = defaultdict(lambda: np.zeros(num_baseline)), defaultdict(lambda: np.zeros(num_baseline))
       G = G_dict[row][col]
-      random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
-      for g_ind, random_graph in tqdm(enumerate(random_graphs), total=num_baseline):
-        # print(g_ind)
-        motifs_by_type = find_triads(random_graph) # faster
-        # motifs_by_type = nx.triads_by_type(random_graph)
-        for motif_type in motif_types:
-          motifs = motifs_by_type[motif_type]
-          # print(motif_type)
-          for motif in motifs:
-            intensity, coherence = get_motif_intensity_coherence(motif, weight='confidence')
-            signed_motif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
-            intensity_dict[row][col][signed_motif_type][g_ind] += intensity
-            coherence_dict[row][col][signed_motif_type][g_ind] += coherence
+      if G.number_of_edges() >= 6: # at least possible to contain any type of motif
+        random_graphs = random_graph_generator(G, num_rewire=num_baseline, algorithm=algorithm, weight='confidence', cc=False, Q=100)
+        for g_ind, random_graph in tqdm(enumerate(random_graphs), total=num_baseline):
+          # print(g_ind)
+          motifs_by_type = find_triads(random_graph) # faster
+          # motifs_by_type = nx.triads_by_type(random_graph)
+          for motif_type in motif_types:
+            motifs = motifs_by_type[motif_type]
+            # print(motif_type)
+            for motif in motifs:
+              intensity, coherence = get_motif_intensity_coherence(motif, weight='confidence')
+              signed_motif_type = motif_type + get_motif_sign_new(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+              intensity_dict[row][col][signed_motif_type][g_ind] += intensity
+              coherence_dict[row][col][signed_motif_type][g_ind] += coherence
   return intensity_dict, coherence_dict
 
 def defaultdict_to_dict(defaultdict):
