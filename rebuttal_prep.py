@@ -928,295 +928,140 @@ def plot_zscore_allmotif_lollipop(df, model_name):
 # for df_ind, df in enumerate(dfs):
 df_ind = 3
 plot_zscore_allmotif_lollipop(whole_df4[whole_df4['session']=='797828357'], model_names[df_ind])
-# %%
-def get_motif_edges(G, signed_motif_types, weight='confidence'):
+#%%
+# get all motif edges, select the best
+def largest_indices(array, M):
+  if len(array) <= M:
+    indices = np.arange(len(array))
+  else:
+    indices = np.argpartition(array, -M)[-M:]
+  return indices
+  
+def smallest_indices(array, M):
+  if len(array) <= M:
+    indices = np.arange(len(array))
+  else:
+    indices = np.argpartition(array, M)[:M]
+  return indices
+
+def get_all_motifs(G_dict, S_dict, signed_motif_type, weight='confidence'):
+  signed_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
   motif_types = []
   motif_edges_, motif_sms = {}, {}
-  for signed_motif_type in signed_motif_types:
-    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for sm_type in signed_motif_types:
+    motif_types.append(sm_type.replace('+', '').replace('-', ''))
   for motif_type in motif_types:
     motif_edges_[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight=weight)
-  motifs_by_type = find_triads(G) # faster
-  motif_edges = {}
-  for signed_motif_type in signed_motif_types:
-    motif_edges[signed_motif_type] = []
-    motif_type = signed_motif_type.replace('+', '').replace('-', '')
-    motifs = motifs_by_type[motif_type]
-    for motif in motifs:
-      smotif_type = motif_type + get_motif_sign_new(motif, motif_edges_[motif_type], motif_sms[motif_type], weight=weight)
-      # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
-      if smotif_type == signed_motif_type:
-        em = iso.numerical_edge_match(weight, 1)
-        motif_weightone = motif.copy()
-        for u, v, w in motif_weightone.edges(data=weight):
-          motif_weightone[u][v][weight] = 1 if w > 0 else -1
-        for unique_sm in motif_sms[motif_type]:
-          if nx.is_isomorphic(motif_weightone, unique_sm, edge_match=em):  # match weight
-            unique_form = unique_sm
-            break
-        GM = isomorphism.GraphMatcher(unique_form, motif_weightone)
-        assert GM.is_isomorphic(), 'Not isomorphic!!!'
-        node_mapping = GM.mapping
-        motif_edges[signed_motif_type].append([(node_mapping[edge[0]], node_mapping[edge[1]]) for edge in motif_edges_[motif_type]])
-  return motif_edges
+  motif_type = signed_motif_type.replace('+', '').replace('-', '')
+  motif_edges, motif_file = [], []
+  for session_id in session2keep:
+    print(session_id)
+    for stimulus_name in stimulus_names:
+      G = G_dict[session_id][stimulus_name]
+      S = S_dict[session_id][stimulus_name]
+      motifs_by_type = find_triads(G) # faster
+      motifs = motifs_by_type[motif_type]
+      for motif in motifs:
+        smotif_type = motif_type + get_motif_sign_new(motif, motif_edges_[motif_type], motif_sms[motif_type], weight=weight)
+        # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight=weight)
+        if smotif_type == signed_motif_type:
+          em = iso.numerical_edge_match(weight, 1)
+          motif_weightone = motif.copy()
+          for u, v, w in motif_weightone.edges(data=weight):
+            motif_weightone[u][v][weight] = 1 if w > 0 else -1
+          for unique_sm in motif_sms[motif_type]:
+            if nx.is_isomorphic(motif_weightone, unique_sm, edge_match=em):  # match weight
+              unique_form = unique_sm
+              break
+          GM = isomorphism.GraphMatcher(unique_form, motif_weightone)
+          assert GM.is_isomorphic(), 'Not isomorphic!!!'
+          node_mapping = GM.mapping
+          edges = [(node_mapping[edge[0]], node_mapping[edge[1]]) for edge in motif_edges_[motif_type]]
+          min_offset = min([S[edge[0]][edge[1]]['offset'] for edge in edges])
+          if min_offset > 1:
+            motif_edges.append(edges + [np.mean([G[edge[0]][edge[1]]['confidence'] for edge in edges])])
+            motif_file.append('{}/{}'.format(session_id, stimulus_name))
+  sorted_lists = sorted(zip(motif_edges, motif_file), key=lambda x: x[0][-1], reverse=True)
+  motif_edges, motif_file = zip(*sorted_lists)
+  return motif_edges, motif_file
 
-row, col = '797828357', 'natural_movie_one'
-G = G_ccg_dict[row][col]
-sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
-motif_edges = get_motif_edges(G, sig_motif_types, weight='confidence')
-# %%
-# plot example CCG for motifs
-def get_best_ccg_motifs(directory, motif_edges, signed_motif_type, m=10):
-  m_edges = motif_edges[signed_motif_type]
-  file = '797828357_natural_movie_one.npz'
-  try:
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  confidence_level = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_confidence.npz')))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  min_edge_significance, max_offset, min_offset = [], [], []
-  for motif_edges in m_edges:
-    min_edge_significance.append(min([confidence_level[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-    max_offset.append(max([significant_offset[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-    min_offset.append(min([significant_offset[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-  min_edge_significance, max_offset, min_offset = np.array(min_edge_significance), np.array(max_offset), np.array(min_offset)
-  largest_indices = np.where(max_offset>0)[0][np.argsort(min_edge_significance[max_offset>0])[::-1][:m]]
-  if len(largest_indices):
-    best_motifs = [m_edges[largest_indice] for largest_indice in largest_indices]
-  else:
-    largest_indices = np.argsort(min_edge_significance[max_offset>0])[::-1][:m]
-    best_motifs = [m_edges[largest_indice] for largest_indice in largest_indices]
-  return best_motifs
-  
-def plot_multi_best_ccg_motif(best_motifs, sig_motif_type, window=100, length=100):
-  file = '797828357_natural_movie_one.npz'
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  shape = len(best_motifs), len(best_motifs[0])
-  fig = plt.figure(figsize=(8*shape[1], 3*shape[0]))
-  for motif_ind in range(shape[0]):
-    for edge_ind in range(shape[1]):
-      row_a, row_b = best_motifs[motif_ind][edge_ind]
-      row_a, row_b = all_active_inds.index(row_a), all_active_inds.index(row_b)
-      highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-      ax = plt.subplot(shape[0], shape[1], motif_ind*shape[1]+edge_ind+1)
-      
-      plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], linewidth=3, color='k')
-      plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
-      if edge_ind == 0:
-        plt.ylabel('CCG corrected', size=25)
-      if motif_ind == shape[0] - 1:
-        plt.xlabel('time lag (ms)', size=25)
-      plt.xticks(fontsize=22) #, weight='bold'
-      plt.yticks(fontsize=22) # , weight='bold'
-      for axis in ['bottom', 'left']:
-        ax.spines[axis].set_linewidth(1.5)
-        ax.spines[axis].set_color('0.2')
-      ax.spines['top'].set_visible(False)
-      ax.spines['right'].set_visible(False)
-      ax.tick_params(width=1.5)
-  plt.savefig('./plots/best_ccg_motif_{}.jpg'.format(sig_motif_type))
-  # plt.show()
-
-directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
-for sig_motif_type in sig_motif_types:
-  best_motifs = get_best_ccg_motifs(directory, motif_edges, sig_motif_type, m=10)
-  plot_multi_best_ccg_motif(best_motifs, sig_motif_type, window=100, length=100)
-# %%
-def plot_multi_best_ccg_smoothed_motif(best_motifs, sig_motif_type):
-  file = '797828357_natural_movie_one.npz'
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  shape = len(best_motifs), len(best_motifs[0])
-  fig = plt.figure(figsize=(8*shape[1], 3*shape[0]))
-  for motif_ind in range(shape[0]):
-    for edge_ind in range(shape[1]):
-      ax = plt.subplot(shape[0], shape[1], motif_ind*shape[1]+edge_ind+1)
-      row_a, row_b = best_motifs[motif_ind][edge_ind]
-      row_a, row_b = all_active_inds.index(row_a), all_active_inds.index(row_b)
-      highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-      filter = np.array([1]).repeat(significant_duration[row_a,row_b]+1) # sum instead of mean
-      ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
-      highland_lag = np.array([int(significant_offset[row_a,row_b])])
-      plt.plot(np.arange(len(ccg_plot)), ccg_plot, linewidth=3, color='k')
-      plt.plot(highland_lag, ccg_plot[highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
-      
-      # plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], linewidth=3, color='k')
-      # plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
-      if edge_ind == 0:
-        plt.ylabel('CCG corrected', size=25)
-      if motif_ind == shape[0] - 1:
-        plt.xlabel('time lag (ms)', size=25)
-      plt.xticks(fontsize=22) #, weight='bold'
-      plt.yticks(fontsize=22) # , weight='bold'
-      for axis in ['bottom', 'left']:
-        ax.spines[axis].set_linewidth(1.5)
-        ax.spines[axis].set_color('0.2')
-      ax.spines['top'].set_visible(False)
-      ax.spines['right'].set_visible(False)
-      ax.tick_params(width=1.5)
-  plt.savefig('./plots/best_ccg_motif_smoothed_{}.jpg'.format(sig_motif_type))
-  # plt.show()
-
-directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
-for sig_motif_type in sig_motif_types:
-  best_motifs = get_best_ccg_motifs(directory, motif_edges, sig_motif_type, m=10)
-  plot_multi_best_ccg_smoothed_motif(best_motifs, sig_motif_type)
-# %%
-def get_best_ccg_motifs(directory, motif_edges, signed_motif_type, m=10):
-  m_edges = motif_edges[signed_motif_type]
-  file = '797828357_natural_movie_one.npz'
-  try:
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  confidence_level = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_confidence.npz')))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  min_edge_significance, max_offset, min_offset = [], [], []
-  for motif_edges in m_edges:
-    min_edge_significance.append(min([confidence_level[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-    max_offset.append(max([significant_offset[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-    min_offset.append(min([significant_offset[(all_active_inds.index(edge[0]), all_active_inds.index(edge[1]))] for edge in motif_edges]))
-  min_edge_significance, max_offset, min_offset = np.array(min_edge_significance), np.array(max_offset), np.array(min_offset)
-  largest_indices = np.where(min_offset>0)[0][np.argsort(min_edge_significance[min_offset>0])[::-1][:m]]
-  if len(largest_indices):
-    best_motifs = [m_edges[largest_indice] for largest_indice in largest_indices]
-  else:
-    largest_indices = np.argsort(min_edge_significance[min_offset>0])[::-1][:m]
-    best_motifs = [m_edges[largest_indice] for largest_indice in largest_indices]
-  return best_motifs
-
-def plot_multi_best_ccg_motif(best_motifs, sig_motif_type, window=100, length=100):
-  file = '797828357_natural_movie_one.npz'
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  shape = len(best_motifs), len(best_motifs[0])
-  fig = plt.figure(figsize=(8*shape[1], 3*shape[0]))
-  for motif_ind in range(shape[0]):
-    for edge_ind in range(shape[1]):
-      row_a, row_b = best_motifs[motif_ind][edge_ind]
-      row_a, row_b = all_active_inds.index(row_a), all_active_inds.index(row_b)
-      highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
-      ax = plt.subplot(shape[0], shape[1], motif_ind*shape[1]+edge_ind+1)
-      
-      plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], linewidth=3, color='k')
-      plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
-      if edge_ind == 0:
-        plt.ylabel('CCG corrected', size=25)
-      if motif_ind == shape[0] - 1:
-        plt.xlabel('time lag (ms)', size=25)
-      plt.xticks(fontsize=22) #, weight='bold'
-      plt.yticks(fontsize=22) # , weight='bold'
-      for axis in ['bottom', 'left']:
-        ax.spines[axis].set_linewidth(1.5)
-        ax.spines[axis].set_color('0.2')
-      ax.spines['top'].set_visible(False)
-      ax.spines['right'].set_visible(False)
-      ax.tick_params(width=1.5)
-  # plt.savefig('./plots/best_ccg_motif_{}.jpg'.format(sig_motif_type))
-  plt.show()
-
-best_motifs = get_best_ccg_motifs(directory, motif_edges, sig_motif_types[0], m=10)
-plot_multi_best_ccg_motif(best_motifs, sig_motif_types[0], window=100, length=100)
+motif_edges, motif_file = get_all_motifs(G_ccg_dict, S_ccg_dict, signed_motif_type='030T+++', weight='confidence')
 #%%
-def plot_best_ccg(best_motifs, ind, window=100, scalebar=False):
+# plot best ccg edges
+def plot_multi_best_ccg_motif(motif_edges, motif_file, M=10, window=100, length=100):
+  directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
+  shape = M, 3
+  fig = plt.figure(figsize=(8*shape[1], 3*shape[0]))
+  for motif_ind in range(shape[0]):
+    file = motif_file[motif_ind].replace('/', '_') + '.npz'
+    inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+    all_active_inds = list(np.load(os.path.join(inds_path, file.split('_')[0]+'.npy'))) # including thalamus
+    try: 
+      ccg = load_npz_3d(os.path.join(directory, file))
+    except:
+      ccg = load_sparse_npz(os.path.join(directory, file))
+    try:
+      ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    except:
+      ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    ccg_corrected = ccg - ccg_jittered
+    sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+    significant_ccg = load_npz_3d(os.path.join(sig_dir, file))
+    significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+    significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+    for edge_ind in range(shape[1]):
+      row_a, row_b = motif_edges[motif_ind][edge_ind]
+      row_a, row_b = all_active_inds.index(row_a), all_active_inds.index(row_b)
+      highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
+      ax = plt.subplot(shape[0], shape[1], motif_ind*shape[1]+edge_ind+1)
+      
+      plt.plot(np.arange(window+1)[:length], ccg_corrected[row_a, row_b][:length], linewidth=3, color='k')
+      plt.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color='firebrick', marker='o', linewidth=3, markersize=10, alpha=0.8)
+      if edge_ind == 0:
+        plt.ylabel('CCG corrected', size=25)
+      if motif_ind == shape[0] - 1:
+        plt.xlabel('time lag (ms)', size=25)
+      plt.xticks(fontsize=22) #, weight='bold'
+      plt.yticks(fontsize=22) # , weight='bold'
+      for axis in ['bottom', 'left']:
+        ax.spines[axis].set_linewidth(1.5)
+        ax.spines[axis].set_color('0.2')
+      ax.spines['top'].set_visible(False)
+      ax.spines['right'].set_visible(False)
+      ax.tick_params(width=1.5)
+  plt.tight_layout()
+  plt.savefig('./plots/best_ccg_motif_{}.jpg'.format('030T+++'))
+  # plt.show()
+
+plot_multi_best_ccg_motif(motif_edges, motif_file, M=10, window=100, length=100)
+#%%
+def plot_best_ccg(motif_edges, motif_file, ind, window=100, scalebar=False):
+  directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
   pcolor = 'firebrick'
-  linewidth = 15.
-  file = '797828357_natural_movie_one.npz'
-  inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
-  all_active_inds = list(np.load(os.path.join(inds_path, str(797828357)+'.npy'))) # including thalamus
-  try: 
-    ccg = load_npz_3d(os.path.join(directory, file))
-  except:
-    ccg = load_sparse_npz(os.path.join(directory, file))
-  try:
-    ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  except:
-    ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  ccg_corrected = ccg - ccg_jittered
-  sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
-  significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
-  significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
-  for edge_ind, (row_a, row_b) in enumerate(best_motifs[ind]):
-    fig, ax = plt.subplots(1, 1, figsize=(16*1, 4))
+  linewidth = 6.
+  for edge_ind, (row_a, row_b) in enumerate(motif_edges[ind][:-1]):
+    file = motif_file[ind].replace('/', '_') + '.npz'
+    inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+    all_active_inds = list(np.load(os.path.join(inds_path, file.split('_')[0]+'.npy'))) # including thalamus
+    try: 
+      ccg = load_npz_3d(os.path.join(directory, file))
+    except:
+      ccg = load_sparse_npz(os.path.join(directory, file))
+    try:
+      ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    except:
+      ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
+    ccg_corrected = ccg - ccg_jittered
+    sig_dir = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected/'
+    significant_offset = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_offset.npz')))
+    significant_duration = load_npz_3d(os.path.join(sig_dir, file.replace('.npz', '_duration.npz')))
+    fig, ax = plt.subplots(1, 1, figsize=(8*1, 4))
     row_a, row_b = all_active_inds.index(row_a), all_active_inds.index(row_b)
     highland_lag = range(int(significant_offset[row_a,row_b]), int(significant_offset[row_a,row_b]+significant_duration[row_a,row_b]+1))
     ax.plot(np.arange(window+1), ccg_corrected[row_a, row_b], linewidth=linewidth, color='k')
-    ax.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color=pcolor, marker='o', linewidth=linewidth, markersize=25, alpha=0.8)
-    # ax.fill_between(highland_lag, [0] * len(highland_lag), ccg_corrected[row_a, row_b, highland_lag], color=pcolor, alpha=0.2)
-    # if len(highland_lag)>1:
-    #   ax.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color=pcolor, marker=' ', linewidth=linewidth+2, markersize=10, alpha=0.8)
-    # filter = np.array([1/(significant_duration[row_a,row_b]+1)]).repeat(significant_duration[row_a,row_b]+1) # mean instead of sum
-    # ccg_plot = signal.convolve(ccg_corrected[row_a, row_b], filter, mode='valid', method='fft')
-    # highland_lag = np.array([int(significant_offset[row_a,row_b])])
-    # axes[1].plot(np.arange(len(ccg_plot)), ccg_plot, linewidth=linewidth, color='k')
-    # plt.ylabel(r'$CCG_{corrected}$', size=25)
-    # plt.xlabel('time lag (ms)', size=25)
-    # ax.xaxis.set_tick_params(labelsize=30)
-    # ax.yaxis.set_tick_params(labelsize=30)
-    # ax.set_xticks([0, 100])
+    ax.plot(highland_lag, ccg_corrected[row_a, row_b, highland_lag], color=pcolor, marker='o', linewidth=linewidth, markersize=15, alpha=0.8)
     ax.set_yticks([])
-    ax.set_xlim([-1, 100])
+    ax.set_xlim([-1, 50])
     if scalebar:
       fontprops = fm.FontProperties(size=40)
       size_v = (ccg_corrected[row_a, row_b].max()-ccg_corrected[row_a, row_b].min())/30
@@ -1240,5 +1085,5 @@ def plot_best_ccg(best_motifs, ind, window=100, scalebar=False):
                       wspace=1.2)
     plt.savefig('./plots/eFFLb_example_ccg_{}.pdf'.format(edge_ind), transparent=True)
     # plt.show()
-plot_best_ccg(best_motifs, 2, window=100, scalebar=False)
+plot_best_ccg(motif_edges, motif_file, 7, window=100, scalebar=False)
 # %%
