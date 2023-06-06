@@ -1083,7 +1083,133 @@ def plot_best_ccg(motif_edges, motif_file, ind, window=100, scalebar=False):
                       right=1.,
                       top=1.,
                       wspace=1.2)
-    plt.savefig('./plots/eFFLb_example_ccg_{}.pdf'.format(edge_ind), transparent=True)
+    plt.savefig('./plots/eFFLb_example_ccg_{}_{}.pdf'.format(ind, edge_ind), transparent=True)
     # plt.show()
-plot_best_ccg(motif_edges, motif_file, 7, window=100, scalebar=False)
+plot_best_ccg(motif_edges, motif_file, 5, window=100, scalebar=False)
+# %%
+def get_example_spike_trains(motif_edges, motif_file, file_ind):
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  mouse_id, stimulus_name = motif_file[file_ind].split('/')
+  sequences = load_npz_3d(os.path.join(directory, motif_file[file_ind].replace('/', '_') + '.npz'))
+  motif_nodes = np.array([motif_edges[file_ind][:-1][0][0], motif_edges[file_ind][:-1][0][1], motif_edges[file_ind][:-1][1][1]])
+  print(motif_nodes)
+  motif_spikes = sequences[motif_nodes]
+  return motif_spikes
+  
+file_ind = 5 # 5
+motif_spikes = get_example_spike_trains(motif_edges, motif_file, file_ind)
+# %%
+def plot_raster(motif_spikes, motif_file, file_ind):
+  mouse_id, stimulus_name = motif_file[file_ind].split('/')
+  palatte = ['#b3cde3', '#ccebc5', '#ffffcc']
+  trial_indices = np.arange(0, 75)
+  sorted_sample_seq = np.vstack([a[trial_indices, :250] for a in motif_spikes])
+  spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :]] # divided by 1000 cuz bin size is 1 ms
+  # colors1 = [palatte[0]] * 100 + [palatte[1]] * 100 + [palatte[2]] * 100
+  lineoffsets2 = 1
+  linelengths2 = 2.
+  # create a horizontal plot
+  fig = plt.figure(figsize=(4, 6))
+  plt.eventplot(spike_pos, colors='k', lineoffsets=lineoffsets2,
+                      linelengths=linelengths2) # colors=colors1
+  plt.axis('off')
+  plt.gca().invert_yaxis()
+  #### add horizontal band
+  band_pos = np.arange(0, 3*len(trial_indices)+1, len(trial_indices))
+  xgmin, xgmax=.045, .955
+  alpha_list = [.4, .4, .4, .6, .5, .5]
+  for ind, (loc1, loc2) in enumerate(zip(band_pos[:-1], band_pos[1:])):
+    plt.gca().axhspan(loc1, loc2 , xmin=0.03, xmax=0.97, facecolor=palatte[ind], alpha=0.8) #
+  #### add box
+  # for stimulus_ind in range(len(stimulus2plot)):
+  #   plt.gca().add_patch(Rectangle((s_loc1[stimulus_ind]/1000,0),(s_lengths[stimulus_ind]-1)/1000,sorted_sample_seq.shape[0],linewidth=4,edgecolor='k',alpha=.3,facecolor='none')) # region_colors[region_ind]
+  plt.tight_layout()
+  plt.savefig('./plots/raster_motif_{}.pdf'.format(file_ind), transparent=True)
+  # plt.show()
+
+plot_raster(motif_spikes, motif_file, file_ind)
+# %%
+def plot_PSTH(motif_spikes, file_ind):
+  spikes2plot = motif_spikes[:,:,:300].copy()
+  palatte = ['#b3cde3', '#ccebc5', '#ffffcc']
+  fig, axes = plt.subplots(3, 1, figsize=(4, 6)) # , sharex=True, sharey=True
+  for ind, ax in enumerate(axes):
+    ax.plot(range(spikes2plot.shape[2]), spikes2plot[ind].mean(0)*1000, color='k')
+    ax.set_ylabel('firing rate (Hz)')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.5)
+      ax.spines[axis].set_color('0.2')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+  axes[2].set_xlabel('time since stimulus onset (ms)')  
+  plt.tight_layout()
+  plt.savefig('./plots/PSTH_motif_{}.pdf'.format(file_ind), transparent=True)
+  # plt.show()
+
+plot_PSTH(motif_spikes, file_ind)
+# %%
+# subsampling a subnetwork
+G = G_ccg_dict['797828357']['natural_movie_one'].copy()
+sorted_nodes = sorted(dict(G.degree()).items(), key=lambda x:x[1], reverse=True)[::2]
+subgraph_nodes = [item[0] for item in sorted_nodes[:10]]
+# subgraph_nodes
+subgraph = G.subgraph(subgraph_nodes)
+subgraph.number_of_edges(), subgraph.number_of_nodes()
+#%%
+# sample a subgraph with positive and negative edges
+G = G_ccg_dict['797828357']['drifting_gratings'].copy()
+sorted_nodes = sorted(dict(G.degree()).items(), key=lambda x:x[1], reverse=True)[::2]
+hub_node = sorted_nodes[0][0]
+sub_nodes = [512, 525, 886, 49, 411, 466, 468, 409, 766, 80]
+subgraph = G.subgraph(sub_nodes)
+def node_size(degree):
+  return 100 * degree  # Adjust the scaling factor as desired
+
+def plot_example_graph(subgraph, seed, k, name, pos=None):
+  edge_weights = nx.get_edge_attributes(subgraph, 'weight')
+
+  # Define a colormap for positive and negative edges
+  cmap = plt.cm.RdBu
+
+  # Create a list of edge colors based on the sign of edge weights
+  edge_colors = ['#fb8072' if weight >= 0 else '#80b1d3' for weight in edge_weights.values()]
+
+  # Plot the graph with edge colors
+  node_degrees = subgraph.degree()
+  sizes = [node_size(degree) for _, degree in node_degrees]
+  if pos == None:
+    pos = nx.spring_layout(subgraph, seed=seed, k=k) # , seed=12, k=0.8
+  plt.figure()
+  nx.draw_networkx(subgraph, pos=pos , node_size=sizes, edge_color=edge_colors, width=4.0, node_color='#737373', connectionstyle='arc3, rad = 0.1', with_labels=False) #
+  plt.axis('off')
+  plt.tight_layout()
+  plt.savefig('./plots/example_graph_{}.pdf'.format(name), transparent=True)
+  # plt.show()
+  return pos
+
+pos = plot_example_graph(subgraph, seed=14, k=0.8, name='real', pos=None)
+# %%
+num_rewire = 1
+algorithms = ['Gnm', 'directed_double_edge_swap', 'uni_bi_swap', 'signed_uni_bi_swap']
+random_Gs = []
+for algorithm in algorithms:
+  random_Gs.append(random_graph_generator(subgraph, num_rewire, algorithm=algorithm)[0])
+  print(algorithm)
+  plot_example_graph(random_Gs[-1])
+# %%
+for G_ind, rand_G in enumerate(random_Gs):
+  print(algorithms[G_ind])
+  plot_example_graph(rand_G, seed=1, k=0.4, name=algorithms[G_ind])
+# %%
+# regenerate surrogate networks
+# random_Gs[0] = random_graph_generator(subgraph, num_rewire, algorithm='Gnm')[0]
+plot_example_graph(random_Gs[0], seed=1, k=0.4, name=algorithms[0], pos=pos)
+# %%
+# random_Gs[1] = random_graph_generator(subgraph, num_rewire, algorithm='directed_double_edge_swap')[0]
+plot_example_graph(random_Gs[1], seed=1, k=0.4, name=algorithms[1], pos=pos)
+# %%
+# random_Gs[2] = random_graph_generator(subgraph, num_rewire, algorithm='uni_bi_swap')[0]
+plot_example_graph(random_Gs[2], seed=2, k=0.4, name=algorithms[2], pos=pos)
+# %%
+plot_example_graph(random_Gs[3], seed=5, k=0.8, name=algorithms[3], pos=pos)
 # %%
