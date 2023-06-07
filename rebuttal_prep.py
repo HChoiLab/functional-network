@@ -1213,3 +1213,115 @@ plot_example_graph(random_Gs[2], seed=2, k=0.4, name=algorithms[2], pos=pos)
 # %%
 plot_example_graph(random_Gs[3], seed=5, k=0.8, name=algorithms[3], pos=pos)
 # %%
+# randomly split trials into halves and construct graphs
+measure = 'ccg'
+num_baseline = 1
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+inds_path = './data/ecephys_cache_dir/sessions/active_inds/'
+session_id, stimulus_name = '797828357', 'natural_scenes'
+file = '{}_{}.npz'.format(session_id, stimulus_name)
+sequences = load_npz_3d(os.path.join(directory, file))
+active_neuron_inds = np.load(os.path.join(inds_path, str(session_id)+'.npy'))
+# active_neuron_inds = sequences.mean(1).sum(1) > sequences.shape[2] * min_FR
+sequences = sequences[active_neuron_inds]
+print('{} spike train shape: {}'.format(file, sequences.shape))
+#%%
+def save_mean_ccg_corrected_halves(o_sequences, fname, inds, num_jitter=10, L=25, window=100, disable=True): ### fastest, only causal correlation (A>B, only positive time lag on B), largest deviation from flank
+  sequences = o_sequences[:,inds,:]
+  num_neuron, num_trial, T = sequences.shape
+  # num_trial = min(num_trial, 1000) # at most 1000 trials
+  ccg, ccg_jittered = np.zeros((num_neuron, num_neuron, window + 1)), np.zeros((num_neuron, num_neuron, window + 1))
+  pj = pattern_jitter(num_sample=num_jitter, sequences=sequences[:,0,:], L=L, memory=False)
+  for m in range(num_trial):
+    print('Trial {} / {}'.format(m+1, num_trial))
+    ccg += get_all_ccg(sequences[:,m,:], window, disable=disable) # N x N x window
+    pj.sequences = sequences[:,m,:]
+    sampled_matrix = pj.jitter() # num_sample x N x T
+    for i in range(num_jitter):
+      ccg_jittered += get_all_ccg(sampled_matrix[i, :, :], window, disable=disable)
+  ccg = ccg / num_trial
+  ccg_jittered = ccg_jittered / (num_jitter * num_trial)
+  save_sparse_npz(ccg, fname)
+  save_sparse_npz(ccg_jittered, fname.replace('.npz', '_bl.npz'))
+  
+num_baseline = 1
+path = os.path.join(directory.replace('spiking_sequence', 'adj_mat_ccg_corrected_halves'))
+start_time = time.time()
+for attempt in range(10):
+  half_ind1 = np.random.choice(np.arange(sequences.shape[1]), sequences.shape[1]//2, replace=False)
+  half_ind2 = np.setdiff1d(np.arange(sequences.shape[1]), half_ind1, assume_unique=True)
+  print('{}th attempt, '.format(attempt), half_ind1.shape, half_ind2.shape)
+  fname1 = os.path.join(path, file.replace('.npz', '_{}_{}.npz'.format(attempt, 1)))
+  fname2 = os.path.join(path, file.replace('.npz', '_{}_{}.npz'.format(attempt, 2)))
+  save_mean_ccg_corrected_halves(o_sequences=sequences, inds=half_ind1, fname=fname1, num_jitter=num_baseline, L=25, window=100, disable=False)
+  save_mean_ccg_corrected_halves(o_sequences=sequences, inds=half_ind1, fname=fname2, num_jitter=num_baseline, L=25, window=100, disable=False)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+#%%
+# save significant CCG for halves
+start_time = time.time()
+measure = 'ccg'
+min_spike = 50
+n = 4
+max_duration = 11
+maxlag = 12
+directory = './data/ecephys_cache_dir/sessions/adj_mat_{}_corrected_halves/'.format(measure)
+save_ccg_corrected_highland_new(directory, measure, min_spike=min_spike, max_duration=max_duration, maxlag=maxlag, n=n)
+print("--- %s minutes in total" % ((time.time() - start_time)/60))
+#%%
+threshold = 0.9
+directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_highland_corrected_halves/'
+keep_edges_above_threshold(directory, threshold)
+# %%
+# load stationary and running graphs
+def load_highland_halves(directory, file_name, active_area_dict, weight):
+  G_dict, offset_dict, duration_dict = {}, {}, {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      print(file)
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
+      # adj_mat = np.load(os.path.join(directory, file))
+      repeat, half = file.replace(file_name, '').replace('.npz', '').split('_')
+      if not repeat in G_dict:
+        G_dict[repeat], offset_dict[repeat], duration_dict[repeat] = {}, {}, {}
+      G_dict[repeat][half] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[file_name.split('_')[0]], cc=False, weight=weight)
+      offset_dict[repeat][half] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_offset.npz')))
+      duration_dict[repeat][half] = load_npz_3d(os.path.join(directory, file.replace('.npz', '_duration.npz')))
+  return G_dict, offset_dict, duration_dict
+
+
+session_id, stimulus_name = '797828357', 'natural_scenes'
+file_name = session_id + '_' + stimulus_name + '_'
+area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+cortical_inds = get_cortical_inds(active_area_dict, visual_regions)
+directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+path = directory.replace('spiking_sequence', 'adj_mat_ccg_highland_corrected_halves')
+G_halves_dict, offset_halves_dict, duration_halves_dict = load_highland_halves(path, file_name, active_area_dict, weight=True)
+measure = 'ccg'
+S_halves_dict = add_sign(G_halves_dict)
+S_halves_dict = add_offset(S_halves_dict, offset_halves_dict)
+S_halves_dict = add_duration(S_halves_dict, duration_halves_dict)
+S_halves_dict = add_delay(S_halves_dict)
+# %%
+# plot density comparison
+G_whole = G_ccg_dict[session_id][stimulus_name]
+df = pd.DataFrame()
+for repeat in G_halves_dict:
+  for half in G_halves_dict[repeat]:
+    G = G_halves_dict[repeat][half]
+    df = pd.concat([df, pd.DataFrame([[repeat, nx.density(G), half]], columns=['repeat', 'data', 'half'])], ignore_index=True)
+df['repeat'] = pd.to_numeric(df['repeat'])
+df['data'] = pd.to_numeric(df['data'])
+df['half'] = pd.to_numeric(df['half'])
+fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+sns.barplot(data=df, x='repeat', y='data', hue='half', ax=ax)
+# ax.set_xticks([0, 1])
+# ax.set_xticklabels(['stationary', 'running'])
+ax.axhline(y=nx.density(G), linestyle='--', color='k')
+ax.set_ylabel('network density')
+plt.tight_layout()
+plt.savefig('./plots/density_halves.pdf', transparent=True)
+# plt.show()
+# %%
