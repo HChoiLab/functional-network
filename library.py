@@ -1,4 +1,3 @@
-#%%
 import numpy as np
 # import numpy.ma as ma
 import pandas as pd
@@ -37,6 +36,7 @@ from statsmodels.stats.weightstats import ztest as ztest
 import networkx as nx
 import networkx.algorithms.community as nx_comm
 import networkx.algorithms.isomorphism as iso
+from networkx.algorithms import isomorphism
 from collections import defaultdict, deque
 from networkx import NetworkXError
 from networkx.algorithms.community.community_utils import is_partition
@@ -55,6 +55,7 @@ from collections import defaultdict
 from sklearn.manifold import TSNE
 from sklearn.metrics.cluster import adjusted_rand_score
 import multiprocessing
+from upsetplot import from_contents, plot, UpSet
 import gurobipy as gp
 from bisect import bisect
 import holoviews as hv
@@ -618,9 +619,12 @@ def get_rowcol(G_dict):
   stimulus_rank = ['spontaneous', 'flash_dark', 'flash_light', 'gabors',
         'drifting_gratings', 'static_gratings',
           'natural_scenes', 'natural_movie_one', 'natural_movie_three']
-  stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
-  stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
-  cols = list(stimulus_rank_dict.keys())
+  if set(cols).issubset(set(stimulus_rank)):
+    stimulus_rank_dict = {i:stimulus_rank.index(i) for i in cols}
+    stimulus_rank_dict = dict(sorted(stimulus_rank_dict.items(), key=lambda item: item[1]))
+    cols = list(stimulus_rank_dict.keys())
+  else:
+    cols = sorted(cols)
   return rows, cols
 
 def Z_score(r):
@@ -5320,21 +5324,22 @@ def add_sign(G_dict):
   for row in rows:
     S_dict[row] = {}
     for col in cols:
-      G = G_dict[row][col]
-      weights = nx.get_edge_attributes(G,'weight')
-      A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
-      A[A.nonzero()] = 1
-      S = nx.from_numpy_array(A, create_using=nx.DiGraph)
-      node_idx = sorted(G.nodes())
-      mapping = {i:node_idx[i] for i in range(len(node_idx))}
-      S = nx.relabel_nodes(S, mapping)
-      for (n1, n2, d) in S.edges(data=True):
-        d.clear()
-      signs = {}
-      for e, w in weights.items():
-        signs[e] = np.sign(w)
-      nx.set_edge_attributes(S, signs, 'sign')
-      S_dict[row][col] = S
+      if col in G_dict[row]:
+        G = G_dict[row][col]
+        weights = nx.get_edge_attributes(G,'weight')
+        A = nx.to_numpy_array(G, nodelist=sorted(G.nodes()))
+        A[A.nonzero()] = 1
+        S = nx.from_numpy_array(A, create_using=nx.DiGraph)
+        node_idx = sorted(G.nodes())
+        mapping = {i:node_idx[i] for i in range(len(node_idx))}
+        S = nx.relabel_nodes(S, mapping)
+        for (n1, n2, d) in S.edges(data=True):
+          d.clear()
+        signs = {}
+        for e, w in weights.items():
+          signs[e] = np.sign(w)
+        nx.set_edge_attributes(S, signs, 'sign')
+        S_dict[row][col] = S
   return S_dict
 
 def add_offset(G_dict, offset_dict):
@@ -5343,15 +5348,16 @@ def add_offset(G_dict, offset_dict):
   for row in rows:
     S_dict[row] = {}
     for col in cols:
-      offset_mat = offset_dict[row][col]
-      G = G_dict[row][col]
-      nodes = sorted(list(G.nodes()))
-      offset = {}
-      for edge in G.edges():
-        offset[edge] = offset_mat[nodes.index(edge[0]), nodes.index(edge[1])]
-      S = G.copy()
-      nx.set_edge_attributes(S, offset, 'offset')
-      S_dict[row][col] = S
+      if col in G_dict[row]:
+        offset_mat = offset_dict[row][col]
+        G = G_dict[row][col]
+        nodes = sorted(list(G.nodes()))
+        offset = {}
+        for edge in G.edges():
+          offset[edge] = offset_mat[nodes.index(edge[0]), nodes.index(edge[1])]
+        S = G.copy()
+        nx.set_edge_attributes(S, offset, 'offset')
+        S_dict[row][col] = S
   return S_dict
 
 def add_duration(G_dict, duration_dict):
@@ -5360,15 +5366,16 @@ def add_duration(G_dict, duration_dict):
   for row in rows:
     S_dict[row] = {}
     for col in cols:
-      duration_mat = duration_dict[row][col]
-      G = G_dict[row][col]
-      nodes = sorted(list(G.nodes()))
-      duration = {}
-      for edge in G.edges():
-        duration[edge] = duration_mat[nodes.index(edge[0]), nodes.index(edge[1])]
-      S = G.copy()
-      nx.set_edge_attributes(S, duration, 'duration')
-      S_dict[row][col] = S
+      if col in G_dict[row]:
+        duration_mat = duration_dict[row][col]
+        G = G_dict[row][col]
+        nodes = sorted(list(G.nodes()))
+        duration = {}
+        for edge in G.edges():
+          duration[edge] = duration_mat[nodes.index(edge[0]), nodes.index(edge[1])]
+        S = G.copy()
+        nx.set_edge_attributes(S, duration, 'duration')
+        S_dict[row][col] = S
   return S_dict
 
 def add_delay(G_dict):
@@ -5377,14 +5384,15 @@ def add_delay(G_dict):
   for row in rows:
     S_dict[row] = {}
     for col in cols:
-      G = G_dict[row][col]
-      nodes = sorted(list(G.nodes()))
-      delay = {}
-      for edge in G.edges():
-        delay[edge] = G.get_edge_data(*edge)['offset'] + G.get_edge_data(*edge)['duration']
-      S = G.copy()
-      nx.set_edge_attributes(S, delay, 'delay')
-      S_dict[row][col] = S
+      if col in G_dict[row]:
+        G = G_dict[row][col]
+        nodes = sorted(list(G.nodes()))
+        delay = {}
+        for edge in G.edges():
+          delay[edge] = G.get_edge_data(*edge)['offset'] + G.get_edge_data(*edge)['duration']
+        S = G.copy()
+        nx.set_edge_attributes(S, delay, 'delay')
+        S_dict[row][col] = S
   return S_dict
 # This section calculates balace in triads with respect to direction.
 # We first extract the transitive triads, then we break the transitive triads to semi-cycles, and finally 
