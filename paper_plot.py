@@ -161,6 +161,7 @@ scenes = data_set.get_stimulus_template('natural_scenes')
 ind = 30
 plt.imsave('./plots/natural_scene_ind_{}.jpg'.format(ind), scenes[ind,:,:], cmap='gray')
 #%%
+# Figure 1B
 ####################### raster plot
 def get_raster_data(mouse_id, s_lengths, blank_width=50):
   # stimulus_id = 6
@@ -188,6 +189,7 @@ s_lengths  = [800, 250, 370, 250, 250, 1000]
 blank_width = 50
 total_sequence, areas_num, areas_start_pos, sequence_by_area = get_raster_data(mouse_id, s_lengths, blank_width)
 # %%
+# Figure 1B
 def plot_raster(mouse_id, total_sequence, areas_num, areas_start_pos, sequence_by_area):
   sorted_sample_seq = np.vstack([total_sequence[sequence_by_area[area], :] for area in visual_regions])
   spike_pos = [np.nonzero(t)[0] / 1000 for t in sorted_sample_seq[:, :]] # divided by 1000 cuz bin size is 1 ms
@@ -386,6 +388,7 @@ def plot_multi_best_ccg_smoothed(h_indx, h_file, sign='pos'):
 plot_multi_best_ccg_smoothed(pos_h_indx, pos_h_file, sign='pos')
 plot_multi_best_ccg_smoothed(neg_h_indx, neg_h_file, sign='neg')
 #%%
+# Figure 1C
 def plot_best_ccg(h_indx, h_file, ind, sign='pos', window=100, scalebar=False):
   pcolor = 'firebrick' if sign == 'pos' else 'blue'
   linewidth = 4.
@@ -2302,7 +2305,7 @@ def find_comminds_plot(G_dict, comms_dict):
       # break
 dgrat_good_comm_inds, sgrat_good_comm_inds, nscene_good_comm_inds, nmovie_good_comm_inds = find_comminds_plot(G_ccg_dict, best_comms_dict)
 #%%
-# Figure 2A
+# Figure 4A
 def plot_graph_community(G_dict, row_ind, best_comms_dict):
   rows, cols = get_rowcol(G_dict)
   row = rows[row_ind]
@@ -2389,7 +2392,7 @@ def save_region_legend():
 
 save_region_legend()
 #%%
-# Figure 2A
+# Figure 4A
 ######################### Plot Z score of Hamiltonian as a measure of modular or not
 def arrowed_spines(
         ax,
@@ -2555,8 +2558,8 @@ def plot_zscore_Hamiltonian2Q(G_dict, resolution_list, max_pos_neg_reso, real_H,
 # plot_zscore_Hamiltonian(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 plot_zscore_Hamiltonian2Q(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 #%%
-# Figure 2A statistical test
-def test_2A(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_method='none', cc=False):
+# Figure 4A statistical test
+def test_4A(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_method='none', cc=False):
   rows, cols = get_rowcol(G_dict)
   real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
   rows, cols = get_rowcol(G_dict)
@@ -2599,7 +2602,7 @@ def test_2A(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_metho
   # print(more_modular)
   
 
-test_2A(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
+test_4A(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
 #%%
 data = np.array([2, 4, 7, 9, 10, 13, 16])
 lower_bound, upper_bound = nonpara_confidence_interval(data, confidence_level=0.95)
@@ -3774,7 +3777,7 @@ def plot_same_module_prob_signal_correlation(df):
 
 plot_same_module_prob_signal_correlation(signalcorr_within_cross_comm_df)
 #%%
-# Figure S2A
+# Figure S2B
 ########################################## get connection probability VS signal correlation
 def get_connectionp_signalcorr(G_dict, signal_correlation_dict):
   rows = signal_correlation_dict.keys()
@@ -3818,7 +3821,7 @@ start_time = time.time()
 connectionp_signalcorr_df = get_connectionp_signalcorr(G_ccg_dict, signal_correlation_dict)
 print("--- %s minutes" % ((time.time() - start_time)/60))
 #%%
-# Figure S2A
+# Figure S2B
 def plot_connectionp_signal_correlation(df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 5)) #
   # axes[0].set_ylim(top = 1.2)
@@ -3875,6 +3878,64 @@ def plot_connectionp_signal_correlation(df):
   plt.savefig('./plots/connectionp_signal_correlation.pdf', transparent=True)
 
 plot_connectionp_signal_correlation(connectionp_signalcorr_df)
+#%%
+# Figure S2B without numbers on bar
+def plot_connectionp_signal_correlation_v2(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 5)) #
+  # axes[0].set_ylim(top = 1.2)
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind+2]].copy() # remove spontaneous and flash
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+
+    data.insert(0, 'probability of connection', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='connected','probability of connection'] = 1
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['signal correlation'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    numbin = 5
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
+    p_value = table.test_ordinal_association().pvalue
+    
+    # xy = np.vstack((x, y)).T
+    # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    # p_value = table.test_ordinal_association().pvalue
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    locx, locy = .5, .8
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30, which='major')
+    ax.yaxis.set_tick_params(labelsize=0, which='minor')
+    ax.tick_params(axis='y', which='both', length=10)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=2.5)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Connection probability', fontsize=30)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/connectionp_signal_correlation_v2.pdf', transparent=True)
+
+plot_connectionp_signal_correlation_v2(connectionp_signalcorr_df)
 #%%
 # Figure 1G, S2B,C
 ########################################## regard bidirectional edges as 2
@@ -6185,7 +6246,7 @@ def plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, 
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='purity')
 plot_scatter_mean_purity_coverage_Hcommsize_col(purity_dict, coverage_dict, name='coverage')
 #%%
-# Figure 2C
+# Figure 4C
 def get_purity_coverage_ri(G_dict, area_dict, regions, best_comms_dict):
   rows, cols = get_rowcol(G_dict)
   df = pd.DataFrame()
@@ -6232,14 +6293,24 @@ def get_purity_coverage_ri(G_dict, area_dict, regions, best_comms_dict):
 
 purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_regions, best_comms_dict)
 #%%
-# Figure 2C
+# Figure 4C
 ################# plot weighted purity and rand index across stimuli with different markers
 def plot_weighted_coverage_purity_rand_index_markers(df, dname):
   fig, ax = plt.subplots(1, 1, figsize=(3, 2.5))
-  data = df[df['type']==dname].groupby('combined stimulus')
   x = np.arange(len(combined_stimulus_names))
-  y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
-  err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+
+  # use std as error bar
+  # data = df[df['type']==dname].groupby('combined stimulus')
+  
+  # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+  # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+
+  # use nonparametric confidence interval as error bar
+  y, err = [], []
+  for combined_stimulus_name in combined_stimulus_names:
+    lb, ub = nonpara_confidence_interval(df[(df['combined stimulus']==combined_stimulus_name)&(df['type']==dname)]['data'].values, confidence_level=0.95)
+    y.append((lb + ub) / 2)
+    err.append((ub - lb) / 2)
   # y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
   # err = 1.96 * data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten() / data.size().loc[combined_stimulus_names].pow(1./2).values.flatten() # 95% confidence interval
@@ -6261,6 +6332,8 @@ def plot_weighted_coverage_purity_rand_index_markers(df, dname):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=1.5)
+  ymin, ymax = ax.get_ylim()
+  ax.set_ylim(0.9*ymin, 1.08*ymax)
   plt.tight_layout()
   plt.savefig('./plots/{}_markers.pdf'.format(dname.replace(' ', '_')), transparent=True)
   # plt.show()
@@ -6269,12 +6342,14 @@ plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighte
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
 plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
 #%%
-# Figure 2C statistical test
-def test_2C(df):
+# Figure 4C statistical test
+def test_4C(df):
   lower_c = df[(df['type']=='weighted coverage') & (df['combined stimulus'].isin(['Natural\nscenes', 'Natural\nmovies']))].data.values
   higher_c = df[(df['type']=='weighted coverage') & (df['combined stimulus'].isin(['Drifting\ngratings', 'Static\ngratings']))].data.values
   lower_p = df[(df['type']=='weighted purity') & (df['combined stimulus'].isin(['Drifting\ngratings', 'Static\ngratings']))].data.values
   higher_p = df[(df['type']=='weighted purity') & (df['combined stimulus'].isin(['Natural\nscenes', 'Natural\nmovies']))].data.values
+  lower_a = df[(df['type']=='rand index') & (df['combined stimulus'].isin(['Resting\nstate', 'Flashes']))].data.values
+  higher_a = df[(df['type']=='rand index') & (df['combined stimulus'].isin(['Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']))].data.values
   
   lm, lstd = np.mean(lower_c), np.std(lower_c)
   hm, hstd = np.mean(higher_c), np.std(higher_c)
@@ -6299,7 +6374,10 @@ def test_2C(df):
   # print('higher purity: {} ± {}'.format((higher_plb + higher_pub) / 2,  (higher_pub - higher_plb) / 2))
   stat, pvalue = ranksums(higher_p, lower_p, alternative='greater')
   print('purity p value is {}'.format(pvalue))
-test_2C(purity_coverage_ri_df)
+  
+  stat, pvalue = ranksums(higher_a, lower_a, alternative='greater')
+  print('ARI p value is {}'.format(pvalue))
+test_4C(purity_coverage_ri_df)
 #%%
 # load chunked signal correlation with same number of stimulus conditions
 with open('./files/chunked_signal_correlation_dict.pkl', 'rb') as f:
@@ -7073,7 +7151,7 @@ plot_heatmap_region_community(comms_dict, area_dict, visual_regions, max_neg_res
 ####################### Figure 4 #######################
 ########################################################
 #%%
-# Figure 4A
+# Figure 2A
 ################## relative count of signed node pairs
 def count_signed_triplet_connection_p(G):
   num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
@@ -7668,7 +7746,7 @@ plot_zscore_distribution(whole_df, measure, n)
 # for df_ind, df in enumerate(dfs):
 #   plot_zscore_all_motif(df, model_names[df_ind])
 #%%
-# Figure 4B
+# Figure 2C
 def plot_zscore_allmotif_lollipop(df, model_name):
   # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
   fig, axes = plt.subplots(len(combined_stimulus_names),1, sharex=True, sharey=True, figsize=(50, 3*len(combined_stimulus_names)))
@@ -9588,6 +9666,70 @@ def plot_connectionp_physdist_within(df):
 
 plot_connectionp_physdist_within(connectionp_physdist_within_df)
 #%%
+# Figure S2A without numbers on bar
+def plot_connectionp_physdist_within_v2(df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names), figsize=(5*len(combined_stimulus_names), 5)) #
+  # axes[0].set_ylim(top = 1.2)
+  # palette = [[plt.cm.tab20b(i) for i in range(4)][i] for i in [0, 3]]
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    data = df[df.stimulus==combined_stimulus_names[cs_ind]].copy() # remove spontaneous and flash
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+
+    data.insert(0, 'probability of connection', 0)
+    # data.loc[:, 'probability of same module'] = 0
+    data.loc[data['type']=='connected','probability of connection'] = 1
+    # data = data[data['distance']<=200] # only focus on connection p between neurons within 200 microns
+    # ax.set_title(combined_stimulus_names[cs_ind+1].replace('\n', ' '), fontsize=25)
+    x, y = data['distance'].values.flatten(), data['probability of connection'].values.flatten()
+
+    # x, y = data['signal correlation'].values.flatten(), data['connection probability'].values.flatten()
+    numbin = 5
+    binned_x, binned_y = double_equal_binning(x, y, numbin=numbin, log=False)
+    connect, disconnect = double_equal_binning_counts(x, y, numbin=numbin, log=False)
+    ax.bar(binned_x, binned_y, width=np.diff(binned_x).max()/1.5, color='.7')
+    # for i in range(len(binned_x)):
+    #   ax.annotate(r'$\frac{{{}}}{{{}}}$'.format(connect[i], (connect[i]+disconnect[i])), xy=(binned_x[i],binned_y[i]), ha='center', va='bottom', fontsize=18)
+    
+    dff = pd.DataFrame(np.vstack((connect, disconnect)), index=['connected', 'disconnected'], columns=binned_x)
+    table = sm.stats.Table(dff, shift_zeros=False)
+    p_value = table.test_ordinal_association().pvalue
+    
+    # xy = np.vstack((x, y)).T
+    # table = sm.stats.Table.from_data(xy[~np.isnan(xy).any(axis=1)])
+    # p_value = table.test_ordinal_association().pvalue
+    if p_value == 0:
+      text = 'p<1e-310'
+    else:
+      text = 'p={:.1e}'.format(p_value)
+    locx, locy = .5, 1.1
+    ax.text(locx, locy, text, horizontalalignment='center',
+        verticalalignment='center', transform=ax.transAxes, fontsize=25)
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30, which='major')
+    ax.yaxis.set_tick_params(labelsize=0, which='minor')
+    ax.tick_params(axis='y', which='both', length=10)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=2.5)
+    # if cs_ind == 0:
+    #   ax.set_ylabel('Connection probability', fontsize=30)
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    # ax.set_xscale('log')
+    ax.set_yscale('log')
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/connectionp_physical_distance_within_v2.pdf', transparent=True)
+  # plt.savefig('./plots/connectionp_physical_distance_noanno_200.pdf', transparent=True)
+
+plot_connectionp_physdist_within_v2(connectionp_physdist_within_df)
+#%%
 def save_distance_label():
   fig, ax = plt.subplots(1,1, figsize=(.6*(len(combined_stimulus_names)-1), .5))
   palette = ['k', 'w']
@@ -10729,7 +10871,6 @@ merge_ind_motif_stim_list_dict = merge_mice(motif_stim_list_dict)
 # %%
 # Figure S6
 # make multiple upset plot for each motif type, combine across mouse
-from upsetplot import from_contents, plot
 def plot_multi_upsetplot_combined(motif_stim_list_dict, signed_motif_types):
   for sig_motif_type in sig_motif_types:
     motif_stim = from_contents(merge_ind_motif_stim_list_dict[sig_motif_type])
@@ -10744,7 +10885,6 @@ plot_multi_upsetplot_combined(motif_stim_list_dict, sig_motif_types)
 # %%
 # Figure 3F
 # make example upset plot for each motif type, combine across mouse
-from upsetplot import from_contents, plot, UpSet
 mpl.rcParams['font.size'] = 18
 def plot_certain_upsetplot_combined(merge_ind_motif_stim_list_dict, sig_motif_type, cutoff=10):
   motif_stim = from_contents(merge_ind_motif_stim_list_dict[sig_motif_type])
