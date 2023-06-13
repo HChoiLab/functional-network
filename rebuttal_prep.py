@@ -1,5 +1,34 @@
 #%%
 from library import *
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams["font.serif"] = ["Times New Roman"]
+stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
+marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
+scatter_size_dict = {'v':10, '*':17, 'P':13, 'X':13, 'o':11, 's':10, 'D':9, 'p':13, '>':12, r'$\clubsuit$':16}
+error_size_dict = {'v':10, '*':24, 'P':16, 'X':16, 'o':11, 's':9., 'D':9, 'p':12, '>':13, r'$\clubsuit$':22}
+
+def export_legend(legend, filename):
+    fig  = legend.figure
+    fig.canvas.draw()
+    bbox  = legend.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    fig.savefig(filename, transparent=True, bbox_inches=bbox)
+
+def load_graph_sig_level(directory, active_area_dict):
+  G_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[mouseID], cc=False, weight=True)
+  return G_dict
+
 combined_stimuli = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
 combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
 combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bc80bd', '#bc80bd', '#fb8072', '#fb8072']
@@ -1035,6 +1064,7 @@ def plot_multi_best_ccg_motif(motif_edges, motif_file, M=10, window=100, length=
 
 plot_multi_best_ccg_motif(motif_edges, motif_file, M=10, window=100, length=100)
 #%%
+# Fig. S6C
 def plot_best_ccg(motif_edges, motif_file, ind, window=100, scalebar=False):
   directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
   pcolor = 'firebrick'
@@ -1118,8 +1148,10 @@ def plot_raster(motif_spikes, motif_file, file_ind):
   band_pos = np.arange(0, 3*len(trial_indices)+1, len(trial_indices))
   xgmin, xgmax=.045, .955
   alpha_list = [.4, .4, .4, .6, .5, .5]
-  for ind, (loc1, loc2) in enumerate(zip(band_pos[:-1], band_pos[1:])):
-    plt.gca().axhspan(loc1, loc2 , xmin=0.03, xmax=0.97, facecolor=palatte[ind], alpha=0.8) #
+  # for ind, (loc1, loc2) in enumerate(zip(band_pos[:-1], band_pos[1:])):
+    # plt.gca().axhspan(loc1, loc2 , xmin=0.03, xmax=0.97, facecolor=palatte[ind], alpha=0.8) #
+  for loc in band_pos:
+    plt.axhline(y=loc, xmin=0.04, xmax=0.96, linestyle='--', color='k') #
   #### add box
   # for stimulus_ind in range(len(stimulus2plot)):
   #   plt.gca().add_patch(Rectangle((s_loc1[stimulus_ind]/1000,0),(s_lengths[stimulus_ind]-1)/1000,sorted_sample_seq.shape[0],linewidth=4,edgecolor='k',alpha=.3,facecolor='none')) # region_colors[region_ind]
@@ -1350,12 +1382,7 @@ S_halves_dict = add_duration(S_halves_dict, duration_halves_dict)
 S_halves_dict = add_delay(S_halves_dict)
 # %%
 # plot density, within-fraction, ex-fraction, clustering for halves graph
-stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
-marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
-scatter_size_dict = {'v':10, '*':17, 'P':13, 'X':13, 'o':11, 's':10, 'D':9, 'p':13, '>':12, r'$\clubsuit$':16}
-error_size_dict = {'v':10, '*':24, 'P':16, 'X':16, 'o':11, 's':9., 'D':9, 'p':12, '>':13, r'$\clubsuit$':22}
-
-def plot_bar_halves(G_whole, G_halves_dict, area_dict, regions):
+def plot_bar_data_halves(G_whole, G_halves_dict, area_dict, regions):
   df = pd.DataFrame()
   region_connection = np.zeros((len(regions), len(regions)))
   metric_names = ['density', 'ratio of intra-region connections', 'ratio of excitatory connections', 'clustering coefficient']
@@ -1435,7 +1462,7 @@ def plot_bar_halves(G_whole, G_halves_dict, area_dict, regions):
   plt.savefig('./plots/bar_whole_halves.pdf', transparent=True)
 
 S_whole = S_ccg_dict['797828357']['natural_scenes']
-plot_bar_halves(S_whole, S_halves_dict, area_dict, visual_regions)
+plot_bar_data_halves(S_whole, S_halves_dict, area_dict, visual_regions)
 #%%
 # def load_1(directory, active_area_dict, weight):
 #   G_dict, offset_dict, duration_dict = {}, {}, {}
@@ -1494,7 +1521,7 @@ def plot_halves_adj_corr(G_whole, G_halves_dict):
         
   np.fill_diagonal(corr, np.nan)
   print(np.nanmin(corr), np.nanmax(corr))
-  ticklabels = ['whole'] + [str(ind) for ind in range(1, 11)]
+  ticklabels = ['whole'] + [str(ind) for ind in range(1, 21)]
   sns.heatmap(corr, xticklabels=ticklabels, yticklabels=ticklabels)
   plt.tight_layout()
   # plt.savefig('./plots/overlap_whole_halves.pdf', transparent=True)
@@ -1537,6 +1564,7 @@ def plot_stimulus_adj_corr(G_whole, G_dict):
 plot_stimulus_adj_corr(G_whole, G_ccg_dict)
 # %%
 ######################## signed motif detection for halves graph
+# Fig. S12B
 with open('./files/intensity_dict.pkl', 'rb') as f:
   intensity_dict = pickle.load(f)
 with open('./files/coherence_dict.pkl', 'rb') as f:
@@ -1585,7 +1613,7 @@ TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030
 def plot_zscore_allmotif_lollipop_halves(df):
   # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
   num_repeats = len(df.session.unique())
-  fig, axes = plt.subplots(num_repeats,2, sharex=True, sharey=True, figsize=(50*2, 3*num_repeats))
+  fig, axes = plt.subplots(num_repeats,2, sharex=True, sharey=True, figsize=(40*2, 4*num_repeats))
   all_smotif_types = list(set(list(df['signed motif type'].values)))
   sorted_types = [sorted([smotif for smotif in all_smotif_types if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
@@ -1625,7 +1653,7 @@ plot_zscore_allmotif_lollipop_halves(df_halves)
 # plot the whole graph
 def plot_zscore_allmotif_lollipop_whole(df):
   # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
-  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(50, 3))
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(40, 4))
   all_smotif_types = list(set(list(df['signed motif type'].values)))
   sorted_types = [sorted([smotif for smotif in all_smotif_types if mt in smotif]) for mt in TRIAD_NAMES]
   sorted_types = [item for sublist in sorted_types for item in sublist]
@@ -1753,11 +1781,11 @@ def get_motif_stim_list_dict_onesession(motif_id_dict, session_id, signed_motif_
       
 motif_stim_list_dict = get_motif_stim_list_dict_onesession(motif_id_dict, session_id, sig_motif_types)
 # %%
-def get_motif_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types):
+def plot_bar_motif_overlap(motif_stim_list_dict, halves_dict, sig_motif_types):
   metric_names = ['sharing fraction', 'overlap fraction']
   df = pd.DataFrame()
   for sig_motif_type in sig_motif_types:
-    motif_stim = from_contents(motif_halves_dict[sig_motif_type])
+    motif_stim = from_contents(halves_dict[sig_motif_type])
     overlapping_arr = np.array(list(motif_stim.index))
     sharing = (overlapping_arr.sum(1)>1).sum()/overlapping_arr.shape[0] # fraction of motifs that appear on at least two networks
     overlaps = []
@@ -1791,12 +1819,12 @@ def get_motif_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types):
     ax = axes[i]
     barplot = sns.barplot(x='motif', y='data', hue='type', hue_order=['within stimulus', 'across stimuli'], palette=palette, ec='k', linewidth=2., data=df[df['metric']==metric_names[i]], ax=ax, capsize=.05, width=0.6, errorbar=('ci', 95))
     # sns.barplot(df[df['metric']==metric_names[i]], x='motif', y='data', hue='type', ax=ax)
-    ax.set_ylabel(metric_names[i], fontsize=15)
+    ax.set_ylabel(metric_names[i], fontsize=25)
     ax.set_xlabel('')
-    if i == 1:
-      ax.legend([], frameon=False)
-    ax.xaxis.set_tick_params(labelsize=15, rotation=90)
-    ax.yaxis.set_tick_params(labelsize=15)
+    ax.set_xticklabels([])
+    ax.legend([], frameon=False)
+    # ax.xaxis.set_tick_params(labelsize=15, rotation=90)
+    ax.yaxis.set_tick_params(labelsize=20)
     for axis in ['bottom', 'left']:
       ax.spines[axis].set_linewidth(1.5)
       ax.spines[axis].set_color('0.2')
@@ -1807,5 +1835,421 @@ def get_motif_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types):
   # plt.show()
   plt.savefig('./plots/bar_motif_overlap_whole_halves.pdf', transparent=True)
 
-get_motif_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types)
+plot_bar_motif_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types)
+#%%  
+def save_within_across_stimulus_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  palette = ['k','w']
+  df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
+  barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles, ['within-stimulus', 'across-stimulus'], title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=35, frameon=False, ncol=3) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend, './plots/within_across_stimulus_legend.pdf')
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_within_across_stimulus_legend()
+#%%
+# Fig. S12C
+def plot_bar_motif_halves_overlap(motif_stim_list_dict, halves_dict, sig_motif_types):
+  df = pd.DataFrame()
+  for sig_motif_type in sig_motif_types:
+    motif_stim = from_contents(halves_dict[sig_motif_type])
+    overlapping_arr = np.array(list(motif_stim.index))
+    overlaps = []
+    for i in range(overlapping_arr.shape[1]):
+      count_rows_with_condition = np.sum((overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1))
+      count_rows_with_i_true = np.sum(overlapping_arr[:, i] == True)
+      ratio = count_rows_with_condition / count_rows_with_i_true
+      # mask = (overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1)
+      if ~np.isnan(ratio):
+        overlaps.append(100 * (1 - ratio)) # percentage
+    df = pd.concat([df, pd.DataFrame(np.array([['overlap fraction']*len(overlaps), overlaps, [sig_motif_type]*len(overlaps), ['within stimulus']*len(overlaps)]).T, columns=['metric', 'data', 'motif', 'type'])], ignore_index=True)
+    
+    motif_stim = from_contents(motif_stim_list_dict[sig_motif_type])
+    overlapping_arr = np.array(list(motif_stim.index))
+    overlaps = []
+    for i in range(overlapping_arr.shape[1]):
+      count_rows_with_condition = np.sum((overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1))
+      count_rows_with_i_true = np.sum(overlapping_arr[:, i] == True)
+      ratio = count_rows_with_condition / count_rows_with_i_true
+      # mask = (overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1)
+      if ~np.isnan(ratio):
+        overlaps.append(100 * (1 - ratio)) # percentage
+    df = pd.concat([df, pd.DataFrame(np.array([['overlap fraction']*len(overlaps), overlaps, [sig_motif_type]*len(overlaps), ['across stimuli']*len(overlaps)]).T, columns=['metric', 'data', 'motif', 'type'])], ignore_index=True)
+  df['data'] = pd.to_numeric(df['data'])
+  palette = ['k','w']
+  fig, ax = plt.subplots(1, 1, figsize=(12, 3.5))
+  barplot = sns.barplot(x='motif', y='data', hue='type', hue_order=['within stimulus', 'across stimuli'], palette=palette, ec='k', linewidth=2., data=df[df['metric']=='overlap fraction'], ax=ax, capsize=.05, width=0.4, errorbar=('ci', 95))
+  # sns.barplot(df[df['metric']==metric_names[i]], x='motif', y='data', hue='type', ax=ax)
+  ax.set_ylabel('Overlap percentage (%)', fontsize=25)
+  ax.set_xlabel('')
+  ax.set_xticklabels([])
+  ax.xaxis.set_tick_params(length=0)
+  ax.legend([], frameon=False)
+  # ax.xaxis.set_tick_params(labelsize=15, rotation=90)
+  ax.yaxis.set_tick_params(labelsize=20)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/bar_motif_overlap_halves.pdf', transparent=True)
+
+plot_bar_motif_halves_overlap(motif_stim_list_dict, motif_halves_dict, sig_motif_types)
+#%%
+import copy
+# rank sum test for within stimulus and across stimuli overlap fraction
+def overlap_test(motif_stim_list_dict, halves_dict, sig_motif_types):
+  # halves_dict = copy.deepcopy(origin_halves_dict)
+  # for sig_motif_type in sig_motif_types: # remove any trials increases the p value
+  #     del halves_dict[sig_motif_type]['whole']
+  #     del halves_dict[sig_motif_type]['0_1']
+  df = pd.DataFrame()
+  for sig_motif_type in sig_motif_types:
+    motif_stim = from_contents(halves_dict[sig_motif_type])
+    overlapping_arr = np.array(list(motif_stim.index))
+    overlaps = []
+    for i in range(overlapping_arr.shape[1]):
+      count_rows_with_condition = np.sum((overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1))
+      count_rows_with_i_true = np.sum(overlapping_arr[:, i] == True)
+      ratio = count_rows_with_condition / count_rows_with_i_true
+      # mask = (overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1)
+      if ~np.isnan(ratio):
+        overlaps.append(1 - ratio)
+    df = pd.concat([df, pd.DataFrame(np.array([overlaps, [sig_motif_type]*len(overlaps), ['within stimulus']*len(overlaps)]).T, columns=['data', 'motif', 'type'])], ignore_index=True)
+    
+    motif_stim = from_contents(motif_stim_list_dict[sig_motif_type])
+    overlapping_arr = np.array(list(motif_stim.index))
+    overlaps = []
+    for i in range(overlapping_arr.shape[1]):
+      count_rows_with_condition = np.sum((overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1))
+      count_rows_with_i_true = np.sum(overlapping_arr[:, i] == True)
+      ratio = count_rows_with_condition / count_rows_with_i_true
+      # mask = (overlapping_arr[:, i] == True) & (np.sum(overlapping_arr, axis=1) == 1)
+      if ~np.isnan(ratio):
+        overlaps.append(1 - ratio)
+    df = pd.concat([df, pd.DataFrame(np.array([overlaps, [sig_motif_type]*len(overlaps), ['across stimuli']*len(overlaps)]).T, columns=['data', 'motif', 'type'])], ignore_index=True)
+  df['data'] = pd.to_numeric(df['data'])
+  pvalue_list = []
+  for sig_motif_type in sig_motif_types:
+    within = df[(df['motif']==sig_motif_type) & (df['type']=='within stimulus')]['data']
+    across = df[(df['motif']==sig_motif_type) & (df['type']=='across stimuli')]['data']
+    stat, pvalue = ranksums(within, across, alternative='greater')
+    # print('{}, p value is {}'.format(sig_motif_type, pvalue))
+    pvalue_list.append(pvalue)
+  corrected_ps = fdrcorrection(pvalue_list)[1]
+  for s_ind, sig_motif_type in enumerate(sig_motif_types):
+    print('{}, p value is {}'.format(sig_motif_type, corrected_ps[s_ind]))
+
+overlap_test(motif_stim_list_dict, motif_halves_dict, sig_motif_types)
+#%%
+def save_siglevels_legend():
+  fig, ax = plt.subplots(1,1, figsize=(.4*(len(combined_stimulus_names)-1), .5))
+  palette = ['#000000', '#303030', '#5e5e5e', '#919191', '#c6c6c6']
+  folds = list(range(3,8))
+  # df = pd.DataFrame([[0,0,0],[0,0,1]], columns=['x', 'y', 'type'])
+  # barplot = sns.barplot(x='x', y='y', hue="type", hue_order=[0, 1], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  for i in range(len(palette)):
+    ax.plot([0,0,0], [0,0,1], linestyle='--', color=palette[i], label=folds[i], marker='s', linewidth=4, markersize=15)
+  handles, labels = ax.get_legend_handles_labels()
+  legend = ax.legend(handles, labels, title='', bbox_to_anchor=(0.1, -1.), handletextpad=0.3, loc='upper left', fontsize=35, frameon=False, ncol=5) # change legend order to within/cross similar module then cross random
+  plt.axis('off')
+  export_legend(legend, './plots/siglevels_legend.pdf')
+  plt.tight_layout()
+  # plt.savefig('./plots/stimuli_markers.pdf', transparent=True)
+  plt.show()
+
+save_siglevels_legend()
+#%%
+# plot four kinds of data on different significance levels
+def plot_data_sig_levels(area_dict, regions):
+  metric_names = ['Density', 'Within-area fraction', 'Excitatory fraction', 'Clustering coefficient']
+  density_data, intra_data, ex_data, cluster_data = np.zeros((5, 7, len(combined_stimulus_names))), np.zeros((5, 7, len(combined_stimulus_names))), np.zeros((5, 7, len(combined_stimulus_names))), np.zeros((5, 7, len(combined_stimulus_names)))
+  density_data[:], intra_data[:], ex_data[:], cluster_data[:] = np.nan, np.nan, np.nan, np.nan
+  area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+  n_list = list(range(3, 8))
+  for ind, n in enumerate(n_list):
+    print('n = {}'.format(n))
+    directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+    path = directory.replace('spiking_sequence', 'adj_mat_ccg_{}_corrected').format(n)
+    G_ccg_dict = load_graph_sig_level(path, active_area_dict)
+    G_ccg_dict = remove_gabor(G_ccg_dict)
+    ######### removed neurons from thalamic region
+    G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, regions)
+    S_ccg_dict = add_sign(G_ccg_dict)
+    for s_ind, session_id in enumerate(session2keep):
+      for c_ind, combined_stimulus in enumerate(combined_stimuli):
+        for stimulus in combined_stimulus:
+          region_connection = np.zeros((len(regions), len(regions)))
+          G = S_ccg_dict[session_id][stimulus]
+          if len(G.edges()):
+            nodes = list(G.nodes())
+            node_area = {key: area_dict[session_id][key] for key in nodes}
+            A = nx.to_numpy_array(G, nodelist=nodes)
+            A[A.nonzero()] = 1
+            for region_ind_i, region_i in enumerate(regions):
+              for region_ind_j, region_j in enumerate(regions):
+                region_indices_i = np.array([k for k, v in node_area.items() if v==region_i])
+                region_indices_j = np.array([k for k, v in node_area.items() if v==region_j])
+                region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+                region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+                if len(region_indices_i) and len(region_indices_j):
+                  region_connection[region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+                  assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+            diag_indx = np.eye(len(regions),dtype=bool)
+            intra_data[ind, s_ind, c_ind] = np.sum(region_connection[diag_indx])/np.sum(region_connection)
+            # inter_data.append(np.sum(region_connection[~diag_indx])/np.sum(region_connection))
+            density_data[ind, s_ind, c_ind] = nx.density(G)
+            signs = list(nx.get_edge_attributes(G, "sign").values())
+            ex_data[ind, s_ind, c_ind] = signs.count(1) / len(signs)
+            # in_data = signs.count(-1) / len(signs)
+            cluster_data[ind, s_ind, c_ind] = calculate_directed_metric(G, 'clustering')
+          # num_nodes[ind, s_ind, c_ind], num_edges[ind, s_ind, c_ind], dens[ind, s_ind, c_ind] = np.mean(node_l), np.mean(edge_l), np.mean(den_l)
+  data_list = [density_data, intra_data, ex_data, cluster_data]
+  palette = ['#000000', '#303030', '#5e5e5e', '#919191', '#c6c6c6']
+  fig, axes = plt.subplots(1, 4, figsize=(6*4, 4))
+  x = np.arange(len(combined_stimulus_names))
+  for i in range(len(axes)):
+    ax = axes[i]
+    m_ind = i
+
+    for n_ind, n in enumerate(n_list):
+      y, err = np.nanmean(data_list[m_ind][n_ind], 0), np.nanstd(data_list[m_ind][n_ind], 0)
+      for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+        if yi:
+          # ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color=palette[mt_ind])
+          ax.errorbar(xi + .13 * n_ind, yi, yerr=erri, fmt=' ', linewidth=2.,color=palette[n_ind], zorder=2)
+          ax.scatter(xi + .13 * n_ind, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]],color=palette[n_ind], zorder=3) #, linewidth=1.
+      ax.plot(x + .13 * n_ind, y, linestyle='--',color=palette[n_ind], zorder=1)
+    ax.set(xlabel=None)
+    ax.xaxis.set_tick_params(length=0)
+    # ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
+    # ax.invert_yaxis()
+    ax.set_xticks([])
+    ax.set_xlabel('')
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(axis='y', which='both', labelsize=25)
+    ax.tick_params(width=2.)
+    ax.set_yscale('log')
+    ax.set_ylabel(metric_names[m_ind], fontsize=30)
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./plots/data_sig_levels.pdf', transparent=True)
+
+plot_data_sig_levels(area_dict, visual_regions)
+#%%
+# include random graphs, takes very long, just for test!
+def plot_data_sig_levels_rand(area_dict, regions):
+  cluster_data, cluster_data_baseline = np.zeros((4, 7, len(combined_stimulus_names))), np.zeros((4, 7, len(combined_stimulus_names)))
+  cluster_data[:], cluster_data_baseline[:] = np.nan, np.nan
+  area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+  n_list = list(range(4, 8))
+  for ind, n in enumerate(n_list):
+    print('n = {}'.format(n))
+    directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+    path = directory.replace('spiking_sequence', 'adj_mat_ccg_{}_corrected').format(n)
+    G_ccg_dict = load_graph_sig_level(path, active_area_dict)
+    G_ccg_dict = remove_gabor(G_ccg_dict)
+    ######### removed neurons from thalamic region
+    G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, regions)
+    S_ccg_dict = add_sign(G_ccg_dict)
+    for s_ind, session_id in enumerate(session2keep):
+      for c_ind, combined_stimulus in enumerate(combined_stimuli):
+        for stimulus in combined_stimulus:
+          print(session_id, stimulus)
+          G = G_ccg_dict[session_id][stimulus]
+          if len(G.edges()) > 4:
+            cluster_data[ind, s_ind, c_ind] = calculate_directed_metric(G, 'clustering')
+            random_graphs = random_graph_generator(G, num_rewire=5, algorithm='signed_uni_bi_swap', weight='confidence', cc=False, Q=100, disable=True)
+            cluster_list = [calculate_directed_metric(rand_G, 'clustering') for rand_G in random_graphs]
+            cluster_data_baseline[ind, s_ind, c_ind] = np.mean(cluster_list)
+          # num_nodes[ind, s_ind, c_ind], num_edges[ind, s_ind, c_ind], dens[ind, s_ind, c_ind] = np.mean(node_l), np.mean(edge_l), np.mean(den_l)
+  palette = ['#000000', '#252525', '#525252', '#737373', '#969696', '#bdbdbd', '#d9d9d9']
+  fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+  x = np.arange(len(combined_stimulus_names))
+  for n_ind, n in enumerate(n_list):
+    y, err = np.nanmean(cluster_data[n_ind], 0), np.nanstd(cluster_data[n_ind], 0)
+    for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+      if yi:
+        # ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=marker_list[ind], ms=markersize_list[ind], linewidth=2.,color=palette[mt_ind])
+        ax.errorbar(xi + .13 * n_ind, yi, yerr=erri, fmt=' ', linewidth=2.,color=palette[n_ind], zorder=2)
+        ax.scatter(xi + .13 * n_ind, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]],color=palette[n_ind], zorder=3) #, linewidth=1.
+    ax.plot(x + .13 * n_ind, y, linestyle='--',color=palette[n_ind], zorder=1)
+    y2, err2 = np.nanmean(cluster_data_baseline[n_ind], 0), np.nanstd(cluster_data_baseline[n_ind], 0)
+    ax.plot(x + .13 * n_ind, y2, linestyle='--',color=palette[n_ind], alpha=0.5, zorder=1)
+  ax.set(xlabel=None)
+  ax.xaxis.set_tick_params(length=0)
+  # ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
+  # ax.invert_yaxis()
+  ax.set_xticks([])
+  ax.set_xlabel('')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(axis='y', which='both', labelsize=25)
+  ax.tick_params(width=2.)
+  ax.set_yscale('log')
+  ax.set_ylabel('clustering coefficient', fontsize=20)
+  plt.tight_layout()
+  plt.show()
+  # plt.savefig('./plots/data_sig_levels.pdf', transparent=True)
+
+plot_data_sig_levels_rand(area_dict, visual_regions)
+# %%
+# load graphs at all significance levels
+def load_graph_sig_level(directory, active_area_dict):
+  G_dict = {}
+  files = os.listdir(directory)
+  files.sort(key=lambda x:int(x[:9]))
+  for file in files:
+    if file.endswith(".npz") and ('gabors' not in file) and ('flashes' not in file) and ('_offset' not in file) and ('_duration' not in file) and ('_bl' not in file) and ('confidence' not in file):
+      adj_mat = load_npz_3d(os.path.join(directory, file))
+      confidence_level = load_npz_3d(os.path.join(directory, file.replace('.npz', '_confidence.npz')))
+      # adj_mat = np.load(os.path.join(directory, file))
+      mouseID = file.split('_')[0]
+      stimulus_name = file.replace('.npz', '').replace(mouseID + '_', '')
+      if not mouseID in G_dict:
+        G_dict[mouseID] = {}
+      G_dict[mouseID][stimulus_name] = generate_graph(adj_mat=np.nan_to_num(adj_mat), confidence_level=confidence_level, active_area=active_area_dict[mouseID], cc=False, weight=True)
+  return G_dict
+
+area_dict, active_area_dict, mean_speed_df = load_other_data(session_ids)
+n_list = list(range(3, 8))
+all_sig_G_dict = {}
+for ind, n in enumerate(n_list):
+  print('n = {}'.format(n))
+  directory = './data/ecephys_cache_dir/sessions/spiking_sequence/'
+  path = directory.replace('spiking_sequence', 'adj_mat_ccg_{}_corrected').format(n)
+  G_ccg_dict = load_graph_sig_level(path, active_area_dict)
+  G_ccg_dict = remove_gabor(G_ccg_dict)
+  G_ccg_dict = remove_thalamic(G_ccg_dict, area_dict, visual_regions)
+  all_sig_G_dict[n] = G_ccg_dict
+# %%
+# load data for all significance levels
+all_intensity_dict, all_coherence_dict, all_sunibi_baseline_intensity_dict, all_sunibi_baseline_coherence_dict = {}, {}, {}, {}
+for n in range(3, 8):
+  with open('./files/intensity_{}_dict.pkl'.format(n), 'rb') as f:
+    all_intensity_dict[n] = pickle.load(f)
+  with open('./files/coherence_{}_dict.pkl'.format(n), 'rb') as f:
+    all_coherence_dict[n] = pickle.load(f)
+  with open('./files/sunibi_baseline_intensity_{}_dict.pkl'.format(n), 'rb') as f:
+    all_sunibi_baseline_intensity_dict[n] = pickle.load(f)
+  with open('./files/sunibi_baseline_coherence_{}_dict.pkl'.format(n), 'rb') as f:
+    all_sunibi_baseline_coherence_dict[n] = pickle.load(f)
+################## average intensity across session
+################## first Z score, then average
+#%%
+def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100):
+  rows, cols = get_rowcol(intensity_dict)
+  signed_motif_types = set()
+  for row in rows:
+    for col in cols:
+      signed_motif_types = signed_motif_types.union(set(list(intensity_dict[row][col].keys())).union(set(list(baseline_intensity_dict[row][col].keys()))))
+  signed_motif_types = list(signed_motif_types)
+  pseudo_intensity = np.zeros(num_baseline)
+  pseudo_intensity[0] = 1 # if a motif is not found in random graphs, assume it appeared once
+  whole_df = pd.DataFrame()
+  for col in cols:
+    for row in rows:
+      motif_list = []
+      for motif_type in signed_motif_types:
+        motif_list.append([motif_type, row, col, intensity_dict[row][col].get(motif_type, 0), baseline_intensity_dict[row][col].get(motif_type, pseudo_intensity).mean(), 
+                        baseline_intensity_dict[row][col].get(motif_type, pseudo_intensity).std(), coherence_dict[row][col].get(motif_type, 0), 
+                        baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).mean(), baseline_coherence_dict[row][col].get(motif_type, np.zeros(10)).std()])
+      df = pd.DataFrame(motif_list, columns =['signed motif type', 'session', 'stimulus', 'intensity', 'intensity mean', 'intensity std', 'coherence', 'coherence mean', 'coherence std']) 
+      whole_df = pd.concat([whole_df, df], ignore_index=True, sort=False)
+  whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
+  whole_df['coherence z score'] = (whole_df['coherence']-whole_df['coherence mean'])/whole_df['coherence std']
+  mean_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('mean') # average over session
+  std_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('std')
+  mean_df['intensity z score std'] = std_df['intensity z score']
+  return whole_df, mean_df, signed_motif_types
+
+num_baseline = 200
+whole_df_list, signed_motif_types_list = [], []
+for n in range(3, 8):
+  whole_df, _, signed_motif_types = get_intensity_zscore(all_intensity_dict[n], all_coherence_dict[n], all_sunibi_baseline_intensity_dict[n], all_sunibi_baseline_coherence_dict[n], num_baseline=num_baseline) # signed uni bi edge preserved
+  whole_df['signed motif type'] = whole_df['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+  whole_df_list.append(whole_df)
+  signed_motif_types = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types]
+  signed_motif_types_list.append(signed_motif_types)
+#%%
+def add_missing_motif_type_siglevels(df, mtype, signed_motif_types):
+  if len(mtype) < len(signed_motif_types):
+    mtype2add = [t for t in signed_motif_types if t not in mtype]
+    for mt in mtype2add:
+      mtype.append(mt)
+      for session_id in df['session'].unique():
+        for stimulus_name in df['stimulus'].unique():
+          df = pd.concat([df, pd.DataFrame([[mt, session_id, stimulus_name] + [0] * (df.shape[1]-3)], columns=df.columns)], ignore_index=True)
+    df['intensity z score'] = pd.to_numeric(df['intensity z score'])
+  return df, mtype
+
+signed_motif_types = np.unique([j for i in signed_motif_types_list for j in i]).tolist()
+for ind, n in enumerate(range(3, 8)):
+  whole_df_list[ind], _ = add_missing_motif_type_siglevels(whole_df_list[ind], signed_motif_types_list[ind], signed_motif_types)
+TRIAD_NAMES = ('003', '012', '102', '021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300')
+# %%
+# plot zscores of all motifs using lollipop plot for halves graph
+def plot_zscore_allmotif_lollipop_siglevels(df_list, ind, n):
+  df = df_list[ind]
+  # stimulus_order = [s for s in combined_stimulus_names if df.stimulus.str.contains(s).sum()]
+  fig, axes = plt.subplots(len(combined_stimulus_names),1, sharex=True, sharey=True, figsize=(50, 3*len(combined_stimulus_names)))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  # palette = [plt.cm.tab20(i) for i in range(13)]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    ax = axes[len(axes)-1-s_ind] # spontaneous in the bottom
+    # ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
+      color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
+      ax.plot([t,t], [0,y], color=color, marker="o", linewidth=7, markersize=20, markevery=(1,2))
+    ax.set_xlim(-.5,len(sorted_types)+.5)
+    ax.set_xticks([])
+    # ax.set_xticks(motif_loc)
+    # ax.set_xticklabels(labels=motif_types)
+    # ax.xaxis.set_tick_params(labelsize=35, rotation=90)
+    ax.yaxis.set_tick_params(labelsize=45)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(4.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=4.5)
+    ax.xaxis.set_tick_params(length=0)
+    ax.set_ylabel('')
+    # ax.set_ylabel('Z score', fontsize=40)
+    # if model_names.index(model_name) <= 1:
+    # ax.set_yscale('symlog')
+    # else:
+    if ind == 1:
+      ax.set_ylim(-13, 21)
+    # elif ind >= 2:
+    #   ax.set_ylim(-5, 5)
+  plt.tight_layout()
+  figname = './plots/zscore_all_motifs_lollipop_{}.pdf'.format(n)
+  plt.savefig(figname, transparent=True)
+  # plt.show()
+
+for ind, n in enumerate(range(3, 8)):
+  print(n)
+  plot_zscore_allmotif_lollipop_siglevels(whole_df_list, ind, n)
 # %%
