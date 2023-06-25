@@ -67,6 +67,30 @@ S_ccg_dict = add_duration(S_ccg_dict, duration_dict)
 S_ccg_dict = add_delay(S_ccg_dict)
 ######### split G_dict into pos and neg
 pos_G_dict, neg_G_dict = split_pos_neg(G_ccg_dict)
+resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
+rows, cols = get_rowcol(G_ccg_dict)
+with open('./files/best_comms_dict.pkl', 'rb') as f:
+  best_comms_dict = pickle.load(f)
+with open('./files/real_Hamiltonian.npy', 'rb') as f:
+  real_Hamiltonian = np.load(f)
+with open('./files/subs_Hamiltonian.npy', 'rb') as f:
+  subs_Hamiltonian = np.load(f)
+def get_max_dH_pos_neg_resolution(rows, cols, real_H, subs_H): 
+  max_reso_subs = np.zeros((len(rows), len(cols), 2)) # last dim 0 for pos, 1 for neg
+  for row_ind, row in enumerate(rows):
+    print(row)
+    for col_ind, col in enumerate(cols):
+      metric_mean = real_H[row_ind, col_ind].mean(-1)
+      metric_subs = subs_H[row_ind, col_ind].mean(-1)
+      pos_ind, neg_ind = np.unravel_index(np.argmax(metric_subs - metric_mean), np.array(metric_mean).shape)
+      max_reso_subs[row_ind, col_ind] = resolution_list[pos_ind], resolution_list[neg_ind]
+  return max_reso_subs
+
+max_reso_subs = get_max_dH_pos_neg_resolution(rows, cols, real_Hamiltonian, subs_Hamiltonian)
+
+with open('./files/signal_correlation_dict.pkl', 'rb') as f:
+  signal_correlation_dict = pickle.load(f)
 # %%
 old_combined_stimuli = [['spontaneous'], ['flashes'], ['drifting_gratings'], ['static_gratings'], ['natural_scenes'], ['natural_movie_one', 'natural_movie_three']]
 combined_mspeed_df = pd.DataFrame()
@@ -2252,4 +2276,260 @@ def plot_zscore_allmotif_lollipop_siglevels(df_list, ind, n):
 for ind, n in enumerate(range(3, 8)):
   print(n)
   plot_zscore_allmotif_lollipop_siglevels(whole_df_list, ind, n)
+# %%
+# purity/coverage VS module size
+# new Figure S8
+def get_purity_coverage_comm_osize(G_dict, comms_dict, area_dict, regions):
+  rows, cols = get_rowcol(comms_dict)
+  df = pd.DataFrame()
+  for col_ind, col in enumerate(cols):
+    print(col)
+    size_col, purity_col, coverage_col = [], [], []
+    for row_ind, row in enumerate(session2keep):
+      comms_list = comms_dict[row][col]
+      G = G_dict[row][col]
+      all_regions = [area_dict[row][node] for node in G.nodes()]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      lr_size = region_counts.max()
+      for comms in comms_list: # 100 repeats
+        sizes = [len(comm) for comm in comms]
+        data = []
+        for comm, size in zip(comms, sizes):
+          c_regions = [area_dict[row][node] for node in comm]
+          # _, counts = np.unique(c_regions, return_counts=True)
+          counts = np.array([c_regions.count(r) for r in regions])
+          assert len(c_regions) == size == counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          data.append((size, purity, coverage))
+        size_col += [s for s,p,c in data if s>=4] # [s/lr_size for s,p,c in data if s>=4]
+        purity_col += [p for s,p,c in data if s>=4]
+        coverage_col += [c for s,p,c in data if s>=4]
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(size_col)[:,None], np.array(purity_col)[:,None], np.array(coverage_col)[:,None], np.array([stimulus2stype(col)[1]] * len(size_col))[:,None]), 1), columns=['community size', 'purity', 'coverage', 'stimulus type'])], ignore_index=True)
+  df['community size'] = pd.to_numeric(df['community size'])
+  df['purity'] = pd.to_numeric(df['purity'])
+  df['coverage'] = pd.to_numeric(df['coverage'])
+  return df
+
+df = get_purity_coverage_comm_osize(G_ccg_dict, best_comms_dict, area_dict, visual_regions)
+# %%
+def get_mean_purity_coverage_ocommsize_col(G_dict, comms_dict, area_dict, regions, m_type='original'):
+  rows, cols = get_rowcol(comms_dict)
+  purity_dict, coverage_dict = {}, {}
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    purity_dict[combined_stimulus_name], coverage_dict[combined_stimulus_name] = {}, {}
+    for col in combined_stimuli[cs_ind]:
+      print(col)
+      for row_ind, row in enumerate(session2keep):
+        purity_data, coverage_data = [], []
+        G = G_dict[row][col]
+        all_regions = [area_dict[row][node] for node in G.nodes()]
+        region_counts = np.array([all_regions.count(r) for r in regions])
+        lr_size = region_counts.max()
+        comms_list = comms_dict[row][col]
+        for comms in comms_list: # 100 repeats
+          sizes = [len(comm) for comm in comms]
+          for comm, size in zip(comms, sizes):
+            if size >= 4:
+              c_regions = [area_dict[row][node] for node in comm]
+              # _, counts = np.unique(c_regions, return_counts=True)
+              counts = np.array([c_regions.count(r) for r in regions])
+              assert len(c_regions) == size == counts.sum()
+              purity = counts.max() / size
+              coverage = (counts / region_counts).max()
+              # original module size
+              if m_type == 'original':
+                purity_data.append((size, purity))
+                coverage_data.append((size, coverage))
+              elif m_type == 'relative':
+              # relative module size
+                purity_data.append((size / lr_size, purity))
+                coverage_data.append((size / lr_size, coverage))
+        purity_dict[combined_stimulus_name][row] = purity_data
+        coverage_dict[combined_stimulus_name][row] = coverage_data
+  return purity_dict, coverage_dict
+
+m_type = 'original'
+# m_type = 'relative'
+purity_dict, coverage_dict = get_mean_purity_coverage_ocommsize_col(G_ccg_dict, best_comms_dict, area_dict, visual_regions, m_type)
+#%%
+# plot purity/coverage VS (relative) module size
+stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
+marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
+scatter_size_dict = {'v':10, '*':17, 'P':13, 'X':13, 'o':11, 's':10, 'D':9, 'p':13, '>':12, r'$\clubsuit$':16}
+error_size_dict = {'v':10, '*':24, 'P':16, 'X':16, 'o':11, 's':9., 'D':9, 'p':12, '>':13, r'$\clubsuit$':22}
+def double_binning_std(ox, oy, numbin=20, log=False):
+  x, y = np.array([ele for li in ox for ele in li]), np.array([ele for li in oy for ele in li])
+  if len(x):
+    len_row = [len(li) for li in ox]
+    if log:
+      bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+    else:
+      bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+    digitized = np.digitize(x, bins) # binning based on community size
+    binned_x = [np.nanmean(x[digitized == i]) for i in range(1, len(bins))]
+    binned_y = [np.nanmean(y[digitized == i]) for i in range(1, len(bins))]
+    binned_std = []
+    for i in range(1, len(bins)):
+      bini_ind = np.where(digitized == i)[0]
+      indices = np.searchsorted(np.cumsum(len_row), bini_ind, side='right')
+      row_li = [np.nanmean(y[bini_ind[indices==j]]) for j in range(len(session2keep))]
+      binned_std.append(np.nanstd(row_li))
+  else:
+    binned_x, binned_y, binned_std = [np.nan], [np.nan], [np.nan]
+  return binned_x, binned_y, binned_std
+
+def plot_scatter_mean_purity_coverage_ocommsize_col(purity_dict, coverage_dict, m_type='original', name='purity'):
+  fig, ax = plt.subplots(1, 1, figsize=(5, 2.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  if name == 'purity':
+    data = purity_dict
+  else:
+    data = coverage_dict
+  for col_ind, col in enumerate(data):
+    if m_type == 'original':
+      # for original module size
+      x, y = [[s for s, d in data[col][row] if s >= 4] for row in data[col]], [[d for s, d in data[col][row] if s >= 4] for row in data[col]]
+      numbin = 6
+      binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=True)
+      xy = np.array([binned_x, binned_y, binned_std])
+      xy = xy[:, ~np.isnan(xy).any(axis=0)]
+      binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+      for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+        ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+        ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+      
+    elif m_type == 'relative':
+      # for relative size
+      x, y = [[s for s, d in data[col][row] if s <= 1] for row in data[col]], [[d for s, d in data[col][row] if s <= 1] for row in data[col]]
+      numbin = 6
+      binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=True)
+      xy = np.array([binned_x, binned_y, binned_std])
+      xy = xy[:, ~np.isnan(xy).any(axis=0)]
+      binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+      for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+        ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+        ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+        
+      x, y = [[s for s, d in data[col][row] if s > 1] for row in data[col]], [[d for s, d in data[col][row] if s > 1] for row in data[col]]
+      numbin = 4
+      binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=False)
+      xy = np.array([binned_x, binned_y, binned_std])
+      xy = xy[:, ~np.isnan(xy).any(axis=0)]
+      binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+      for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+        ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.7', zorder=1, alpha=0.4)
+        ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='.7', facecolor='white', zorder=2)
+      ax.axvline(x=1, linewidth=3, color='.2', linestyle='--')
+  plt.xscale('log')
+  xlabel = 'Module size' if m_type == 'original' else 'Relative module size'
+  plt.xlabel(xlabel, fontsize=20)
+  plt.ylabel(name.capitalize(), fontsize=20)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  image_name = './mean_std_{}_{}_comm_size_col.pdf'.format(name, m_type)
+  plt.savefig(image_name, transparent=True)
+  # plt.show()
+
+plot_scatter_mean_purity_coverage_ocommsize_col(purity_dict, coverage_dict, m_type, name='purity')
+plot_scatter_mean_purity_coverage_ocommsize_col(purity_dict, coverage_dict, m_type, name='coverage')
+# %%
+# plot purity/coverage VS (relative) module size for gratings and natural stimuli and one session
+stimulus2marker = {'Resting\nstate':'s', 'Flashes':'*', 'Drifting\ngratings':'X', 'Static\ngratings':'P', 'Natural\nscenes':r'$\clubsuit$', 'Natural\nmovies':'>'}
+marker_size_dict = {'v':10, '*':22, 'P':13, 'X':13, 'o':11, 's':9.5, 'D':9, 'p':12, '>':10, r'$\clubsuit$':20}
+scatter_size_dict = {'v':10, '*':17, 'P':13, 'X':13, 'o':11, 's':10, 'D':9, 'p':13, '>':12, r'$\clubsuit$':16}
+error_size_dict = {'v':10, '*':24, 'P':16, 'X':16, 'o':11, 's':9., 'D':9, 'p':12, '>':13, r'$\clubsuit$':22}
+def double_binning_std(x, y, numbin=20, log=False):
+  x, y = np.array(x), np.array(y)
+  if len(x):
+    if log:
+      bins = np.logspace(np.log10(x.min()), np.log10(x.max()), numbin) # log binning
+    else:
+      bins = np.linspace(x.min(), x.max(), numbin) # linear binning
+    digitized = np.digitize(x, bins) # binning based on community size
+    binned_x = [np.nanmean(x[digitized == i]) for i in range(1, len(bins))]
+    binned_y = [np.nanmean(y[digitized == i]) for i in range(1, len(bins))]
+    binned_std = [np.nanstd(y[digitized == i]) for i in range(1, len(bins))]
+  else:
+    binned_x, binned_y, binned_std = [np.nan], [np.nan], [np.nan]
+  return binned_x, binned_y, binned_std
+
+def plot_scatter_mean_purity_coverage_ocommsize_col(row_ind, purity_dict, coverage_dict, m_type='original', name='purity'):
+  fig, ax = plt.subplots(1, 1, figsize=(5, 3.5))
+  left, width = .25, .5
+  bottom, height = .25, .5
+  right = left + width
+  top = bottom + height
+  if name == 'purity':
+    data = purity_dict
+  else:
+    data = coverage_dict
+  for col_ind, col in enumerate(data):
+    if col_ind >= 2:
+      if m_type == 'original':
+        # for original module size
+        x, y = [s for s, d in data[col][session2keep[row_ind]] if s >= 4], [d for s, d in data[col][session2keep[row_ind]] if s >= 4]
+        numbin = 6
+        binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=True)
+        xy = np.array([binned_x, binned_y, binned_std])
+        xy = xy[:, ~np.isnan(xy).any(axis=0)]
+        binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+        for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+          ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+          ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+        
+      elif m_type == 'relative':
+        # for relative size
+        x, y = [s for s, d in data[col][session2keep[row_ind]] if s <= 1], [d for s, d in data[col][session2keep[row_ind]] if s <= 1]
+        numbin = 6
+        binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=True)
+        xy = np.array([binned_x, binned_y, binned_std])
+        xy = xy[:, ~np.isnan(xy).any(axis=0)]
+        binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+        for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+          ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+          ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+          
+        x, y = [s for s, d in data[col][session2keep[row_ind]] if s > 1], [d for s, d in data[col][session2keep[row_ind]] if s > 1]
+        numbin = 4
+        binned_x, binned_y, binned_std = double_binning_std(x, y, numbin=numbin, log=False)
+        xy = np.array([binned_x, binned_y, binned_std])
+        xy = xy[:, ~np.isnan(xy).any(axis=0)]
+        binned_x, binned_y, binned_std = xy[0], xy[1], xy[2]
+        for ind, (xi, yi, erri) in enumerate(zip(binned_x, binned_y, binned_std)):
+          ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.7', zorder=1, alpha=0.4)
+          ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[col_ind]], s=8*error_size_dict[stimulus2marker[combined_stimulus_names[col_ind]]], linewidth=1.,color='.7', facecolor='white', zorder=2)
+        ax.axvline(x=1, linewidth=3, color='.2', linestyle='--')
+  plt.xscale('log')
+  xlabel = 'Module size' if m_type == 'original' else 'Relative module size'
+  plt.xlabel(xlabel, fontsize=20)
+  plt.ylabel(name.capitalize(), fontsize=20)
+  plt.xticks(fontsize=20)
+  plt.yticks(fontsize=20)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  # plt.suptitle('{} average purity VS community size'.format(max_method), size=40)
+  plt.tight_layout()
+  image_name = './mean_std_{}_{}_{}_comm_size_col.pdf'.format(session2keep[row_ind], name, m_type)
+  plt.savefig(image_name, transparent=True)
+  # plt.show()
+
+row_ind = 5
+plot_scatter_mean_purity_coverage_ocommsize_col(row_ind, purity_dict, coverage_dict, m_type, name='purity')
+plot_scatter_mean_purity_coverage_ocommsize_col(row_ind, purity_dict, coverage_dict, m_type, name='coverage')
 # %%
