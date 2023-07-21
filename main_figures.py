@@ -253,8 +253,7 @@ blank_width = 50 # add blank space between different stimuli
 total_sequence, areas_num, areas_start_pos, sequence_by_area = get_raster_data(session_index, s_lengths, blank_width)
 plot_raster(total_sequence, areas_num, areas_start_pos, sequence_by_area)
 # %%
-# from mpl_toolkits.axes_grid1 import make_axes_locatable
-
+# Figure 1D
 def find_peak_zscore(corr,duration=6,maxlag=12):
   filter = np.array([[[1]]]).repeat(duration+1, axis=2) # sum instead of mean
   corr_integral = signal.convolve(corr, filter, mode='valid', method='fft')
@@ -282,19 +281,13 @@ def get_connectivity_data(G_dict, session_ind, stimulus_ind):
   session, stimulus = sessions[session_ind], stimuli[stimulus_ind]
   directory = './data/ecephys_cache_dir/sessions/adj_mat_ccg_corrected/'
   file = session + '_' + stimulus + '.npz'
-  # try: 
-  # ccg = load_npz_3d(os.path.join(directory, file))
-  # except:
   ccg = load_sparse_npz(os.path.join(directory, file))
-  # try:
-  # ccg_jittered = load_npz_3d(os.path.join(directory, file.replace('.npz', '_bl.npz')))
-  # except:
   ccg_jittered = load_sparse_npz(os.path.join(directory, file.replace('.npz', '_bl.npz')))
   ccg_corrected = ccg - ccg_jittered
   ccg_zscore, ccg_value = ccg2zscore(ccg_corrected, max_duration=11, maxlag=12)
   return ccg_zscore, ccg_value
 
-session_ind, stimulus_ind = 4, 7
+session_ind, stimulus_ind = 4, 7 # example session and stimulus to plot
 ccg_zscore, ccg_value = get_connectivity_data(G_ccg_dict, session_ind, stimulus_ind)
 #%%
 # Figure 1D
@@ -423,13 +416,13 @@ plot_connectivity_matrix_annotation(G_ccg_dict, session_ind, stimulus_ind, ccg_z
 ############################ new excitatory VS inhibitory connections
 def plot_new_ex_in_bar(G_dict, density=False):
   df = pd.DataFrame()
-  rows, cols = get_rowcol(G_dict)
-  for col_ind, col in enumerate(cols):
-    print(col)
-    combined_stimulus_name = combine_stimulus(col)[1]
+  sessions, stimuli = get_session_stimulus(G_dict)
+  for stimulus_ind, stimulus in enumerate(stimuli):
+    print(stimulus)
+    combined_stimulus_name = combine_stimulus(stimulus)[1]
     ex_data, in_data = [], []
-    for row_ind, row in enumerate(rows):
-      G = G_dict[row][col] if col in G_dict[row] else nx.Graph()
+    for session_ind, session in enumerate(sessions):
+      G = G_dict[session][stimulus] if stimulus in G_dict[session] else nx.Graph()
       signs = list(nx.get_edge_attributes(G, "sign").values())
       num = G.number_of_nodes()
       if density:
@@ -447,16 +440,12 @@ def plot_new_ex_in_bar(G_dict, density=False):
   else:
     y = 'number of connections'
   fig = plt.figure(figsize=(8, 5))
-  # ax = sns.violinplot(x='stimulus', y='number of connections', hue="type", data=df, palette="muted", split=False)
-  # ax = sns.barplot(x='stimulus', y=y, hue="type", data=df, palette=['white', 'grey'], edgecolor=".5")
   barcolors = ['firebrick', 'navy']
   ax = sns.barplot(x="stimulus", y=y, hue="type",  data=df, palette=barcolors, errorbar="sd",  edgecolor="black", errcolor="black", errwidth=1.5, capsize = 0.1, alpha=0.5) #, width=.6
   sns.stripplot(x="stimulus", y=y, hue="type", palette=barcolors, data=df, dodge=True, alpha=0.6, ax=ax)
   # remove extra legend handles
   handles, labels = ax.get_legend_handles_labels()
   ax.legend(handles[2:], labels[2:], title='', bbox_to_anchor=(.7, 1.), loc='upper left', fontsize=28, frameon=False)
-  # plt.setp(ax.get_legend().get_texts()) #, weight='bold'
-  
   plt.yticks(fontsize=25) #,  weight='bold'
   plt.ylabel(y.capitalize())
   ax.set_ylabel(ax.get_ylabel(), fontsize=30,color='k') #, weight='bold'
@@ -466,13 +455,204 @@ def plot_new_ex_in_bar(G_dict, density=False):
   ax.spines['top'].set_visible(False)
   ax.spines['right'].set_visible(False)
   ax.tick_params(width=2.5)
-  # plt.yscale('log')
   ax.set(xlabel=None)
   plt.xticks([])
   plt.tight_layout()
-  figname = './plots/box_ex_in_num.pdf' if not density else './plots/box_ex_in_density.pdf'
+  figname = './figures/figure1E.pdf'
   plt.savefig(figname, transparent=True)
-  # plt.show()
-######################## excitaroty link VS inhibitory link box
+
 plot_new_ex_in_bar(S_ccg_dict, density=True)
+# %%
+# Figure 1F
+def scatter_dataVSdensity_new(G_dict, area_dict, regions, name='intra'):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  fig, ax = plt.subplots(figsize=(5, 5))
+  X, Y = [], []
+  df = pd.DataFrame()
+  region_connection = np.zeros((len(sessions), len(stimuli), len(regions), len(regions)))
+  for stimulus_ind, stimulus in enumerate(stimuli):
+    # print(stimulus)
+    intra_data, inter_data, density_data, ex_data, in_data, cluster_data = [], [], [], [], [], []
+    for session_ind, session in enumerate(sessions):
+      G = G_dict[session][stimulus]
+      nodes = list(G.nodes())
+      node_area = {key: area_dict[session][key] for key in nodes}
+      A = nx.to_numpy_array(G)
+      A[A.nonzero()] = 1
+      for region_ind_i, region_i in enumerate(regions):
+        for region_ind_j, region_j in enumerate(regions):
+          region_indices_i = np.array([k for k, v in area_dict[session].items() if v==region_i])
+          region_indices_j = np.array([k for k, v in area_dict[session].items() if v==region_j])
+          region_indices_i = np.array([nodes.index(i) for i in list(set(region_indices_i) & set(nodes))]) # some nodes not in cc are removed 
+          region_indices_j = np.array([nodes.index(i) for i in list(set(region_indices_j) & set(nodes))])
+          if len(region_indices_i) and len(region_indices_j):
+            region_connection[session_ind, stimulus_ind, region_ind_i, region_ind_j] = np.sum(A[region_indices_i[:, None], region_indices_j])
+            assert np.sum(A[region_indices_i[:, None], region_indices_j]) == len(A[region_indices_i[:, None], region_indices_j].nonzero()[0])
+      diag_indx = np.eye(len(regions),dtype=bool)
+      # metric[session_ind, stimulus_ind, 0] =  np.sum(region_connection[session_ind, stimulus_ind][diag_indx])
+      # metric[session_ind, stimulus_ind, 1] =  np.sum(region_connection[session_ind, stimulus_ind][~diag_indx])
+      intra_data.append(np.sum(region_connection[session_ind, stimulus_ind][diag_indx])/np.sum(region_connection[session_ind, stimulus_ind]))
+      inter_data.append(np.sum(region_connection[session_ind, stimulus_ind][~diag_indx])/np.sum(region_connection[session_ind, stimulus_ind]))
+      density_data.append(nx.density(G))
+      signs = list(nx.get_edge_attributes(G, "sign").values())
+      ex_data.append(signs.count(1) / len(signs))
+      in_data.append(signs.count(-1) / len(signs))
+      cluster_data.append(calculate_directed_metric(G, 'clustering'))
+    X += density_data
+    if name == 'intra':
+      Y += intra_data
+    elif name == 'ex':
+      Y += ex_data
+    elif name == 'cluster':
+      Y += cluster_data
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(intra_data)[:,None], np.array(inter_data)[:,None], np.array(ex_data)[:,None], np.array(cluster_data)[:,None], np.array(density_data)[:,None], np.array([combine_stimulus(stimulus)[1]] * len(intra_data))[:,None]), 1), columns=['ratio of intra-region connections', 'ratio of inter-region connections', 'ratio of excitatory connections', 'cluster', 'density', 'stimulus'])], ignore_index=True)
+  df['ratio of intra-region connections'] = pd.to_numeric(df['ratio of intra-region connections'])
+  df['ratio of inter-region connections'] = pd.to_numeric(df['ratio of inter-region connections'])
+  df['ratio of excitatory connections'] = pd.to_numeric(df['ratio of excitatory connections'])
+  df['cluster'] = pd.to_numeric(df['cluster'])
+  df['density'] = pd.to_numeric(df['density'])
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    x = df[df['stimulus']==combined_stimulus_name]['density'].values
+    if name == 'intra':
+      y = df[df['stimulus']==combined_stimulus_name]['ratio of intra-region connections'].values
+    elif name == 'ex':
+      y = df[df['stimulus']==combined_stimulus_name]['ratio of excitatory connections'].values
+    elif name == 'cluster':
+      y = df[df['stimulus']==combined_stimulus_name]['cluster'].values
+    ax.scatter(x, y, ec='.1', fc='none', marker=stimulus2marker[combined_stimulus_name], s=10*marker_size_dict[stimulus2marker[combined_stimulus_name]], alpha=.9, linewidths=1.5)
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  if name in ['intra']:
+    slope, intercept, r_value, p_value, std_err = stats.linregress(X,Y)
+    line = slope*X+intercept
+    locx, locy = .8, .9
+    text = 'r={:.2f}, p={:.2f}'.format(r_value, p_value)
+  elif name in ['ex', 'cluster']:
+    slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+    line = slope*np.log10(X)+intercept
+    locx, locy = .4, 1.
+    text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  # ax.plot(X, line, color='.4', linestyle='-', alpha=.5) # (5,(10,3))
+  # ax.scatter(X, Y, facecolors='none', edgecolors='.2', alpha=.6)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  plt.xticks(fontsize=22) #, weight='bold'
+  plt.yticks(fontsize=22) # , weight='bold'
+  plt.xlabel('Density')
+  if name == 'intra':
+    ylabel = 'Within-area fraction'
+  elif name == 'ex':
+    ylabel = 'Excitatory fraction'
+    plt.xscale('log')
+  elif name == 'cluster':
+    ylabel = 'Clustering coefficient'
+    plt.xscale('log')
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=28,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('0.2')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout()
+  # plt.show()
+  if name == 'intra':
+    fname = 'left'
+  elif name == 'ex':
+    fname = 'middle'
+  elif name == 'cluster':
+    fname = 'right'
+  plt.savefig(f'./figures/figure1F_{fname}.pdf', transparent=True)
+
+scatter_dataVSdensity_new(S_ccg_dict, area_dict, visual_regions, name='intra')
+scatter_dataVSdensity_new(S_ccg_dict, area_dict, visual_regions, name='ex')
+scatter_dataVSdensity_new(S_ccg_dict, area_dict, visual_regions, name='cluster')
+#%%
+# Figure 1G
+def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
+  sessions = signal_correlation_dict.keys()
+  pos_connect_dict, neg_connect_dict, dis_connect_dict, signal_corr_dict = [{session:{csn:[] for csn in combined_stimulus_names[1:]} for session in sessions} for _ in range(4)]
+  for session_ind, session in enumerate(sessions):
+    print(session)
+    active_area = active_area_dict[session]
+    node_idx = sorted(active_area.keys())
+    for combined_stimulus_name in combined_stimulus_names[1:]:
+      cs_ind = combined_stimulus_names.index(combined_stimulus_name)
+      signal_correlation = signal_correlation_dict[session][combined_stimulus_name]
+      pos_connect, neg_connect, dis_connect, signal_corr = [], [], [], []
+      for col in combined_stimuli[cs_ind]:
+        G = G_dict[session][col].copy()
+        for nodei, nodej in itertools.combinations(node_idx, 2):
+          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          if not np.isnan(scorr):
+            if G.has_edge(nodei, nodej):
+              signal_corr.append(scorr)
+              w = G[nodei][nodej]['weight']
+              if w > 0:
+                pos_connect.append(1)
+                neg_connect.append(0)
+              elif w < 0:
+                pos_connect.append(0)
+                neg_connect.append(1)
+            if G.has_edge(nodej, nodei):
+              signal_corr.append(scorr)
+              w = G[nodej][nodei]['weight']
+              if w > 0:
+                pos_connect.append(1)
+                neg_connect.append(0)
+              elif w < 0:
+                pos_connect.append(0)
+                neg_connect.append(1)
+            if pairtype == 'all':
+              if (not G.has_edge(nodei, nodej)) and (not G.has_edge(nodej, nodei)):
+                dis_connect.append(scorr)
+                signal_corr.append(scorr)
+                pos_connect.append(0)
+                neg_connect.append(0)
+
+      signal_corr_dict[session][combined_stimulus_name] += signal_corr
+      pos_connect_dict[session][combined_stimulus_name] += pos_connect
+      neg_connect_dict[session][combined_stimulus_name] += neg_connect
+      dis_connect_dict[session][combined_stimulus_name] += dis_connect
+
+  pos_df, neg_df, dis_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+  for combined_stimulus_name in combined_stimulus_names[1:]:
+    print(combined_stimulus_name)
+    for session in sessions:
+      pos_connect, neg_connect, dis_connect, signal_corr = pos_connect_dict[session][combined_stimulus_name], neg_connect_dict[session][combined_stimulus_name], dis_connect_dict[session][combined_stimulus_name], signal_corr_dict[session][combined_stimulus_name]
+      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      pos_df = pd.concat([pos_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(pos_connect)[:,None], np.array([combined_stimulus_name] * len(pos_connect))[:,None], np.array([session] * len(pos_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
+      neg_df = pd.concat([neg_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(neg_connect)[:,None], np.array([combined_stimulus_name] * len(neg_connect))[:,None], np.array([session] * len(neg_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
+      dis_df = pd.concat([dis_df, pd.DataFrame(np.concatenate((np.array(dis_connect)[:,None], np.array([combined_stimulus_name] * len(dis_connect))[:,None], np.array([session] * len(dis_connect))[:,None]), 1), columns=['signal correlation', 'stimulus', 'session'])], ignore_index=True)
+  pos_df['signal correlation'] = pd.to_numeric(pos_df['signal correlation'])
+  pos_df['type'] = pd.to_numeric(pos_df['type'])
+  neg_df['signal correlation'] = pd.to_numeric(neg_df['signal correlation'])
+  neg_df['type'] = pd.to_numeric(neg_df['type'])
+  dis_df['signal correlation'] = pd.to_numeric(dis_df['signal correlation'])
+  return pos_df, neg_df, dis_df
+
+start_time = time.time()
+with open('./files/signal_correlation_dict.pkl', 'rb') as f:
+  signal_correlation_dict = pickle.load(f)
+pairtype = 'all'
+# pairtype = 'connected'
+pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df = get_pos_neg_p_signalcorr(G_ccg_dict, signal_correlation_dict, pairtype=pairtype)
+print("--- %s minutes" % ((time.time() - start_time)/60))
+# # %%
+# # remove inactive neurons and thalamic neurons from signal_correlation_dict   DONE!!!!!!!!!!
+# with open('../functional_network/files/signal_correlation_dict.pkl', 'rb') as f:
+#   osignal_correlation_dict = pickle.load(f)
+# sessions, stimuli = get_session_stimulus(G_ccg_dict)
+# signal_correlation_dict = {}
+# for session in sessions:
+#   active_inds = np.array(list(active_area_dict[session].keys()))
+#   signal_correlation_dict[session] = {}
+#   for combined_stimulus_name in combined_stimulus_names[2:]:
+#     signal_correlation_dict[session][combined_stimulus_name] = osignal_correlation_dict[session][combined_stimulus_name][active_inds[:,None], active_inds]
+# a_file = open('./files/signal_correlation_dict.pkl', 'wb')
+# pickle.dump(signal_correlation_dict, a_file)
+# a_file.close()
 # %%
