@@ -1,7 +1,7 @@
 # Stimulus-dependent functional network topology in mouse visual cortex
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Paper](https://img.shields.io/badge/Paper-PDF-red.svg)](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics)(link_to_paper)
+[![License](https://img.shields.io/badge/License-BSD%202--Clause-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/Paper-PDF-red.svg)](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics)
 
 ## Introduction
 
