@@ -583,8 +583,8 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
       cs_ind = combined_stimulus_names.index(combined_stimulus_name)
       signal_correlation = signal_correlation_dict[session][combined_stimulus_name]
       pos_connect, neg_connect, dis_connect, signal_corr = [], [], [], []
-      for col in combined_stimuli[cs_ind]:
-        G = G_dict[session][col].copy()
+      for stimulus in combined_stimuli[cs_ind]:
+        G = G_dict[session][stimulus].copy()
         nodes = sorted(G.nodes())
         for nodei, nodej in itertools.combinations(node_idx, 2):
           scorr = signal_correlation[nodes.index(nodei), nodes.index(nodej)] # abs(signal_correlation[nodei, nodej])
@@ -662,8 +662,8 @@ def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
   fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 3), sharex=True)
   for cs_ind in range(len(axes)):
     ax = axes[cs_ind]
-    pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==row)
-    neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==row)
+    pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==session)
+    neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==session)
     dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+2]].copy()
     pos_x, neg_x, dis_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten(), dis_data['signal correlation'].values.flatten()
     df = pd.DataFrame()
@@ -695,4 +695,203 @@ def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
   plt.savefig('./figures/figure1G.pdf', transparent=True)
 
 plot_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df)
+# %%
+# Figure 2A
+################## relative count of signed node pairs
+def safe_division(n, d):
+    return n / d if d else 0
+
+def count_signed_triplet_connection_p(G):
+  num0, num1, num2, num3, num4, num5 = 0, 0, 0, 0, 0, 0
+  nodes = list(G.nodes())
+  edge_sign = nx.get_edge_attributes(G,'sign')
+  for node_i in range(len(nodes)):
+    for node_j in range(len(nodes)):
+      if node_i != node_j:
+        edge_sum = edge_sign.get((nodes[node_i], nodes[node_j]), 0) + edge_sign.get((nodes[node_j], nodes[node_i]), 0)
+        if edge_sum == 0:
+          if G.has_edge(nodes[node_i], nodes[node_j]) and G.has_edge(nodes[node_j], nodes[node_i]):
+            num4 += 1
+          else:
+            num0 += 1
+        elif edge_sum == 1:
+          num1 += 1
+        elif edge_sum == 2:
+          num3 += 1
+        elif edge_sum == -1:
+          num2 += 1
+        elif edge_sum == -2:
+          num5 += 1
+
+  total_num = num0+num1+num2+num3+num4+num5
+  assert total_num == len(nodes) * (len(nodes) - 1)
+  assert (num1+num2)/2 + num3+num4+num5 == G.number_of_edges()
+  p0, p1, p2, p3, p4, p5 = safe_division(num0, total_num), safe_division(num1, total_num), safe_division(num2, total_num), safe_division(num3, total_num), safe_division(num4, total_num), safe_division(num5, total_num)
+  return p0, p1, p2, p3, p4, p5
+
+def plot_signed_pair_relative_count(G_dict, p_signed_pair_func, log=False):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  fig, axes = plt.subplots(len(combined_stimulus_names), 1, figsize=(8, 1.*len(combined_stimulus_names)), sharex=True, sharey=True)
+  for cs_ind, stimulus_name in enumerate(combined_stimulus_names):
+    ax = axes[len(axes)-1-cs_ind] # spontaneous in the bottom
+    all_pair_count = defaultdict(lambda: [])
+    for stimulus in combined_stimuli[cs_ind]:
+      for session in sessions:
+        G = G_dict[session][stimulus].copy()
+        signs = list(nx.get_edge_attributes(G, "sign").values())
+        p_pos, p_neg = signs.count(1)/(G.number_of_nodes()*(G.number_of_nodes()-1)), signs.count(-1)/(G.number_of_nodes()*(G.number_of_nodes()-1))
+        p0, p1, p2, p3, p4, p5 = count_signed_triplet_connection_p(G)
+        all_pair_count['0'].append(p0 / p_signed_pair_func['0'](p_pos, p_neg))
+        all_pair_count['+'].append(p1 / p_signed_pair_func['1'](p_pos, p_neg))
+        all_pair_count['-'].append(p2 / p_signed_pair_func['2'](p_pos, p_neg))
+        all_pair_count['++'].append(p3 / p_signed_pair_func['3'](p_pos, p_neg))
+        all_pair_count['+-'].append(p4 / p_signed_pair_func['4'](p_pos, p_neg))
+        all_pair_count['--'].append(p5 / p_signed_pair_func['5'](p_pos, p_neg))
+    # ax.set_ylabel('Relative count')
+    triad_types, triad_counts = [k for k,v in all_pair_count.items()], [v for k,v in all_pair_count.items()]
+    box_color = '.2'
+    boxprops = dict(color=box_color,linewidth=1.5)
+    medianprops = dict(color=box_color,linewidth=1.5)
+    box_plot = ax.boxplot(triad_counts, showfliers=False, patch_artist=True, boxprops=boxprops,medianprops=medianprops)
+    for item in ['boxes', 'whiskers', 'fliers', 'medians', 'caps']:
+      plt.setp(box_plot[item], color=box_color)
+    for patch in box_plot['boxes']:
+      patch.set_facecolor('none')
+      ax.set_xticks([])
+    left, right = plt.xlim()
+    ax.hlines(1, xmin=left, xmax=right, color='.5', alpha=.6, linestyles='--', linewidth=2)
+    if log:
+      ax.set_yscale('log')
+    ax.yaxis.set_tick_params(labelsize=18)
+    ax.set_ylabel('', fontsize=20,color='k') #, weight='bold'
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(1.)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=1.)
+    relative_x = 0.1
+    relative_y = 0.9
+    ax.text(relative_x, relative_y, stimulus_name.replace('\n', ' '), transform=ax.transAxes,
+            ha='left', va='center', fontsize=20, color='black')
+  fig.subplots_adjust(hspace=.7) #wspace=0.2
+  plt.savefig('./figures/figure2A.pdf', transparent=True)
+
+p_signed_pair_func = {
+  '0': lambda p_pos, p_neg: (1 - p_pos - p_neg)**2,
+  '1': lambda p_pos, p_neg: 2 * p_pos * (1 - p_pos - p_neg),
+  '2': lambda p_pos, p_neg: 2 * p_neg * (1 - p_pos - p_neg),
+  '3': lambda p_pos, p_neg: p_pos ** 2,
+  '4': lambda p_pos, p_neg: 2 * p_pos * p_neg,
+  '5': lambda p_pos, p_neg: p_neg ** 2,
+}
+# plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, measure, n, scale=False)
+plot_signed_pair_relative_count(S_ccg_dict, p_signed_pair_func, log=True)
+# %%
+# Load data for Figures 2-3
+######################## signed motif detection
+with open('./files/intensity_dict.pkl', 'rb') as f:
+  intensity_dict = pickle.load(f)
+with open('./files/coherence_dict.pkl', 'rb') as f:
+  coherence_dict = pickle.load(f)
+with open('./files/gnm_baseline_intensity_dict.pkl', 'rb') as f:
+  gnm_baseline_intensity_dict = pickle.load(f)
+with open('./files/gnm_baseline_coherence_dict.pkl', 'rb') as f:
+  gnm_baseline_coherence_dict = pickle.load(f)
+with open('./files/baseline_intensity_dict.pkl', 'rb') as f:
+  baseline_intensity_dict = pickle.load(f)
+with open('./files/baseline_coherence_dict.pkl', 'rb') as f:
+  baseline_coherence_dict = pickle.load(f)
+with open('./files/unibi_baseline_intensity_dict.pkl', 'rb') as f:
+  unibi_baseline_intensity_dict = pickle.load(f)
+with open('./files/unibi_baseline_coherence_dict.pkl', 'rb') as f:
+  unibi_baseline_coherence_dict = pickle.load(f)
+with open('./files/sunibi_baseline_intensity_dict.pkl', 'rb') as f:
+  sunibi_baseline_intensity_dict = pickle.load(f)
+with open('./files/sunibi_baseline_coherence_dict.pkl', 'rb') as f:
+  sunibi_baseline_coherence_dict = pickle.load(f)
+
+################## find significant signed motifs using z score for motif intensity and coherence
+################## first Z score, then average
+def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100):
+  sessions, stimuli = get_session_stimulus(intensity_dict)
+  signed_motif_types = set()
+  for session in sessions:
+    for stimulus in stimuli:
+      signed_motif_types = signed_motif_types.union(set(list(intensity_dict[session][stimulus].keys())).union(set(list(baseline_intensity_dict[session][stimulus].keys()))))
+  signed_motif_types = list(signed_motif_types)
+  pseudo_intensity = np.zeros(num_baseline)
+  pseudo_intensity[0] = 5 # if a motif is not found in random graphs, assume it appeared once
+  whole_df = pd.DataFrame()
+  for stimulus in stimuli:
+    for session in sessions:
+      motif_list = []
+      for motif_type in signed_motif_types:
+        motif_list.append([motif_type, session, stimulus, intensity_dict[session][stimulus].get(motif_type, 0), baseline_intensity_dict[session][stimulus].get(motif_type, pseudo_intensity).mean(), 
+                        baseline_intensity_dict[session][stimulus].get(motif_type, pseudo_intensity).std(), coherence_dict[session][stimulus].get(motif_type, 0), 
+                        baseline_coherence_dict[session][stimulus].get(motif_type, np.zeros(10)).mean(), baseline_coherence_dict[session][stimulus].get(motif_type, np.zeros(10)).std()])
+      df = pd.DataFrame(motif_list, columns =['signed motif type', 'session', 'stimulus', 'intensity', 'intensity mean', 'intensity std', 'coherence', 'coherence mean', 'coherence std']) 
+      whole_df = pd.concat([whole_df, df], ignore_index=True, sort=False)
+  whole_df['intensity z score'] = (whole_df['intensity']-whole_df['intensity mean'])/whole_df['intensity std']
+  whole_df['coherence z score'] = (whole_df['coherence']-whole_df['coherence mean'])/whole_df['coherence std']
+  mean_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('mean') # average over session
+  std_df = whole_df.groupby(['stimulus', 'signed motif type'], as_index=False).agg('std')
+  mean_df['intensity z score std'] = std_df['intensity z score']
+  return whole_df, mean_df, signed_motif_types
+
+################## average intensity across session
+################## first Z score, then average
+num_baseline = 200
+whole_df1, mean_df1, signed_motif_types1 = get_intensity_zscore(intensity_dict, coherence_dict, gnm_baseline_intensity_dict, gnm_baseline_coherence_dict, num_baseline=num_baseline) # Gnm
+whole_df2, mean_df2, signed_motif_types2 = get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=num_baseline) # directed double edge swap
+whole_df3, mean_df3, signed_motif_types3 = get_intensity_zscore(intensity_dict, coherence_dict, unibi_baseline_intensity_dict, unibi_baseline_coherence_dict, num_baseline=num_baseline) # uni bi edge preserved
+whole_df4, mean_df4, signed_motif_types4 = get_intensity_zscore(intensity_dict, coherence_dict, sunibi_baseline_intensity_dict, sunibi_baseline_coherence_dict, num_baseline=num_baseline) # signed uni bi edge preserved
+whole_df1['signed motif type'] = whole_df1['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df2['signed motif type'] = whole_df2['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df3['signed motif type'] = whole_df3['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+whole_df4['signed motif type'] = whole_df4['signed motif type'].str.replace('-', '\N{MINUS SIGN}') # change minus sign to match width of plus
+signed_motif_types1 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types1]
+signed_motif_types2 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types2]
+signed_motif_types3 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types3]
+signed_motif_types4 = [mt.replace('-', '\N{MINUS SIGN}') for mt in signed_motif_types4]
+# %%
+# Figure 2C
+def plot_zscore_allmotif_lollipop(df, model_name):
+  fig, axes = plt.subplots(len(combined_stimulus_names),1, sharex=True, sharey=True, figsize=(50, 3*len(combined_stimulus_names)))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  motif_loc = [np.mean([i for i in range(len(sorted_types)) if mt in sorted_types[i]]) for mt in motif_types]
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    ax = axes[len(axes)-1-s_ind] # spontaneous in the bottom
+    # ax.set_title(combined_stimulus_names[s_ind].replace('\n', ' '), fontsize=35, rotation=0)
+    for t, y in zip(sorted_types, data.loc[sorted_types, "intensity z score"]):
+      color = palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', ''))]
+      ax.plot([t,t], [0,y], color=color, marker="o", linewidth=7, markersize=20, markevery=(1,2))
+    ax.set_xlim(-.5,len(sorted_types)+.5)
+    ax.set_xticks([])
+    ax.yaxis.set_tick_params(labelsize=45)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(4.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=4.5)
+    ax.xaxis.set_tick_params(length=0)
+    ax.set_ylabel('')
+    # ax.set_ylabel('Z score', fontsize=40)
+    if model_names.index(model_name) <= 1:
+      ax.set_yscale('symlog')
+    else:
+      ax.set_ylim(-13, 21)
+  plt.tight_layout()
+  plt.savefig('./figures/figure2C.pdf', transparent=True)
+
+dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
+df_ind = 3 # plot results obtained with Signed-pair-preserving model
+plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 # %%
