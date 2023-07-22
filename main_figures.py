@@ -98,7 +98,7 @@ from library import *
 # combined_stimulus_names = ['Resting\nstate', 'Flashes', 'Drifting\ngratings', 'Static\ngratings', 'Natural\nscenes', 'Natural\nmovies']
 # combined_stimulus_colors = ['#8dd3c7', '#fee391', '#bc80bd', '#bc80bd', '#fb8072', '#fb8072']
 # # plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
-# session2keep = ['719161530','750749662','754312389','755434585','756029989','791319847','797828357']
+# sessions = ['719161530','750749662','754312389','755434585','756029989','791319847','797828357']
 # stimulus_by_type = [['spontaneous'], ['flash_dark', 'flash_light'], ['drifting_gratings', 'static_gratings'], ['natural_scenes', 'natural_movie_one', 'natural_movie_three']]
 # stimulus_types = ['Resting state', 'Flashes', 'Gratings', 'Natural stimuli']
 # # stimulus_type_color = ['tab:blue', 'darkorange', 'darkgreen', 'maroon']
@@ -181,7 +181,7 @@ S_ccg_dict = add_delay(S_ccg_dict)
 # # remove second session and thalamic area from area_dict & active_area_dict      DONE!!!!!!!!!!
 # a_file = open('../functional_network/data/ecephys_cache_dir/sessions/area_dict.pkl', 'rb')
 # area_dict = pickle.load(a_file)
-# area_dict = {n:a for n,a in area_dict.items() if n in session2keep}
+# area_dict = {n:a for n,a in area_dict.items() if n in sessions}
 # area_dict = {s:{n:a for n,a in area_dict[s].items() if a in visual_regions} for s in area_dict}
 # a_file = open('./files/area_dict.pkl', 'wb')
 # pickle.dump(area_dict, a_file)
@@ -189,7 +189,7 @@ S_ccg_dict = add_delay(S_ccg_dict)
 
 # a_file = open('../functional_network/data/ecephys_cache_dir/sessions/active_area_dict.pkl', 'rb')
 # active_area_dict = pickle.load(a_file)
-# active_area_dict = {n:a for n,a in active_area_dict.items() if n in session2keep}
+# active_area_dict = {n:a for n,a in active_area_dict.items() if n in sessions}
 # active_area_dict = {s:{n:a for n,a in active_area_dict[s].items() if a in visual_regions} for s in active_area_dict}
 # a_file = open('./files/active_area_dict.pkl', 'wb')
 # pickle.dump(active_area_dict, a_file)
@@ -1319,3 +1319,158 @@ def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mty
 
 plot_motif_region_error(whole_df4, region_count_dict, sig_motif_types, mtype='one_V1')
 plot_motif_region_error(whole_df4, region_count_dict, sig_motif_types, mtype='all_V1')
+# %%
+# Figure 3E
+# get motif ID dict
+def get_motif_IDs(G_dict, area_dict, signed_motif_types):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  motif_id_dict = {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+  for session_ind, session in enumerate(sessions):
+    print(session)
+    node_area = area_dict[session]
+    motif_id_dict[session] = {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      print(combined_stimulus_name)
+      motif_id_dict[session][combined_stimulus_name] = {s_type:[] for s_type in signed_motif_types}
+      for stimulus in combined_stimuli[cs_ind]:
+        G = G_dict[session][stimulus]
+        motifs_by_type = find_triads(G) # faster
+        for signed_motif_type in signed_motif_types:
+          motif_type = signed_motif_type.replace('+', '').replace('-', '')
+          motifs = motifs_by_type[motif_type]
+          for motif in motifs:
+            smotif_type = motif_type + get_motif_sign(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+            if (smotif_type == signed_motif_type) and (not tuple(list(motif.nodes())) in motif_id_dict[session][combined_stimulus_name][smotif_type]):
+              motif_id_dict[session][combined_stimulus_name][smotif_type].append(tuple(list(motif.nodes())))
+  return motif_id_dict
+
+# get motif stimulus list dictionary for each mouse and each stimulus and each motif type
+def get_motif_stim_list_dict(motif_id_dict, signed_motif_types):
+  motif_stim_dict = {smt:{} for smt in signed_motif_types}
+  for smt_ind, signed_motif_type in enumerate(signed_motif_types):
+    motif_stim_dict[signed_motif_type] = {session_id:{} for session_id in sessions}
+    for s_ind, session_id in enumerate(sessions):
+      for combined_stimulus_name in combined_stimulus_names:
+        motif_stim_dict[signed_motif_type][session_id][combined_stimulus_name] = motif_id_dict[session_id][combined_stimulus_name][signed_motif_type]
+  return motif_stim_dict
+
+# merge all individuals into one large set
+def merge_mice(motif_stim_list_dict):
+  merge_ind_motif_stim_list_dict = {smt:{csn:[] for csn in combined_stimulus_names} for smt in motif_stim_list_dict}
+  for smt in motif_stim_list_dict:
+    for csn in combined_stimulus_names:
+      for s_ind, session_id in enumerate(sessions):
+        merge_ind_motif_stim_list_dict[smt][csn] += [tuple([s_ind]) + ele for ele in motif_stim_list_dict[smt][session_id][csn]] # s_ind to differentiate neurons
+  return merge_ind_motif_stim_list_dict
+      
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+motif_id_dict = get_motif_IDs(G_ccg_dict, area_dict, sig_motif_types)
+motif_stim_list_dict = get_motif_stim_list_dict(motif_id_dict, sig_motif_types)
+merge_ind_motif_stim_list_dict = merge_mice(motif_stim_list_dict)
+# %%
+# Figure 3E
+# make example upset plot for each motif type, combine across mouse
+mpl.rcParams['font.size'] = 18
+def plot_certain_upsetplot_combined(merge_ind_motif_stim_list_dict, sig_motif_type, cutoff=10):
+  motif_stim = from_contents(merge_ind_motif_stim_list_dict[sig_motif_type])
+  motif_stim.index.rename(['',' ','  ','   ','    ','     '], inplace=True)
+  fig = plt.figure(figsize=(10, 6))
+  p = UpSet(data = motif_stim, 
+      sort_categories_by='input', 
+      sort_by='cardinality', 
+      min_subset_size=cutoff, 
+      totals_plot_elements=2, 
+      intersection_plot_elements=5)
+  p.plot(fig=fig)
+  fig.savefig('./figures/figure3E.pdf', transparent=True)
+
+plot_certain_upsetplot_combined(merge_ind_motif_stim_list_dict, sig_motif_types[0], 20)
+# %%
+# Figure 3F
+GREY = '.5'
+motif_palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [0,2,3,4,6,8,10,12,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+
+def scale_to_interval(origin_x, low=1, high=100, logscale=False):
+  if not logscale:
+    x = np.abs(origin_x.copy())
+  else:
+    x = np.power(2, np.abs(origin_x.copy()))
+    x = np.nan_to_num(x, neginf=0, posinf=0)
+  y = ((x - x.min()) / (x.max() - x.min())) * (high - low) + low
+  return y
+
+def single_circular_lollipop(data, ind, sorted_types, COLORS, ax, lwv=.9, lw0=.7, neggrid=-5, posgrid=10, low=1, high=100, logscale=False):
+  ANGLES = np.linspace(0, 2 * np.pi, len(data), endpoint=False)
+  HEIGHTS = np.array(data)
+  PLUS = 0
+  ax.set_facecolor("white")
+  ax.set_theta_offset(-np.pi / 2)
+  ax.set_theta_direction(-1)
+  ax.vlines(ANGLES, 0 + PLUS, HEIGHTS + PLUS, color=COLORS, lw=lwv)
+  ax.scatter(ANGLES, HEIGHTS + PLUS, color=COLORS, s=scale_to_interval(HEIGHTS, low=low, high=high, logscale=logscale)) #
+  ax.spines["start"].set_color("none")
+  ax.spines["polar"].set_color("none")
+  ax.grid(False)
+  ax.set_xticks([])
+  ax.set_yticklabels([])
+  HANGLES = np.linspace(0, 2 * np.pi, 200)
+  ls = (0, (5, 5))
+  ax.plot(HANGLES, np.repeat(neggrid + PLUS, 200), color= GREY, lw=lw0, linestyle=(0, (5, 1)))
+  ax.plot(HANGLES, np.repeat(0 + PLUS, 200), color= GREY, lw=lw0, linestyle=ls) # needs to be denser
+  ax.plot(HANGLES, np.repeat(posgrid + PLUS, 200), color= GREY, lw=lw0, linestyle=ls)
+  if ind == 0:
+    ax.set_ylim([-5, 11]) # increase 
+  elif ind == 1:
+    ax.set_ylim(top = 8.5)
+  elif ind == 2:
+    ax.set_ylim([-7, 20])
+  elif ind == 3:
+    ax.set_ylim([-7, 21])
+
+def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_three'):
+  fig, axes = plt.subplots(1, 4, figsize=(20, 7), subplot_kw={"projection": "polar"})
+  fig.patch.set_facecolor("white")
+  sorted_types = [sorted([smotif for smotif in df1['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  motif_types = TRIAD_NAMES[3:]
+  COLORS = []
+  for t in sorted_types:
+    COLORS.append(motif_palette[motif_types.index(t.replace('+', '').replace('\N{MINUS SIGN}', '').replace('-', ''))])
+  dfs = [df1, df2, df3, df4]
+  for df_ind, df in enumerate(dfs):
+    ax = axes[df_ind]
+    data = df[df.stimulus==stimulus_name]
+    data = data.groupby('signed motif type').mean()
+    zscores = data.loc[sorted_types, "intensity z score"].values.tolist()
+    neggrid, posgrid, low, high, logscale = -5, 10, 0, 200, False
+    if df_ind == 0: # manual logscale
+      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
+      zscores = np.log2(np.abs(zscores)) * signs
+      neggrid = - np.log2(10)
+      posgrid = np.log2(100)
+      # low=0
+      high=600
+      logscale = True
+    elif df_ind == 1:
+      signs = np.array([1 if zs >= 0 else -1 for zs in zscores])
+      zscores = np.log2(np.abs(zscores)) * signs
+      neggrid = - np.log2(10)
+      posgrid = np.log2(20)
+      # low=0
+      high=300
+      logscale = True
+    # print(zscores)
+    single_circular_lollipop(zscores, df_ind, sorted_types, COLORS, ax, lwv=2.5, lw0=3., neggrid=neggrid, posgrid=posgrid, low=low, high=high, logscale=logscale)
+    ax.set_title(model_names[df_ind], fontsize=30)
+  fig.subplots_adjust(wspace=0.) #
+  plt.tight_layout()
+  # plt.show()
+  plt.savefig('./figures/figure3F.pdf', transparent=True)
+
+multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
