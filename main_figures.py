@@ -624,7 +624,7 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
     print(combined_stimulus_name)
     for session in sessions:
       pos_connect, neg_connect, dis_connect, signal_corr = pos_connect_dict[session][combined_stimulus_name], neg_connect_dict[session][combined_stimulus_name], dis_connect_dict[session][combined_stimulus_name], signal_corr_dict[session][combined_stimulus_name]
-      # within_comm, cross_comm = [e for e in within_comm if not np.isnan(e)], [e for e in cross_comm if not np.isnan(e)] # remove nan values
+      # within_comm, across_comm = [e for e in within_comm if not np.isnan(e)], [e for e in across_comm if not np.isnan(e)] # remove nan values
       pos_df = pd.concat([pos_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(pos_connect)[:,None], np.array([combined_stimulus_name] * len(pos_connect))[:,None], np.array([session] * len(pos_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
       neg_df = pd.concat([neg_df, pd.DataFrame(np.concatenate((np.array(signal_corr)[:,None], np.array(neg_connect)[:,None], np.array([combined_stimulus_name] * len(neg_connect))[:,None], np.array([session] * len(neg_connect))[:,None]), 1), columns=['signal correlation', 'type', 'stimulus', 'session'])], ignore_index=True)
       dis_df = pd.concat([dis_df, pd.DataFrame(np.concatenate((np.array(dis_connect)[:,None], np.array([combined_stimulus_name] * len(dis_connect))[:,None], np.array([session] * len(dis_connect))[:,None]), 1), columns=['signal correlation', 'stimulus', 'session'])], ignore_index=True)
@@ -810,7 +810,25 @@ with open('./files/sunibi_baseline_intensity_dict.pkl', 'rb') as f:
   sunibi_baseline_intensity_dict = pickle.load(f)
 with open('./files/sunibi_baseline_coherence_dict.pkl', 'rb') as f:
   sunibi_baseline_coherence_dict = pickle.load(f)
+# # %%
+# # remove second session from all dictionaries        DONE!!!!!!!!!!!!!!
+# def remove_2nd(dic, fname):
+#   dic = {n:a for n,a in dic.items() if n in sessions}
+#   a_file = open('./files/{}'.format(fname), 'wb')
+#   pickle.dump(dic, a_file)
+#   a_file.close()
 
+# remove_2nd(intensity_dict, 'intensity_dict.pkl')
+# remove_2nd(coherence_dict, 'coherence_dict.pkl')
+# remove_2nd(gnm_baseline_intensity_dict, 'gnm_baseline_intensity_dict.pkl')
+# remove_2nd(gnm_baseline_coherence_dict, 'gnm_baseline_coherence_dict.pkl')
+# remove_2nd(baseline_intensity_dict, 'baseline_intensity_dict.pkl')
+# remove_2nd(baseline_coherence_dict, 'baseline_coherence_dict.pkl')
+# remove_2nd(unibi_baseline_intensity_dict, 'unibi_baseline_intensity_dict.pkl')
+# remove_2nd(unibi_baseline_coherence_dict, 'unibi_baseline_coherence_dict.pkl')
+# remove_2nd(sunibi_baseline_intensity_dict, 'sunibi_baseline_intensity_dict.pkl')
+# remove_2nd(sunibi_baseline_coherence_dict, 'sunibi_baseline_coherence_dict.pkl')
+# %%
 ################## find significant signed motifs using z score for motif intensity and coherence
 ################## first Z score, then average
 def get_intensity_zscore(intensity_dict, coherence_dict, baseline_intensity_dict, baseline_coherence_dict, num_baseline=100):
@@ -895,3 +913,409 @@ dfs = [whole_df1, whole_df2, whole_df3, whole_df4]
 df_ind = 3 # plot results obtained with Signed-pair-preserving model
 plot_zscore_allmotif_lollipop(dfs[df_ind], model_names[df_ind])
 # %%
+# Figure 3A
+def scatter_ZscoreVSdensity(origin_df, G_dict):
+  df = origin_df.copy()
+  df['density'] = 0
+  sessions, stimuli = get_session_stimulus(G_dict)
+  fig, ax = plt.subplots(figsize=(5, 5))
+  for session_ind, session in enumerate(sessions):
+    for stimulus in stimuli:
+      G = G_dict[session][stimulus]
+      df.loc[(df['session']==session) & (df['stimulus']==stimulus), 'density'] = nx.density(G)
+  df['density'] = pd.to_numeric(df['density'])
+  df['intensity z score'] = df['intensity z score'].abs()
+  X, Y = [], []
+  
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby(['stimulus', 'session']).mean(numeric_only=True)
+    # print(data['density'].values)
+    x = data['density'].values.tolist()
+    y = data['intensity z score'].values.tolist()
+    X += x
+    Y += y
+    ax.scatter(x, y, ec='.1', fc='none', marker=stimulus2marker[combined_stimulus_name], s=10*marker_size_dict[stimulus2marker[combined_stimulus_name]], alpha=.9, linewidths=1.5)
+  
+  X, Y = (list(t) for t in zip(*sorted(zip(X, Y))))
+  X, Y = np.array(X), np.array(Y)
+  slope, intercept, r_value, p_value, std_err = stats.linregress(np.log10(X),Y)
+  line = slope*np.log10(X)+intercept
+  locx, locy = .8, .1
+  text = 'r={:.2f}, p={:.1e}'.format(r_value, p_value)
+  ax.plot(X, line, color='.2', linestyle=(5,(10,3)), alpha=.5)
+  ax.text(locx, locy, text, horizontalalignment='center',
+     verticalalignment='center', transform=ax.transAxes, fontsize=22)
+  ax.xaxis.set_tick_params(labelsize=25)
+  ax.yaxis.set_tick_params(labelsize=25)
+  plt.xlabel('Density')
+  ylabel = 'Absolute motif significance' # 'Absolute Z score'
+  plt.xscale('log')
+  plt.ylabel(ylabel)
+  ax.set_xlabel(ax.get_xlabel(), fontsize=28,color='k') #, weight='bold'
+  ax.set_ylabel(ax.get_ylabel(), fontsize=28,color='k') #, weight='bold'
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  plt.tight_layout(rect=[0, 0, 1, .9])
+  plt.savefig(f'./figures/figure3A.pdf', transparent=True)
+
+scatter_ZscoreVSdensity(whole_df4, G_ccg_dict)
+# %%
+# Figure 3B
+def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+  new_cmap = colors.LinearSegmentedColormap.from_list(
+    'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
+    cmap(np.linspace(minval, maxval, n)))
+  return new_cmap
+
+######################## Heatmap of Pearson Correlation r of Z score
+def plot_heatmap_correlation_zscore(df):
+  fig, ax = plt.subplots(1,1, figsize=(5.6,5))
+  sorted_types = [sorted([smotif for smotif in df['signed motif type'].unique() if mt in smotif]) for mt in TRIAD_NAMES]
+  sorted_types = [item for sublist in sorted_types for item in sublist]
+  data_mat = np.zeros((len(combined_stimulus_names), len(sorted_types)))
+  for s_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    print(combined_stimulus_name)
+    data = df[df.apply(lambda x: combine_stimulus(x['stimulus'])[1], axis=1)==combined_stimulus_name]
+    data = data.groupby('signed motif type').mean(numeric_only=True)
+    data_mat[s_ind] = data.loc[sorted_types, "intensity z score"].values.flatten()
+  hm_z = np.corrcoef(data_mat)
+  np.fill_diagonal(hm_z, np.nan)
+  colors = ['w', '.3'] # first color is black, last is red
+  cm = LinearSegmentedColormap.from_list(
+        "Custom", colors, N=20)
+  hm = sns.heatmap(hm_z, ax=ax, cmap=cm, vmin=0, vmax=1, cbar=True, annot=True, annot_kws={'fontsize':20})#, mask=mask
+  cbar = hm.collections[0].colorbar
+  cbar.ax.tick_params(labelsize=24)
+  ax.set_title('Motif significance correlation', fontsize=25)
+  ax.set_xticks([])
+  ax.set_yticks([])
+  ax.invert_yaxis() # put spontaneous on the bottom
+  hm.tick_params(left=False)  # remove the ticks
+  hm.tick_params(bottom=False)
+  hm.tick_params(top=False)
+  fig.tight_layout()
+  plt.savefig('./figures/figure3B.pdf', transparent=True)
+
+plot_heatmap_correlation_zscore(whole_df4)
+# %%
+# Figure 3C
+def get_signalcorr_within_across_motif(G_dict, eFFLb_types, all_motif_types, signal_correlation_dict, pair_type='all'):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  within_eFFLb_dict, within_motif_dict, across_motif_dict = {}, {}, {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in all_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+  for session_ind, session in enumerate(sessions):
+    print(session)
+    active_area = active_area_dict[session]
+    node_idx = sorted(active_area.keys())
+    within_eFFLb_dict[session], within_motif_dict[session], across_motif_dict[session] = {}, {}, {}
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+      for stimulus in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+        print(stimulus)
+        df = mean_df4[mean_df4['stimulus']==stimulus]
+        sig_motifs = df.loc[df['intensity z score'] > 2.576]['signed motif type'].tolist() # 99% 
+        within_eFFLb_dict[session][stimulus], within_motif_dict[session][stimulus], across_motif_dict[session][stimulus] = [], [], []
+        G = G_dict[session][stimulus]
+        nodes = sorted(G.nodes())
+        signal_corr = signal_correlation_dict[session][combined_stimulus_name]
+        motifs_by_type = find_triads(G)
+        if pair_type == 'all': # all neuron pairs
+          neuron_pairs = list(itertools.combinations(node_idx, 2))
+        elif pair_type == 'connected': # limited to connected pairs only
+          neuron_pairs = list(G.to_undirected().edges())
+        neuron_pairs = [tuple([nodes.index(node) for node in e]) for e in neuron_pairs]
+        other_edges = set(neuron_pairs)
+        for motif_type in motif_types:
+          motifs = motifs_by_type[motif_type]
+          for motif in motifs:
+            smotif_type = motif_type + get_motif_sign(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+            # smotif_type = motif_type + get_motif_sign(motif, motif_type, weight='weight')
+            if pair_type == 'all': # all neuron pairs
+              motif_pairs = list(itertools.combinations(motif.nodes(), 2))
+            elif pair_type == 'connected': # limited to connected pairs only
+              motif_pairs = list(motif.to_undirected().edges())
+            motif_pairs = [tuple([nodes.index(node) for node in e]) for e in motif_pairs]
+            within_signal_corr = [signal_corr[e] for e in motif_pairs if not np.isnan(signal_corr[e])]
+            if len(within_signal_corr):
+              if smotif_type in eFFLb_types:
+                within_eFFLb_dict[session][stimulus] += within_signal_corr
+                other_edges -= set(motif_pairs)
+              # else: # if all motifs
+              elif smotif_type in sig_motifs:
+                within_motif_dict[session][stimulus] += within_signal_corr
+                other_edges -= set(motif_pairs)
+            
+        for e in other_edges:
+          if not np.isnan(signal_corr[e]):
+            across_motif_dict[session][stimulus].append(signal_corr[e])
+  df = pd.DataFrame()
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+    for stimulus in combined_stimuli[combined_stimulus_names.index(combined_stimulus_name)]:
+      for session in sessions:
+        within_eFFLb, within_motif, across_motif = within_eFFLb_dict[session][stimulus], within_motif_dict[session][stimulus], across_motif_dict[session][stimulus]
+        # within_motif, across_motif = [e for e in within_motif if not np.isnan(e)], [e for e in across_motif if not np.isnan(e)] # remove nan values
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_eFFLb)[:,None], np.array(['within eFFLb'] * len(within_eFFLb))[:,None], np.array([combined_stimulus_name] * len(within_eFFLb))[:,None], np.array([session] * len(within_eFFLb))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(within_motif)[:,None], np.array(['within other motif'] * len(within_motif))[:,None], np.array([combined_stimulus_name] * len(within_motif))[:,None], np.array([session] * len(within_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(across_motif)[:,None], np.array(['otherwise'] * len(across_motif))[:,None], np.array([combined_stimulus_name] * len(across_motif))[:,None], np.array([session] * len(across_motif))[:,None]), 1), columns=['signal_corr', 'type', 'stimulus', 'session'])], ignore_index=True)
+  df['signal_corr'] = pd.to_numeric(df['signal_corr'])
+  return df
+
+# pair_type = 'all'
+pair_type = 'connected'
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+motif_types = ['021D', '021U', '021C', '111D', '111U', '030T', '030C', '201', '120D', '120U', '120C', '210', '300']
+signal_corr_within_across_motif_df = get_signalcorr_within_across_motif(G_ccg_dict, sig_motif_types, motif_types, signal_correlation_dict, pair_type=pair_type)
+# %%
+# Figure 3C
+def plot_signalcorr_within_across_motif_significance(origin_df, pair_type='all'):
+  df = origin_df.copy()
+  # df = df[df['stimulus']!='Flashes'] # remove flashes
+  fig, ax = plt.subplots(1,1, figsize=(2*(len(combined_stimulus_names)-2), 5))
+  df = df.set_index('stimulus')
+  df = df.loc[combined_stimulus_names[2:]]
+  df.reset_index(inplace=True)
+  palette = ['k', 'grey','w']
+  y = 'signal_corr'
+  barplot = sns.barplot(x='stimulus', y=y, hue="type", hue_order=['within eFFLb', 'within other motif', 'otherwise'], palette=palette, ec='k', linewidth=2., data=df, ax=ax, capsize=.05, width=0.6)
+  ax.yaxis.set_tick_params(labelsize=30)
+  plt.setp(ax.get_legend().get_title(), fontsize='0') # for legend title
+  plt.xticks([], []) # use markers to represent stimuli!
+  ax.xaxis.set_tick_params(length=0)
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2)
+  ax.set_xlabel('')
+  ax.set_ylabel('Signal correlation', fontsize=40) #'Absolute ' + 
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend([], [], fontsize=0)
+  # add significance annotation
+  alpha_list = [.0001, .001, .01, .05]
+
+  maxx = 0
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+    within_eFFLb, within_motif, across_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    eFFLb_sr, within_sr, across_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(across_motif)[1]
+    maxx = max(eFFLb_sr, within_sr, across_sr) if max(eFFLb_sr, within_sr, across_sr) > maxx else maxx
+  h, l = .05 * maxx, .05 * maxx
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names[2:]):
+    within_eFFLb, within_motif, across_motif = df[(df.stimulus==combined_stimulus_name)&(df.type=='within eFFLb')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='within other motif')][y].values.flatten(), df[(df.stimulus==combined_stimulus_name)&(df.type=='otherwise')][y].values.flatten()
+    if len(within_motif):
+      _, p1 = ranksums(within_eFFLb, within_motif, alternative='greater')
+      diff_star1 = '*' * (len(alpha_list) - bisect(alpha_list, p1)) if len(alpha_list) > bisect(alpha_list, p1) else 'ns'
+    _, p2 = ranksums(within_eFFLb, across_motif, alternative='greater')
+    diff_star2 = '*' * (len(alpha_list) - bisect(alpha_list, p2)) if len(alpha_list) > bisect(alpha_list, p2) else 'ns'
+    # just for annotation location
+    eFFLb_sr, within_sr, across_sr = confidence_interval(within_eFFLb)[1], confidence_interval(within_motif)[1], confidence_interval(across_motif)[1]
+    eFFLb_sr += h
+    within_sr += h
+    across_sr += h
+    if len(within_motif):
+      annot_difference(diff_star1, -.18 + cs_ind, cs_ind, max(eFFLb_sr, within_sr), l, 2.5, 28, ax=ax)
+    annot_difference(diff_star2, -.18 + cs_ind, .18 + cs_ind, max(eFFLb_sr, across_sr) + 3.5*h, l, 2.5, 28, ax=ax)
+  plt.tight_layout(rect=[.02, -.03, 1, 1])
+  plt.savefig('./figures/figure3C.pdf', transparent=True)
+
+plot_signalcorr_within_across_motif_significance(signal_corr_within_across_motif_df, pair_type=pair_type)
+# %%
+# Figure 3D
+def most_common(lst):
+    return max(set(lst), key=lst.count)
+
+def get_motif_region(motif, node_area, motif_type):
+  edges = list(motif.edges())
+  nodes = [node for sub in edges for node in sub]
+  triplets = list(set(nodes))
+  if motif_type == '021D':
+    node_P = most_common([i for i,j in edges])
+    node_X, node_O = [j for i,j in edges]
+  elif motif_type == '021U':
+    node_P = most_common([j for i,j in edges])
+    node_X, node_O = [i for i,j in edges]
+  elif motif_type == '021C':
+    node_X = most_common(nodes)
+    triplets.remove(node_X)
+    if (triplets[0], node_X) in edges:
+      node_P, node_O = triplets
+    else:
+      node_O, node_P = triplets
+  elif motif_type == '111D':
+    node_X = most_common([j for i,j in edges])
+    node_P = [j for i,j in edges if i == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+  elif motif_type == '111U':
+    node_X = most_common([i for i,j in edges])
+    node_P = [i for i,j in edges if j == node_X][0]
+    triplets.remove(node_X)
+    triplets.remove(node_P)
+    node_O = triplets[0]
+  elif motif_type == '030T':
+    node_P = most_common([i for i,j in edges])
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '030C':
+    es = edges.copy()
+    np.random.shuffle(es)
+    node_P, node_O = es[0]
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '201':
+    node_P = most_common([i for i,j in edges])
+    triplets.remove(node_P)
+    np.random.shuffle(triplets)
+    node_X, node_O = triplets
+  elif motif_type == '120D':
+    node_P = most_common([i for i,j in edges])
+    triplets.remove(node_P)
+    np.random.shuffle(triplets)
+    node_X, node_O = triplets
+  elif motif_type == '120U':
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_O)
+    np.random.shuffle(triplets)
+    node_P, node_X = triplets
+  elif motif_type == '120C':
+    node_P = most_common([i for i,j in edges])
+    node_O = most_common([j for i,j in edges])
+    triplets.remove(node_P)
+    triplets.remove(node_O)
+    node_X = triplets[0]
+  elif motif_type == '210':
+    node_O = most_common([node for sub in edges for node in sub])
+    triplets.remove(node_O)
+    if tuple(triplets) in edges:
+      node_P, node_X = triplets
+    else:
+      node_X, node_P = triplets
+  elif motif_type == '300':
+    np.random.shuffle(triplets)
+    node_P, node_X, node_O = triplets
+  node_order = [node_P, node_X, node_O]
+  region = [node_area[node] for node in node_order]
+  if motif_type in ['021D', '021U', '120D']: # P, X/O
+    region = '_'.join([region[0], '_'.join(sorted(region[1:]))])
+  elif motif_type == '030C':
+    region = '_'.join(sorted([region, region[1:] + region[:1], region[2:] + region[:2]])[0]) # shift string
+  elif motif_type in ['120U']:
+    region = '_'.join(['_'.join(sorted(region[:2])), region[-1]]) # P/X, O
+  elif motif_type == '300':
+    region = '_'.join(sorted(region))
+  else:
+    region = '_'.join(region)
+  return region
+
+def get_motif_region_census(G_dict, area_dict, signed_motif_types):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  region_count_dict = {}
+  motif_types = []
+  motif_edges, motif_sms = {}, {}
+  for signed_motif_type in signed_motif_types:
+    motif_types.append(signed_motif_type.replace('+', '').replace('-', ''))
+  for motif_type in motif_types:
+    motif_edges[motif_type], motif_sms[motif_type] = get_edges_sms(motif_type, weight='confidence')
+  for session_ind, session in enumerate(sessions):
+    print(session)
+    node_area = area_dict[session]
+    region_count_dict[session] = {}
+    for stimulus_ind, stimulus in enumerate(stimuli):
+      print(stimulus)
+      region_count_dict[session][stimulus] = {}
+      G = G_dict[session][stimulus]
+      motifs_by_type = find_triads(G) # faster
+      for signed_motif_type in signed_motif_types:
+        motif_type = signed_motif_type.replace('+', '').replace('-', '')
+        motifs = motifs_by_type[motif_type]
+        for motif in motifs:
+          smotif_type = motif_type + get_motif_sign(motif, motif_edges[motif_type], motif_sms[motif_type], weight='confidence')
+          if smotif_type == signed_motif_type:
+            region = get_motif_region(motif, node_area, motif_type)
+            # print(smotif_type, region)
+            region_count_dict[session][stimulus][smotif_type+region] = region_count_dict[session][stimulus].get(smotif_type+region, 0) + 1
+      region_count_dict[session][stimulus] = dict(sorted(region_count_dict[session][stimulus].items(), key=lambda x:x[1], reverse=True))
+  return region_count_dict
+
+################## regional distribution of significant motifs 030T+,120D+,120U+,120C+,210+,300+
+sig_motif_types = ['030T+++', '120D++++', '120U++++', '120C++++', '210+++++', '300++++++']
+region_count_dict = get_motif_region_census(G_ccg_dict, area_dict, sig_motif_types)
+#%%
+# Figure 3D
+################## plot errorplot for motif region
+def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mtype='all_V1'):
+  fig, ax = plt.subplots(1,1, sharex=True, sharey=True, figsize=(7, 4))
+  df = pd.DataFrame()
+  palette = [[plt.cm.tab20b(i) for i in range(20)][i] for i in [8,16,18,19]] + [[plt.cm.tab20c(i) for i in range(20)][i] for i in [4,16]]
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    print(signed_motif_type)
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      for stimulus in combined_stimuli[cs_ind]:
+        for session_ind, session in enumerate(sessions):
+          region_com = {}
+          VISp_data, rest_data = [], []
+          region_count = region_count_dict[session][stimulus]
+          for k in region_count:
+            if signed_motif_type in k:
+              rs = k.replace(signed_motif_type, '')
+              region_com[rs] = region_com.get(rs, 0) + region_count[k]
+          if mtype == 'all_V1':
+            VISp_data.append(region_com.get('VISp_VISp_VISp', 0))
+            rest_data.append(sum([region_com[k] for k in region_com if k!= 'VISp_VISp_VISp']))
+          elif mtype == 'one_V1':
+            VISp_data.append(sum([region_com[k] for k in region_com if 'VISp' in k]))
+            rest_data.append(sum([region_com[k] for k in region_com if 'VISp' not in k]))
+          summ = sum(VISp_data) + sum(rest_data)
+          if (summ >= 5) and (whole_df[(whole_df.session==session)&(whole_df['signed motif type']==signed_motif_type)&(whole_df.stimulus==stimulus)]['intensity z score'].item() > 1.96): # othewise flashes will disappear
+            VISp_data = [sum(VISp_data)/summ]
+            rest_data = [sum(rest_data)/summ]
+            df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(VISp_data)[:,None], np.array([signed_motif_type] * len(VISp_data))[:,None], np.array([combined_stimulus_name] * len(VISp_data))[:,None]), 1), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+      if not df[(df.type==signed_motif_type) & (df.stimulus==combined_stimulus_name)].shape[0]:
+        df = pd.concat([df, pd.DataFrame(np.array([[0, signed_motif_type, combined_stimulus_name]]), columns=['probability', 'type', 'stimulus'])], ignore_index=True)
+  df['probability'] = pd.to_numeric(df['probability'])
+  for mt_ind, signed_motif_type in enumerate(signed_motif_types):
+    data = df[df.type==signed_motif_type].groupby('stimulus')
+    x = np.arange(len(combined_stimulus_names))
+    y = data.mean(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    err = data.std(numeric_only=True).loc[combined_stimulus_names].values.flatten()
+    for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+      if yi:
+        ax.errorbar(xi + .13 * mt_ind, yi, yerr=erri, fmt=' ', linewidth=2.,color=palette[mt_ind], zorder=1)
+        ax.scatter(xi + .13 * mt_ind, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=10*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color=palette[mt_ind], zorder=2)
+  
+  ax.set(xlabel=None)
+  ax.xaxis.set_tick_params(length=0)
+  ax.set_xticks([])
+  ax.yaxis.set_tick_params(labelsize=25)
+  ax.set_xlabel('')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(2.)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=2.)
+  ax.set_ylim(bottom=0)
+  ylabel = 'Fraction of at least\none V1 neuron' if mtype=='one_V1' else 'Fraction of three\nV1 neurons'
+  ax.set_ylabel(ylabel, fontsize=25)
+  plt.tight_layout(rect=[.02, -.03, 1, 1])
+  fname = 'left' if mtype=='one_V1' else 'right'
+  plt.savefig('./figures/figure3D_{}.pdf'.format(fname), transparent=True)
+
+plot_motif_region_error(whole_df4, region_count_dict, sig_motif_types, mtype='one_V1')
+plot_motif_region_error(whole_df4, region_count_dict, sig_motif_types, mtype='all_V1')
