@@ -579,14 +579,15 @@ def get_pos_neg_p_signalcorr(G_dict, signal_correlation_dict, pairtype='all'):
     print(session)
     active_area = active_area_dict[session]
     node_idx = sorted(active_area.keys())
-    for combined_stimulus_name in combined_stimulus_names[1:]:
+    for combined_stimulus_name in combined_stimulus_names[2:]: # exclude spontaneous and flashes in signal correlation analysis
       cs_ind = combined_stimulus_names.index(combined_stimulus_name)
       signal_correlation = signal_correlation_dict[session][combined_stimulus_name]
       pos_connect, neg_connect, dis_connect, signal_corr = [], [], [], []
       for col in combined_stimuli[cs_ind]:
         G = G_dict[session][col].copy()
+        nodes = sorted(G.nodes())
         for nodei, nodej in itertools.combinations(node_idx, 2):
-          scorr = signal_correlation[nodei, nodej] # abs(signal_correlation[nodei, nodej])
+          scorr = signal_correlation[nodes.index(nodei), nodes.index(nodej)] # abs(signal_correlation[nodei, nodej])
           if not np.isnan(scorr):
             if G.has_edge(nodei, nodej):
               signal_corr.append(scorr)
@@ -655,4 +656,43 @@ print("--- %s minutes" % ((time.time() - start_time)/60))
 # a_file = open('./files/signal_correlation_dict.pkl', 'wb')
 # pickle.dump(signal_correlation_dict, a_file)
 # a_file.close()
+# %%
+# Figure 1G
+def plot_pos_neg_signal_correlation_distri(pos_df, neg_df, dis_df):
+  fig, axes = plt.subplots(1,len(combined_stimulus_names)-2, figsize=(5*(len(combined_stimulus_names)-2), 3), sharex=True)
+  for cs_ind in range(len(axes)):
+    ax = axes[cs_ind]
+    pos_data = pos_df[(pos_df.stimulus==combined_stimulus_names[cs_ind+2]) & (pos_df.type==1)].copy() #  & (df.session==row)
+    neg_data = neg_df[(neg_df.stimulus==combined_stimulus_names[cs_ind+2]) & (neg_df.type==1)].copy() #  & (df.session==row)
+    dis_data = dis_df[dis_df.stimulus==combined_stimulus_names[cs_ind+2]].copy()
+    pos_x, neg_x, dis_x = pos_data['signal correlation'].values.flatten(), neg_data['signal correlation'].values.flatten(), dis_data['signal correlation'].values.flatten()
+    df = pd.DataFrame()
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(pos_x)[:,None], np.array(['excitatory'] * len(pos_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(neg_x)[:,None], np.array(['inhibitory'] * len(neg_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(dis_x)[:,None], np.array(['disconnected'] * len(dis_x))[:,None]), 1), columns=['signal correlation', 'type'])], ignore_index=True)
+    df['signal correlation'] = pd.to_numeric(df['signal correlation'])
+    # sns.histplot(data=df, x='signal correlation', hue='type', stat='probability', common_norm=False, ax=ax, palette=['r', 'b', 'grey'], alpha=0.4)
+    sns.kdeplot(data=df, x='signal correlation', hue='type', common_norm=False, ax=ax, palette=['r', 'b', 'grey'], alpha=.8)
+    
+    ax.xaxis.set_tick_params(labelsize=30)
+    ax.yaxis.set_tick_params(labelsize=30)
+    for axis in ['bottom', 'left']:
+      ax.spines[axis].set_linewidth(2.5)
+      ax.spines[axis].set_color('k')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.tick_params(width=2.5)
+    ax.set_xlabel([], fontsize=0)
+    if cs_ind == 0:
+      ax.set_ylabel('KDE', fontsize=30)
+    else:
+      ax.set_ylabel([], fontsize=0)
+    # ax.set_xlabel('Signal correlation', fontsize=25)
+    # handles, labels = ax.get_legend_handles_labels()
+    ax.legend().set_visible(False)
+
+  plt.tight_layout(rect=[.01, 0, 1, 1])
+  plt.savefig('./figures/figure1G.pdf', transparent=True)
+
+plot_pos_neg_signal_correlation_distri(pos_connectionp_signalcorr_df, neg_connectionp_signalcorr_df, dis_connected_signalcorr_df)
 # %%
