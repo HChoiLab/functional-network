@@ -15,6 +15,18 @@ Information is processed by networks of neurons in the brain. On the timescale o
 
 The full paper can be accessed [here](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics).
 
+## Python dependencies
+
+numpy==1.23.5
+scipy==1.9.3
+pandas==1.5.2
+statsmodels==0.13.2
+networkx==2.8.8
+python-louvain==0.16
+netgraph==4.10.2
+scikit-learn==1.1.3
+upsetplot==0.8.0
+
 ## Citation
 
 If you use this code or data in your research, please cite our paper:
