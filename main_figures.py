@@ -1265,7 +1265,7 @@ def plot_motif_region_error(whole_df, region_count_dict, signed_motif_types, mty
     print(signed_motif_type)
     for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
       for stimulus in combined_stimuli[cs_ind]:
-        for session_ind, session in enumerate(sessions):
+        for session_ind, session in enumerate(session_ids):
           region_com = {}
           VISp_data, rest_data = [], []
           region_count = region_count_dict[session][stimulus]
@@ -1354,8 +1354,8 @@ def get_motif_IDs(G_dict, area_dict, signed_motif_types):
 def get_motif_stim_list_dict(motif_id_dict, signed_motif_types):
   motif_stim_dict = {smt:{} for smt in signed_motif_types}
   for smt_ind, signed_motif_type in enumerate(signed_motif_types):
-    motif_stim_dict[signed_motif_type] = {session_id:{} for session_id in sessions}
-    for s_ind, session_id in enumerate(sessions):
+    motif_stim_dict[signed_motif_type] = {session_id:{} for session_id in session_ids}
+    for s_ind, session_id in enumerate(session_ids):
       for combined_stimulus_name in combined_stimulus_names:
         motif_stim_dict[signed_motif_type][session_id][combined_stimulus_name] = motif_id_dict[session_id][combined_stimulus_name][signed_motif_type]
   return motif_stim_dict
@@ -1365,7 +1365,7 @@ def merge_mice(motif_stim_list_dict):
   merge_ind_motif_stim_list_dict = {smt:{csn:[] for csn in combined_stimulus_names} for smt in motif_stim_list_dict}
   for smt in motif_stim_list_dict:
     for csn in combined_stimulus_names:
-      for s_ind, session_id in enumerate(sessions):
+      for s_ind, session_id in enumerate(session_ids):
         merge_ind_motif_stim_list_dict[smt][csn] += [tuple([s_ind]) + ele for ele in motif_stim_list_dict[smt][session_id][csn]] # s_ind to differentiate neurons
   return merge_ind_motif_stim_list_dict
       
@@ -1474,3 +1474,326 @@ def multi_circular_lollipop(df1, df2, df3, df4, stimulus_name='natural_movie_thr
   plt.savefig('./figures/figure3F.pdf', transparent=True)
 
 multi_circular_lollipop(whole_df1, whole_df2, whole_df3, whole_df4, stimulus_name='natural_movie_three')
+# %%
+# Load data for Figures 4 & 5
+################# max pos & neg resolution for Hamiltonian
+resolution_list = np.arange(0, 2.1, 0.1)
+resolution_list = [round(reso, 2) for reso in resolution_list]
+sessions, stimuli = get_session_stimulus(G_ccg_dict)
+with open('./files/best_comms_dict.pkl', 'rb') as f:
+  best_comms_dict = pickle.load(f)
+with open('./files/real_Hamiltonian.npy', 'rb') as f:
+  real_Hamiltonian = np.load(f)
+with open('./files/subs_Hamiltonian.npy', 'rb') as f:
+  subs_Hamiltonian = np.load(f)
+def get_max_dH_pos_neg_resolution(sessions, stimuli, real_H, subs_H): 
+  max_reso_subs = np.zeros((len(sessions), len(stimuli), 2)) # last dim 0 for pos, 1 for neg
+  for session_ind, session in enumerate(sessions):
+    print(session)
+    for stimulus_ind, stimulus in enumerate(stimuli):
+      metric_mean = real_H[session_ind, stimulus_ind].mean(-1)
+      metric_subs = subs_H[session_ind, stimulus_ind].mean(-1)
+      pos_ind, neg_ind = np.unravel_index(np.argmax(metric_subs - metric_mean), np.array(metric_mean).shape)
+      max_reso_subs[session_ind, stimulus_ind] = resolution_list[pos_ind], resolution_list[neg_ind]
+  return max_reso_subs
+
+max_reso_subs = get_max_dH_pos_neg_resolution(sessions, stimuli, real_Hamiltonian, subs_Hamiltonian)
+# %%
+# Figure 4A
+def comm2label(comms):
+  return [p for n, p in sorted({n:comms.index(comm) for comm in comms for n in comm}.items(), key=lambda x:x[0])]
+
+def comm2partition(comms):
+  return dict(sorted({node:comms.index(comm) for comm in comms for node in comm}.items(), key=lambda x:x[0]))
+
+############ find nodes and comms with at least one between community edge
+def flatten_list(nested_list):
+    return [item for sublist in nested_list for item in sublist]
+
+def get_unique_elements(nested_list):
+    return list(set(flatten_list(nested_list)))
+
+def _find_between_community_edges(edges, node_to_community):
+  """Convert the graph into a weighted network of communities."""
+  between_community_edges = dict()
+  for (ni, nj) in edges:
+      if (ni in node_to_community) and (nj in node_to_community):
+          ci = node_to_community[ni]
+          cj = node_to_community[nj]
+          if ci != cj:
+              if (ci, cj) in between_community_edges:
+                  between_community_edges[(ci, cj)] += 1
+              elif (cj, ci) in between_community_edges:
+                  # only compute the undirected graph
+                  between_community_edges[(cj, ci)] += 1
+              else:
+                  between_community_edges[(ci, cj)] = 1
+
+  return between_community_edges
+
+def plot_graph_community(G_dict, session_ind, best_comms_dict):
+  seed = 123
+  np.random.seed(seed)
+  sessions, stimuli = get_session_stimulus(G_dict)
+  session = sessions[session_ind]
+  fig, axes = plt.subplots(1, len(combined_stimuli), figsize=(12*len(combined_stimuli), 12))
+  comm_inds = [49, 5, 102, 5, 13, 157] # randomly choose a realization for visualization
+  th = 6 # only plot large communities for visualization
+  for cs_ind, combined_stimulus_name in enumerate(combined_stimulus_names):
+    comm_ind = comm_inds[cs_ind]
+    stimulus = combined_stimuli[cs_ind][-1]
+    ax = axes[cs_ind]
+    stimulus_ind = stimuli.index(stimulus)
+    ax.set_title(combined_stimulus_name.replace('\n', ' '), fontsize=80)
+    print(stimulus)
+    G = G_dict[session][stimulus]
+    nx.set_node_attributes(G, active_area_dict[session], "area")
+    comms_list = best_comms_dict[session][stimulus]
+    comms = comms_list[comm_ind]
+    comms = [comm for comm in comms if len(comm)>=th] # only plot large communities
+    node_to_community = comm2partition(comms)
+    between_community_edges = _find_between_community_edges(G.edges(), node_to_community)
+    comms2plot = get_unique_elements(between_community_edges.keys())
+    nodes2plot = [node for node in node_to_community if node_to_community[node] in comms2plot]
+    node_color = {node:region_colors[visual_regions.index(G.nodes[node]['area'])] for node in nodes2plot}
+    print('Number of communities {}, number of nodes: {}'.format(len(comms2plot), len(nodes2plot)))
+    if len(nodes2plot):
+      edge_colors = [transparent_rgb(colors.to_rgb('#2166ac'), [1,1,1], alpha=.4), transparent_rgb(colors.to_rgb('#b2182b'), [1,1,1], alpha=.3)] # blue and red
+      # return G.subgraph(nodes2plot)
+      G2plot = G.subgraph(nodes2plot).copy()
+      for n1, n2, d in G2plot.edges(data=True):
+        for att in ['confidence']:
+          d.pop(att, None)
+      # binary weight
+      for edge in G2plot.edges():
+        if G2plot[edge[0]][edge[1]]['weight'] > 0:
+          G2plot[edge[0]][edge[1]]['weight'] = 1
+        else:
+          G2plot[edge[0]][edge[1]]['weight'] = -1
+      # node_labels = {node:node_to_community[node] for node in nodes2plot}
+      if cs_ind in [0]:
+        origin, scale, node_origin, node_scale=(-1, -1), (.9, .9), np.array([-1., -1.]), np.array([2., 2.])
+      elif cs_ind in [1]:
+        origin, scale, node_origin, node_scale=(-1, -1), (.8, .8), np.array([.5, .5]), np.array([3.5, 3.5])
+      elif cs_ind in [2]:
+        origin, scale, node_origin, node_scale=(-1, -1), (.9, .9), np.array([-1., -1.]), np.array([2., 2.])
+      elif cs_ind in [3, 4, 5]:
+        origin, scale, node_origin, node_scale=(-1, -1), (.9, .9), np.array([-1., -1.]), np.array([2., 2.])
+      Graph(G2plot, nodes=nodes2plot, edge_cmap=colors.LinearSegmentedColormap.from_list("", edge_colors),
+            node_color=node_color, node_edge_width=0.5, node_alpha=1., edge_alpha=0.4,
+            node_layout='community', node_layout_kwargs=dict(node_to_community={node: comm for node, comm in node_to_community.items() if node in nodes2plot}),
+            edge_layout='straight', edge_layout_kwargs=dict(k=1), node_edge_color='k',
+            origin=origin, scale=scale, node_origin=node_origin, node_scale=node_scale, ax=ax) # bundled, node_labels=node_labels
+  plt.tight_layout()
+  plt.savefig('./figures/figure4A_top.pdf', transparent=True)
+
+plot_graph_community(G_ccg_dict, 6, best_comms_dict)
+# # %%
+# # remove second session     DONE!!!!!!!!!!
+# best_comms_dict = {n:a for n,a in best_comms_dict.items() if n in session_ids}
+# a_file = open('./files/best_comms_dict', 'wb')
+# pickle.dump(best_comms_dict, a_file)
+# a_file.close()
+# %%
+######################### Plot Z score of Hamiltonian as a measure of modular or not
+def arrowed_spines(
+        ax,
+        x_width_fraction=0.2,
+        x_height_fraction=0.02,
+        lw=None,
+        ohg=0.2,
+        locations=('bottom right', 'left up'),
+        **arrow_kwargs
+):
+    # set/override some default plotting parameters if required
+    arrow_kwargs.setdefault('overhang', ohg)
+    arrow_kwargs.setdefault('clip_on', False)
+    arrow_kwargs.update({'length_includes_head': True})
+
+    # axis line width
+    if lw is None:
+        # FIXME: does this still work if the left spine has been deleted?
+        lw = ax.spines['left'].get_linewidth()
+    annots = {}
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    # get width and height of axes object to compute
+    # matching arrowhead length and width
+    fig = ax.get_figure()
+    dps = fig.dpi_scale_trans.inverted()
+    bbox = ax.get_window_extent().transformed(dps)
+    width, height = bbox.width, bbox.height
+    # manual arrowhead width and length
+    hw = x_width_fraction * (ymax-ymin)
+    hl = x_height_fraction * (xmax-xmin)
+    # compute matching arrowhead length and width
+    yhw = hw/(ymax-ymin)*(xmax-xmin)* height/width
+    yhl = hl/(xmax-xmin)*(ymax-ymin)* width/height
+    # draw x and y axis
+    for loc_str in locations:
+        side, direction = loc_str.split(' ')
+        assert side in {'top', 'bottom', 'left', 'right'}, "Unsupported side"
+        assert direction in {'up', 'down', 'left', 'right'}, "Unsupported direction"
+
+        if side in {'bottom', 'top'}:
+            if direction in {'up', 'down'}:
+                raise ValueError("Only left/right arrows supported on the bottom and top")
+            dy = 0
+            head_width = hw
+            head_length = hl
+            y = ymin if side == 'bottom' else ymax
+
+            if direction == 'right':
+                x = xmin
+                dx = xmax - xmin
+            else:
+                x = xmax
+                dx = xmin - xmax
+        else:
+            if direction in {'left', 'right'}:
+                raise ValueError("Only up/downarrows supported on the left and right")
+            dx = 0
+            head_width = yhw
+            head_length = yhl
+            x = xmin if side == 'left' else xmax
+            if direction == 'up':
+                y = ymin
+                dy = ymax - ymin
+            else:
+                y = ymax
+                dy = ymin - ymax
+        annots[loc_str] = ax.arrow(x, y, dx, dy, fc='k', ec='k', lw = lw,
+                 head_width=head_width, head_length=head_length, **arrow_kwargs)
+
+    return annots
+
+def plot_zscore_Hamiltonian2Q(G_dict, resolution_list, max_pos_neg_reso, real_H, subs_H, max_method='none', cc=False):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  real_Q, subs_Q = np.zeros_like(real_H), np.zeros_like(subs_H)
+  for session_ind, session in enumerate(sessions):
+    for stimulus_ind, stimulus in enumerate(stimuli):
+      G = G_dict[session][stimulus]
+      tw = sum([abs(G.get_edge_data(*edge)['weight']) for edge in G.edges()])
+      real_Q[session_ind, stimulus_ind] = - real_H[session_ind, stimulus_ind] / tw
+      subs_Q[session_ind, stimulus_ind] = - subs_H[session_ind, stimulus_ind] / tw
+  zscore_Hamiltonian2Q, ps = [[] for _ in range(len(combined_stimuli))], [[] for _ in range(len(combined_stimuli))]
+  runs = real_Hamiltonian.shape[-1]
+  for session_ind, session in enumerate(sessions):
+    for stimulus_ind, stimulus in enumerate(stimuli):
+      q, rq = [], []
+      for run in range(runs):
+        max_reso = max_pos_neg_reso[session_ind, stimulus_ind]
+        q.append(real_Q[session_ind, stimulus_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+        rq.append(subs_Q[session_ind, stimulus_ind, resolution_list.index(max_reso[0]), resolution_list.index(max_reso[1]), run])
+      zscore_Hamiltonian2Q[combine_stimulus(stimulus)[0]].append(ztest(q, rq)[0])
+      ps[combine_stimulus(stimulus)[0]].append(ztest(q, rq)[1])
+  fig, ax = plt.subplots(1, 1, figsize=(6*len(combined_stimuli), 1.2))
+  ax.bar(range(len(combined_stimulus_names)), [np.mean(dH2Q) for dH2Q in zscore_Hamiltonian2Q], width=.07, align='center', alpha=1., linewidth=5, facecolor='w', edgecolor='black', capsize=10) #
+  ax.set_xlim(-.4, 5.5)
+  ax.set_ylim(0., 70)
+  annots = arrowed_spines(ax, locations=['bottom right'], lw=4.)
+  ax.set_xticks([])
+  # ax.set_xticklabels(combined_stimulus_names, fontsize=25)
+  for axis in ['top', 'left']:
+    ax.spines[axis].set_linewidth(3.)
+    ax.spines[axis].set_color('k')
+  ax.xaxis.tick_top()
+  ax.spines['right'].set_visible(False)
+  ax.spines['bottom'].set_visible(False)
+  ax.yaxis.set_tick_params(labelsize=30)
+  ax.tick_params(width=3)
+  ax.set_ylabel('$Z_Q$', size=40)
+  ax.invert_yaxis()
+  plt.tight_layout()
+  plt.savefig('./figures/figure4A_bottom.pdf', transparent=True)
+
+plot_zscore_Hamiltonian2Q(G_ccg_dict, resolution_list, max_pos_neg_reso=max_reso_subs, real_H=real_Hamiltonian, subs_H=subs_Hamiltonian, max_method='subs', cc=False)
+# %%
+# Figure 4C
+def get_purity_coverage_ri(G_dict, area_dict, regions, best_comms_dict):
+  sessions, stimuli = get_session_stimulus(G_dict)
+  df = pd.DataFrame()
+  for stimulus_ind, stimulus in enumerate(stimuli):
+    print(stimulus)
+    w_purity_col, w_coverage_col, ri_list = [], [], []
+    for session_ind, session in enumerate(sessions):
+      data = {}
+      G = G_dict[session][stimulus].copy()
+      node_area = area_dict[session]
+      all_regions = [node_area[node] for node in sorted(G.nodes())]
+      region_counts = np.array([all_regions.count(r) for r in regions])
+      for run in range(len(best_comms_dict[session][stimulus])):
+        comms_list = best_comms_dict[session][stimulus]
+        comms = comms_list[run]
+        large_comms = [comm for comm in comms if len(comm)>=4]
+        for comm in large_comms:
+          c_regions = [active_area_dict[session][node] for node in comm]
+          counts = np.array([c_regions.count(r) for r in regions])
+          size = counts.sum()
+          purity = counts.max() / size
+          coverage = (counts / region_counts).max()
+          if size in data:
+            data[size][0].append(purity)
+            data[size][1].append(coverage)
+          else:
+            data[size] = [[purity], [coverage]]
+        c_size, c_purity, c_coverage = [k for k,v in data.items()], [v[0] for k,v in data.items()], [v[1] for k,v in data.items()]
+        all_size = np.repeat(c_size, [len(p) for p in c_purity])
+        c_size = all_size / sum(all_size)
+        w_purity_col.append(sum([cs * cp for cs, cp in zip(c_size, [p for ps in c_purity for p in ps])]))
+        w_coverage_col.append(sum([cs * cc for cs, cc in zip(c_size, [c for css in c_coverage for c in css])]))
+        assert len(all_regions) == len(comm2label(comms)), '{}, {}'.format(len(all_regions), len(comm2label(comms)))
+        ri_list.append(adjusted_rand_score(all_regions, comm2label(comms)))
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_purity_col)[:,None], np.array(['weighted purity'] * len(w_purity_col))[:,None], np.array([combine_stimulus(stimulus)[1]] * len(w_purity_col))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(w_coverage_col)[:,None], np.array(['weighted coverage'] * len(w_coverage_col))[:,None], np.array([combine_stimulus(stimulus)[1]] * len(w_coverage_col))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame(np.concatenate((np.array(ri_list)[:,None], np.array(['rand index'] * len(ri_list))[:,None], np.array([combine_stimulus(stimulus)[1]] * len(ri_list))[:,None]), 1), columns=['data', 'type', 'combined stimulus'])], ignore_index=True)
+  df['data'] = pd.to_numeric(df['data'])
+  return df
+
+purity_coverage_ri_df = get_purity_coverage_ri(G_ccg_dict, area_dict, visual_regions, best_comms_dict)
+#%%
+# Figure 4C
+################# plot weighted purity and rand index across stimuli with different markers
+def plot_weighted_coverage_purity_rand_index_markers(df, dname):
+  fig, ax = plt.subplots(1, 1, figsize=(3, 2.5))
+  x = np.arange(len(combined_stimulus_names))
+  # use nonparametric confidence interval as error bar
+  y, err = [], []
+  for combined_stimulus_name in combined_stimulus_names:
+    lb, ub = nonpara_confidence_interval(df[(df['combined stimulus']==combined_stimulus_name)&(df['type']==dname)]['data'].values, confidence_level=0.95)
+    y.append((lb + ub) / 2)
+    err.append((ub - lb) / 2)
+  for ind, (xi, yi, erri) in enumerate(zip(x, y, err)):
+    ax.errorbar(xi, yi, yerr=erri, fmt=' ', linewidth=2.,color='.1', zorder=1)
+    ax.scatter(xi, yi, marker=stimulus2marker[combined_stimulus_names[ind]], s=15*error_size_dict[stimulus2marker[combined_stimulus_names[ind]]], linewidth=1.,color='k', facecolor='white', zorder=2)
+  ax.set(xlabel=None)
+  ax.xaxis.set_tick_params(length=0)
+  ax.set_xlim(-.8, len(combined_stimulus_names)-.2)
+  # ax.invert_yaxis()
+  ax.set_xticks([])
+  ax.yaxis.set_tick_params(labelsize=20)
+  ax.set_xlabel('')
+  for axis in ['bottom', 'left']:
+    ax.spines[axis].set_linewidth(1.5)
+    ax.spines[axis].set_color('k')
+  ax.spines['top'].set_visible(False)
+  ax.spines['right'].set_visible(False)
+  ax.tick_params(width=1.5)
+  ymin, ymax = ax.get_ylim()
+  ax.set_ylim(0.9*ymin, 1.08*ymax)
+  plt.tight_layout()
+  if dname == 'weighted coverage':
+    fname = 'top'
+    ylabel = 'WA coverage'
+  elif dname == 'weighted purity':
+    fname = 'middle'
+    ylabel = 'WA purity'
+  elif dname == 'rand index':
+    fname = 'bottom'
+    ylabel = 'ARI'
+  ax.set_ylabel(ylabel, fontsize=28)
+  plt.savefig('./figures/figure4C_{}.pdf'.format(fname), transparent=True)
+
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted coverage')
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'weighted purity')
+plot_weighted_coverage_purity_rand_index_markers(purity_coverage_ri_df, 'rand index')
