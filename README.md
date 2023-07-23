@@ -3,6 +3,8 @@
 [![License](https://img.shields.io/badge/License-BSD%202--Clause-blue.svg)](LICENSE)
 [![Paper](https://img.shields.io/badge/Paper-PDF-red.svg)](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics)
 
+
+
 ## Introduction
 
 This repository contains the code and data to reproduce the results presented in the paper "Stimulus-dependent functional network topology in mouse visual cortex."
@@ -16,7 +18,7 @@ Information is processed by networks of neurons in the brain. On the timescale o
 The full paper can be accessed [here](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics).
 
 ## Python dependencies
-
+```
 numpy==1.23.5
 scipy==1.9.3
 pandas==1.5.2
@@ -26,9 +28,17 @@ python-louvain==0.16
 netgraph==4.10.2
 scikit-learn==1.1.3
 upsetplot==0.8.0
-
+```
 ## Citation
 
 If you use this code or data in your research, please cite our paper:
-
-Tang, D., Zylberberg, J., Jia, X., & Choi, H. (2023). Stimulus-dependent functional network topology in mouse visual cortex. bioRxiv, 2023-07.
+```bibtex
+@article{tang2023stimulus,
+  title={Stimulus-dependent functional network topology in mouse visual cortex},
+  author={Tang, Disheng and Zylberberg, Joel and Jia, Xiaoxuan and Choi, Hannah},
+  journal={bioRxiv},
+  pages={2023--07},
+  year={2023},
+  publisher={Cold Spring Harbor Laboratory}
+}
+```
