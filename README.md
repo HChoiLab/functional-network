@@ -1,7 +1,7 @@
 # Stimulus-dependent functional network topology in mouse visual cortex
 
 [![License](https://img.shields.io/badge/License-BSD%202--Clause-blue.svg)](LICENSE)
-[![Paper](https://img.shields.io/badge/Paper-PDF-red.svg)](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics)
+[![Paper](https://img.shields.io/badge/Paper-PDF-red.svg)](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1)
 
 
 
@@ -17,7 +17,7 @@ Information is processed by networks of neurons in the brain. On the timescale o
 
 ## Paper Link
 
-The full paper can be accessed [here](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1.article-metrics).
+The full paper can be accessed [here](https://www.biorxiv.org/content/10.1101/2023.07.03.547364v1).
 
 ## Python dependencies
 ```
