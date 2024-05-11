@@ -240,7 +240,7 @@ def motif_census(G, random_graphs, all_signed_motif_types, motif_types, motif_ed
 	intensity_df['intensity_random_mean'] = m
 	intensity_df['intensity_random_std'] = pseudo_std
 	intensity_z_score = (intensity_df['intensity'] - m) / pseudo_std
-	# Note that the usage of pseudo std could lead to extremely large values for motifs present in the real graph but not in any realizations of reference model,
+	# Note that the small values of pseudo std could lead to extremely large values for motifs present in the real graph but not in any realizations of reference model,
 	# in practice use as many realizations as possible and remove outliers of Z scores from multiple animals (e.g., 2 std across animals) to eliminate noise.
 	intensity_df['intensity_z_score'] = intensity_z_score
 	return intensity_df
