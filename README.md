@@ -7,7 +7,7 @@
 
 ## Introduction
 
-This repository contains the code and data to reproduce the results presented in the paper "Stimulus-dependent functional network topology in mouse visual cortex."
+This repository contains the code and data to reproduce the results presented in the paper "Stimulus type shapes the topology of cellular functional networks in mouse visual cortex."
 
 To generate figures in the manuscript, simply run the corresponding jupyter notebooks where functions can be found in library.py.
 
