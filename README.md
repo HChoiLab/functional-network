@@ -11,6 +11,10 @@ This repository contains the code and data to reproduce the results presented in
 
 To generate figures in the manuscript, simply run the corresponding jupyter notebooks where functions can be found in library.py.
 
+To run signed motif analysis, use signed_motif_detection.py where example usage can be found in signed_motif_detection_example.ipynb.
+
+To run jitter-corrected CCG, use ccg_library.py where example usage can be found in ccg_example_usage.ipynb.
+
 ## Abstract
 
 On the timescale of sensory processing, neuronal networks have relatively fixed anatomical connectivity, while functional interactions between neurons can vary depending on the ongoing activity of the neurons within the network. We thus hypothesized that different types of stimuli could lead those networks to display stimulus-dependent functional connectivity patterns. To test this hypothesis, we analyzed single-cell resolution electrophysiological data from the Allen Institute, with simultaneous recordings of stimulus-evoked activity from neurons across 6 different regions of mouse visual cortex. Comparing the functional connectivity patterns during different stimulus types, we made several nontrivial observations: (1) while the frequencies of different functional motifs were preserved across stimuli, the identities of the neurons within those motifs changed; (2) the degree to which functional modules are contained within a single brain region increases with stimulus complexity. Altogether, our work reveals unexpected stimulus-dependence to the way groups of neurons interact to process incoming sensory information.
