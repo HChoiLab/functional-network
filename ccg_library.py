@@ -3,7 +3,7 @@
 
 # ccg.py --- Python library for jitter-corrected ccg method with "sharp peak/interval" detection.
 # Author : Disheng Tang
-# Date : 2024-08-10
+# Date : 2024-08-20
 # Homepage : https://dishengtang.github.io/
 
 import itertools
@@ -272,15 +272,6 @@ class pattern_jitter():
 
 ######################################## CCG class ########################################
 class CCG:
-	"""
-	Class for calculating jitter-corrected cross-correlograms (CCGs) between neurons with potentially multiple trials, with options for jitter method and parallel computing.
-
-	Methods:
-		calculate_ccg_pair: Calculate the CCG between two neurons for a single trial.
-		calculate_all_ccgs: Calculate CCGs for all pairs of neurons for a single trial, with optional parallel computing.
-		calculate_mean_ccg_corrected: Calculate the mean CCG with jitter correction using the pattern jitter method.
-	"""
-
 	def __init__(self, num_jitter=100, L=25, window=100, memory=False, use_parallel=True, num_cores=14):
 		"""
 		Initializes the CCG class with options for parallel computing.
@@ -317,16 +308,12 @@ class CCG:
 			T (int): The number of time bins in the original (unpadded) spike trains.
 				
 		Returns:
-			np.ndarray: The CCG for the specified pair of neurons over the window size. 
-									If either neuron has zero firing rate, returns an array of zeros.
+			np.ndarray: The CCG for the specified pair of neurons over the window size.
 		"""
-		if firing_rates[ind_A] * firing_rates[ind_B] > 0:  # Ensure both neurons have non-zero firing rates
-			px, py = padded_st1[ind_A, :], padded_st2[ind_B, :]
-			shifted = as_strided(px[self.window:], shape=(self.window + 1, T + self.window),
-											strides=(-px.strides[0], px.strides[0]))
-			return (shifted @ py) / ((T - np.arange(self.window + 1)) / 1000 * np.sqrt(firing_rates[ind_A] * firing_rates[ind_B]))
-		else:
-			return np.zeros(self.window + 1)
+		px, py = padded_st1[ind_A, :], padded_st2[ind_B, :]
+		shifted = as_strided(px[self.window:], shape=(self.window + 1, T + self.window),
+										strides=(-px.strides[0], px.strides[0]))
+		return (shifted @ py) / ((T - np.arange(self.window + 1)) / 1000 * np.sqrt(firing_rates[ind_A] * firing_rates[ind_B]))
 
 	def calculate_all_ccgs_single_trial(self, spikeTrain_single_trial, disable=True):
 		"""
@@ -340,55 +327,64 @@ class CCG:
 			ccgs (np.ndarray): A matrix (N x N x window+1) containing the CCGs for all pairs of neurons.
 		"""
 		N, T = spikeTrain_single_trial.shape
-		ccgs = np.empty((N, N, self.window + 1))
-		ccgs[:] = np.nan
+		ccgs = np.zeros((N, N, self.window + 1))
+		# Make the diagonal elements of the matrix NaN
+		mask = np.eye(N, dtype=bool)[:, :, None]
+		mask = np.broadcast_to(mask, ccgs.shape)
+		ccgs[mask] = np.nan
+		# ccgs[:] = np.nan
 		firing_rates = np.count_nonzero(spikeTrain_single_trial, axis=1) / (spikeTrain_single_trial.shape[1] / 1000)  # in Hz,, default time bin is 1ms, change this based on time bin size
 		# Pad the matrices for CCG calculation
 		padded_st1 = np.concatenate((np.zeros((N, self.window)), spikeTrain_single_trial.conj(), np.zeros((N, self.window))), axis=1)
 		padded_st2 = np.concatenate((spikeTrain_single_trial.conj(), np.zeros((N, self.window))), axis=1)
-		total_list = list(itertools.permutations(range(N), 2))
-		if self.use_parallel:
-			result = self.Parallel(n_jobs=self.num_cores)(
-				self.delayed(self.calculate_ccg_pair_single_trial)(padded_st1, padded_st2, firing_rates, ind_A, ind_B, T)
-				for ind_A, ind_B in tqdm(total_list, total=len(total_list), miniters=int(len(total_list) / 50), 
-																	maxinterval=200, disable=disable)
-			)
-		else:
-			result = [self.calculate_ccg_pair_single_trial(padded_st1, padded_st2, firing_rates, ind_A, ind_B, T) 
-								for ind_A, ind_B in tqdm(total_list, total=len(total_list), disable=disable)]
-		for i in range(len(total_list)):
-			ind_A, ind_B = total_list[i]
-			ccgs[ind_A, ind_B, :] = result[i]
-
+		# Ensure both neurons have non-zero firing rates
+		valid_inds = np.where(firing_rates > 0)[0]
+		total_list = list(itertools.permutations(valid_inds, 2))
+		for ind_A, ind_B in tqdm(total_list, total=len(total_list), disable=disable):
+			ccgs[ind_A, ind_B, :] = self.calculate_ccg_pair_single_trial(padded_st1, padded_st2, firing_rates, ind_A, ind_B, T)
 		return ccgs
+
+	def process_trial(self, trial_ind, spikeTrain, pj):
+		spikeTrain_single_trial = spikeTrain[:, trial_ind, :]
+		ccg_trial = self.calculate_all_ccgs_single_trial(spikeTrain_single_trial, disable=True)
+		pj.spikeTrain = spikeTrain_single_trial
+		sampled_matrix = pj.jitter()  # num_jitter x N x T
+		ccg_jittered_trial = np.zeros_like(ccg_trial)
+		for jitter_ind in range(self.num_jitter):
+			ccg_jittered_trial += self.calculate_all_ccgs_single_trial(sampled_matrix[jitter_ind, :, :], disable=True)
+		return ccg_trial, ccg_jittered_trial / self.num_jitter
 
 	def calculate_mean_ccg_corrected(self, spikeTrain, disable=True):
 		"""
 		Calculates the mean CCG with jitter correction using the pattern jitter method, considering only causal correlations.
-		
+
 		Args:
 			spikeTrain (np.ndarray): The spike train tensor (num_neuron x num_trial x T) where T is the number of time bins.
 			disable (bool): Disable the progress bar. Default is True.
-				
+
 		Returns:
 			np.ndarray: The corrected CCG (N x N x window+1) after subtracting the jittered CCGs.
 		"""
 		num_neuron, num_trial, T = spikeTrain.shape
+		assert T > self.window, "Please reset the CCG window size to be smaller than the number of bins in the spike train."
 		ccgs = np.zeros((num_neuron, num_neuron, self.window + 1))
 		ccg_jittered = np.zeros((num_neuron, num_neuron, self.window + 1))
 		# Initialize the pattern jitter method
 		pj = pattern_jitter(num_sample=self.num_jitter, spikeTrain=spikeTrain[:, 0, :], L=self.L, memory=self.memory)
-		for trial_ind in tqdm(range(num_trial), disable=disable):
-			spikeTrain_single_trial = spikeTrain[:, trial_ind, :]
-			ccgs += self.calculate_all_ccgs_single_trial(spikeTrain_single_trial, disable=True)
-			pj.spikeTrain = spikeTrain_single_trial
-			sampled_matrix = pj.jitter()  # num_jitter x N x T
-			for jitter_ind in range(self.num_jitter):
-				ccg_jittered += self.calculate_all_ccgs_single_trial(sampled_matrix[jitter_ind, :, :], disable=True)
+		if self.use_parallel:
+			# with parallel_backend('multiprocessing'):
+			result = self.Parallel(n_jobs=self.num_cores)(
+				self.delayed(self.process_trial)(trial_ind, spikeTrain, pj)
+				for trial_ind in tqdm(range(num_trial), disable=disable)
+			)
+		else:
+			result = [self.process_trial(trial_ind, spikeTrain, pj) for trial_ind in tqdm(range(num_trial), disable=disable)]
+		for ccg_trial, ccg_jittered_trial in result:
+			ccgs += ccg_trial
+			ccg_jittered += ccg_jittered_trial
 		ccgs = ccgs / num_trial
-		ccg_jittered = ccg_jittered / (self.num_jitter * num_trial)
+		ccg_jittered = ccg_jittered / num_trial
 		ccg_jitter_corrected = ccgs - ccg_jittered
-
 		return ccg_jitter_corrected
 
 ######################################## model class ########################################
@@ -495,6 +491,8 @@ class SharpPeakIntervalDetection:
 			np.ndarray: Offset matrix.
 			np.ndarray: Index matrix indicating where significant peaks/intervals were found.
 		"""
+		import warnings
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in divide")
 		num_nodes = ccg_corrected.shape[0]
 		highland_ccg = np.full((num_nodes, num_nodes), np.nan)
 		offset = np.full((num_nodes, num_nodes), np.nan)
@@ -551,6 +549,8 @@ class SharpPeakIntervalDetection:
 			np.ndarray: Offset matrix.
 			np.ndarray: Index matrix indicating where the second-largest peaks/intervals were found.
 		"""
+		import warnings
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in divide")
 		num_pairs = ccg_corrected.shape[0]
 		highland_ccg_2nd = np.full(num_pairs, np.nan)
 		offset_2nd = np.full(num_pairs, np.nan)
