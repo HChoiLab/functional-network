@@ -417,14 +417,11 @@ def generate_spikes_Izhikevich_variable_delay(ground_truth, delay_matrix, n_tria
 	tau = 1  # Time span and step (ms)
 	n_bin = int(T / tau)  # Number of simulation steps
 	firings = []  # Spike timings
-	#
-	noise_amp = 2 # 0.25
+	noise_amp = 2
 	for tr in range(n_trial):
 		v = np.full((n_neuron, n_bin), vr, dtype=float)
 		u = np.zeros((n_neuron, n_bin))
 		I = np.zeros((n_neuron, n_bin))
-		# current_value = 110 # for 20 neurons
-		# I[0, :] = 130 * np.random.rand(n_bin)
 		for neuron in range(0,n_neuron):
 			I[neuron, :] = current_value * np.random.rand(n_bin)
 		R = np.zeros((n_neuron, n_bin))
@@ -455,6 +452,86 @@ def generate_spikes_Izhikevich_variable_delay(ground_truth, delay_matrix, n_tria
 			if firing[1] == neuron:
 				all_spiketrains[firing[1], firing[2], firing[0]] = 1
 	return all_spiketrains
+
+# Generate random delays for different connections
+def generate_delay(connectivity, low=2, high=5):
+	'''
+		generate a delay matrix for the connectivity
+	'''
+	non_zero_indices = np.nonzero(connectivity)
+	random_integers = np.random.randint(low, high+1, size=len(non_zero_indices[0]))
+	delay_matrix = np.zeros_like(connectivity)
+	delay_matrix[non_zero_indices] = random_integers
+	return delay_matrix.astype(int)
+
+# Variant of Izhikevich neuron model
+# Use variable delay and current for different connections
+def generate_spikes_Izhikevich_variable_delay_current(ground_truth, n_trial=40, T=250):
+	'''
+		ground_truth is the ground truth connections with values being connection strenths
+		n_trial is the number of trials
+		T is the trial length (ms)
+		variable (random) delay for different connections (ms)
+		the shape generated is neuron * trial * bin
+	'''
+	n_neuron = ground_truth.shape[0]
+	delay_matrix = generate_delay(ground_truth, 1, 4) # [1,4] actually means 2-5 ms delay
+	### variable (random) input current for different connections ###
+	current_values = np.random.randint(115, 125, size=n_neuron)
+	sources, targets = np.nonzero(delay_matrix)
+	
+	# Input parameters
+	C = 100
+	vr = -60 # resting membrane potential
+	vt = -40 #  instantaneous threshold potential
+	k = 0.7  # Parameters used for RS
+	a = 0.03
+	# 《Dynamical Systems in Neuroscience》by Eugene M. Izhikevich, page 273
+	# when b = 0, quadratic integrate-and-fire neuron with adaptation
+	# when b < 0, quadratic integrate-and-fire neuron with a passive dendritic compartment
+	# when b > 0, a novel class of spiking models
+	b = -2
+	c = -50 # reset membrane potential v = c if v >= v_peak
+	d = 100  # Neocortical pyramidal neurons u = u + d if v >= v_peak
+	vpeak = 35  # Spike cutoff
+	tau = 1  # Time span and step (ms)
+	n_bin = int(T / tau)  # Number of simulation steps
+	firings = []  # Spike timings
+	noise_amp = 0.25
+	for tr in range(n_trial):
+		v = np.full((n_neuron, n_bin), vr, dtype=float)
+		u = np.zeros((n_neuron, n_bin))
+		I = np.zeros((n_neuron, n_bin))
+		for neuron in range(n_neuron):
+			I[neuron, :] = current_values[neuron] * np.random.rand(n_bin)
+		R = np.zeros((n_neuron, n_bin))
+		for t in range(0, n_bin - 1):
+			dv = tau * (
+				k * (v[:, t] - vr) * (v[:, t] - vt) - u[:, t] + I[:, t] + R[:, t]
+			) / C + noise_amp * np.random.randn(1)
+			du = tau * a * (b * (v[:, t] - vr) - u[:, t])
+			v[:, t + 1] = v[:, t] + dv
+			u[:, t + 1] = u[:, t] + du
+			fired = np.where(v[:, t + 1] >= vpeak)[0]
+			if fired.size > 0:
+				firings.extend([(t + 1, f, tr) for f in fired])
+				v[fired, t] = vpeak
+				v[fired, t + 1] = c
+				u[fired, t + 1] = u[fired, t + 1] + d
+			# Neurotransmitter only lasts for one ms
+			# Variable delay for different connections
+			fire_mask = np.where(sources==fired)[0]
+			fired_srcs, fired_tgts = sources[fire_mask], targets[fire_mask]
+			fired_delays = t + 1 + delay_matrix[fired_srcs, fired_tgts]
+			time_mask = np.where(fired_delays<n_bin)[0]
+			R[fired_tgts[time_mask], fired_delays[time_mask]] += ground_truth[fired_srcs, fired_tgts][time_mask]
+			
+	all_spiketrains = np.zeros((n_neuron, n_trial, n_bin))
+	for neuron in range(n_neuron):
+		for firing in firings:
+			if firing[1] == neuron:
+				all_spiketrains[firing[1], firing[2], firing[0]] = 1
+	return delay_matrix, all_spiketrains
 
 ######################################## test class ########################################
 class SharpPeakIntervalDetection:
@@ -602,7 +679,7 @@ class SharpPeakIntervalDetection:
 
 		# Handle double-counting of peaks at zero time lag
 		double_0 = (significant_offset == 0) & (significant_offset.T == 0) & \
-				   (~np.isnan(significant_ccg)) & (~np.isnan(significant_ccg.T))
+					 (~np.isnan(significant_ccg)) & (~np.isnan(significant_ccg.T))
 		
 		if np.sum(double_0):
 			remove_0 = (significant_duration >= significant_duration.T) & double_0
@@ -622,3 +699,70 @@ class SharpPeakIntervalDetection:
 					significant_duration[remove_0][indx_2nd] = duration
 
 		return significant_ccg, significant_confidence, significant_offset, significant_duration
+
+	def get_ccg_max_value(self, ccg_corrected, duration=6):
+		"""
+		Return maximum within a window in the given cross-correlogram matrix.
+
+		Args:
+			ccg_corrected (np.ndarray): Cross-correlogram matrix.
+			duration (int): Duration of the maximum detection window, duration=0 means a single peak.
+
+		Returns:
+			np.ndarray: Matrix of highland CCG values.
+			np.ndarray: Confidence level matrix.
+			np.ndarray: Offset matrix.
+			np.ndarray: Index matrix indicating where peaks/intervals were found.
+		"""
+		import warnings
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in divide")
+		num_nodes = ccg_corrected.shape[0]
+		# highland_ccg = np.full((num_nodes, num_nodes), np.nan)
+		# offset = np.full((num_nodes, num_nodes), np.nan)
+		# confidence_level = np.zeros((num_nodes, num_nodes))
+		
+		filter = np.array([[[1]]]).repeat(duration + 1, axis=2)
+		ccg_integral = signal.convolve(ccg_corrected, filter, mode='valid', method='fft')
+		mu, sigma = np.nanmean(ccg_integral, -1), np.nanstd(ccg_integral, -1)
+		abs_deviation = np.abs(ccg_integral[:, :, :self.maxlag - duration + 1] - mu[:, :, None])
+		extreme_offset = np.argmax(abs_deviation, -1)
+		ccg_mat_extreme = np.choose(extreme_offset, np.moveaxis(ccg_integral[:, :, :self.maxlag - duration + 1], -1, 0))
+		# pos_fold = ccg_mat_extreme > mu + self.n * sigma
+		# neg_fold = ccg_mat_extreme < mu - self.n * sigma
+		c_level = (ccg_mat_extreme - mu) / sigma
+		# indx = np.logical_or(pos_fold, neg_fold)
+		
+		# highland_ccg[indx] = ccg_mat_extreme[indx]
+		# confidence_level[indx] = c_level[indx]
+		# offset[indx] = extreme_offset[indx]
+		
+		return ccg_mat_extreme, c_level, extreme_offset
+ 
+	def get_full_ccg(self, ccg_corrected):
+		"""
+		Obtain full cross-correlograms.
+
+		Returns:
+			np.ndarray: Matrix of all CCG values.
+			np.ndarray: Confidence level matrix for all connections.
+			np.ndarray: Offset matrix for all connections.
+			np.ndarray: Duration matrix for all connections.
+		"""
+		import warnings
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="Use of fft convolution on input with NAN or inf results in NAN or inf output")
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="Mean of empty slice")
+		warnings.filterwarnings("ignore", category=RuntimeWarning, message="Degrees of freedom <= 0 for slice")
+		num_nodes = ccg_corrected.shape[0]
+		full_ccg = np.full((num_nodes, num_nodes), np.nan)
+		full_confidence = np.full((num_nodes, num_nodes), np.nan)
+		full_offset = np.full((num_nodes, num_nodes), np.nan)
+		full_duration = np.full((num_nodes, num_nodes), np.nan)
+		for duration in np.arange(self.max_duration, -1, -1):
+			highland_ccg, confidence_level, offset = self.get_ccg_max_value(ccg_corrected, duration)
+			mask = np.abs(np.nan_to_num(full_confidence)) < np.abs(confidence_level)
+			if np.sum(mask):
+				full_ccg[mask] = highland_ccg[mask]
+				full_confidence[mask] = confidence_level[mask]
+				full_offset[mask] = offset[mask]
+				full_duration[mask] = duration
+		return full_ccg, full_confidence, full_offset, full_duration
