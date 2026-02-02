@@ -18,7 +18,7 @@ class pattern_jitter():
 	Pattern jitter algorithm for generating synthetic spike trains by preserving recent spiking history of all spikes.
 	Harrison, M. T., & Geman, S. (2009). A rate and history-preserving resampling algorithm for neural spike trains. Neural Computation, 21(5), 1244-1258.
 	"""
-	def __init__(self, num_sample, spikeTrain, L, R=None, memory=True):
+	def __init__(self, num_sample, spikeTrain, L, R=None, memory=True, seed=None):
 		"""
 		Initializes the pattern_jitter class with given parameters.
 
@@ -28,6 +28,7 @@ class pattern_jitter():
 			L (int): Length of the jitter window.
 			R (int, optional): Memory parameter indicating the maximum allowable interval to consider recent history. Required if memory=True.
 			memory (bool): If True, uses the history-preserving method; otherwise, uses the simple spike jitter method.
+			seed (int, optional): Random seed for reproducibility.
 		"""
 		super(pattern_jitter,self).__init__()
 		self.num_sample = num_sample
@@ -44,6 +45,8 @@ class pattern_jitter():
 			self.R = R
 		else:
 			self.R = None
+		self.seed = seed
+		self.rng = np.random.default_rng(seed) if seed is not None else None
 
 	def spike_time2train(self, spikeTime):
 		"""
@@ -88,7 +91,10 @@ class pattern_jitter():
 		Returns:
 			np.ndarray: Normalized initial distribution.
 		"""
-		initDist = np.random.rand(self.L)
+		if self.rng is None:
+			initDist = np.random.rand(self.L)
+		else:
+			initDist = self.rng.random(self.L)
 		return initDist/initDist.sum()
 
 	def getTransitionMatrices(self, num_spike):
@@ -103,7 +109,10 @@ class pattern_jitter():
 		"""
 		tDistMatrices = np.zeros((num_spike - 1, self.L, self.L))
 		for i in range(tDistMatrices.shape[0]):
-			matrix = np.random.rand(self.L, self.L)
+			if self.rng is None:
+				matrix = np.random.rand(self.L, self.L)
+			else:
+				matrix = self.rng.random((self.L, self.L))
 			stochMatrix = matrix/matrix.sum(axis=1)[:,None]
 			tDistMatrices[i, :, :] = stochMatrix.astype('f')
 		return tDistMatrices
@@ -119,7 +128,7 @@ class pattern_jitter():
 		Returns:
 			int: Initial spike location.
 		"""
-		randX = np.random.random()
+		randX = np.random.random() if self.rng is None else self.rng.random()
 		ind = np.where(randX <= np.cumsum(initDist))[0][0]
 		return jitter_window[0][ind]
 
@@ -208,7 +217,7 @@ class pattern_jitter():
 				index = np.where(np.array(jitter_window[i]) == givenX)[0]
 				p_i = np.squeeze(np.array(row[index]))
 				initX = self.initializeX(jitter_window[i + 1][0], p_i)
-				randX = np.random.random()
+				randX = np.random.random() if self.rng is None else self.rng.random()
 				# safe way to find the ind
 				larger = np.where(randX <= np.cumsum(p_i))[0]
 				if larger.shape[0]:
@@ -220,7 +229,7 @@ class pattern_jitter():
 			if givenX in surrogate:
 				locs = jitter_window[i + 1]
 				available_locs = [loc for loc in locs if loc not in surrogate]
-				givenX = np.random.choice(available_locs)
+				givenX = np.random.choice(available_locs) if self.rng is None else self.rng.choice(available_locs)
 			surrogate.append(givenX)
 		return surrogate
 
@@ -270,9 +279,10 @@ class pattern_jitter():
 			jittered_spikeTrain = self.spike_time2train(sampled_spiketimes).squeeze()
 		return jittered_spikeTrain
 
+
 ######################################## CCG class ########################################
 class CCG:
-	def __init__(self, num_jitter=100, L=25, window=100, memory=False, use_parallel=True, num_cores=14):
+	def __init__(self, num_jitter=100, L=25, window=100, memory=False, use_parallel=True, num_cores=14, seed=None):
 		"""
 		Initializes the CCG class with options for parallel computing.
 
@@ -290,6 +300,7 @@ class CCG:
 		self.memory = memory
 		self.use_parallel = use_parallel
 		self.num_cores = num_cores
+		self.seed = seed
 		if self.use_parallel:
 			from joblib import Parallel, delayed
 			self.Parallel = Parallel
@@ -315,7 +326,7 @@ class CCG:
 										strides=(-px.strides[0], px.strides[0]))
 		return (shifted @ py) / ((T - np.arange(self.window + 1)) / 1000 * np.sqrt(firing_rates[ind_A] * firing_rates[ind_B]))
 
-	def calculate_all_ccgs_single_trial(self, spikeTrain_single_trial, disable=True):
+	def calculate_all_ccgs_single_trial(self, spikeTrain_single_trial, firing_rates, disable=True):
 		"""
 		Calculates CCGs for all pairs of neurons for a single trial, with optional parallel computing for accelearation.
 		
@@ -333,7 +344,6 @@ class CCG:
 		mask = np.broadcast_to(mask, ccgs.shape)
 		ccgs[mask] = np.nan
 		# ccgs[:] = np.nan
-		firing_rates = np.count_nonzero(spikeTrain_single_trial, axis=1) / (spikeTrain_single_trial.shape[1] / 1000)  # in Hz,, default time bin is 1ms, change this based on time bin size
 		# Pad the matrices for CCG calculation
 		padded_st1 = np.concatenate((np.zeros((N, self.window)), spikeTrain_single_trial.conj(), np.zeros((N, self.window))), axis=1)
 		padded_st2 = np.concatenate((spikeTrain_single_trial.conj(), np.zeros((N, self.window))), axis=1)
@@ -344,14 +354,18 @@ class CCG:
 			ccgs[ind_A, ind_B, :] = self.calculate_ccg_pair_single_trial(padded_st1, padded_st2, firing_rates, ind_A, ind_B, T)
 		return ccgs
 
-	def process_trial(self, trial_ind, spikeTrain, pj):
+	def process_trial(self, trial_ind, spikeTrain, firing_rates, pj):
 		spikeTrain_single_trial = spikeTrain[:, trial_ind, :]
-		ccg_trial = self.calculate_all_ccgs_single_trial(spikeTrain_single_trial, disable=True)
+		ccg_trial = self.calculate_all_ccgs_single_trial(spikeTrain_single_trial, firing_rates, disable=True)
 		pj.spikeTrain = spikeTrain_single_trial
+		if self.seed is not None:
+			trial_seed = (int(self.seed) + 1000003 * int(trial_ind)) % (2**32 - 1)
+			pj.seed = trial_seed
+			pj.rng = np.random.default_rng(trial_seed)
 		sampled_matrix = pj.jitter()  # num_jitter x N x T
 		ccg_jittered_trial = np.zeros_like(ccg_trial)
 		for jitter_ind in range(self.num_jitter):
-			ccg_jittered_trial += self.calculate_all_ccgs_single_trial(sampled_matrix[jitter_ind, :, :], disable=True)
+			ccg_jittered_trial += self.calculate_all_ccgs_single_trial(sampled_matrix[jitter_ind, :, :], firing_rates, disable=True)
 		return ccg_trial, ccg_jittered_trial / self.num_jitter
 
 	def calculate_mean_ccg_corrected(self, spikeTrain, disable=True):
@@ -366,19 +380,20 @@ class CCG:
 			np.ndarray: The corrected CCG (N x N x window+1) after subtracting the jittered CCGs.
 		"""
 		num_neuron, num_trial, T = spikeTrain.shape
+		firing_rates = np.count_nonzero(spikeTrain, axis=(1, 2)) / (num_trial * T / 1000)  # in Hz, default time bin is 1ms, change this based on time bin size
 		assert T > self.window, "Please reset the CCG window size to be smaller than the number of bins in the spike train."
 		ccgs = np.zeros((num_neuron, num_neuron, self.window + 1))
 		ccg_jittered = np.zeros((num_neuron, num_neuron, self.window + 1))
 		# Initialize the pattern jitter method
-		pj = pattern_jitter(num_sample=self.num_jitter, spikeTrain=spikeTrain[:, 0, :], L=self.L, memory=self.memory)
+		pj = pattern_jitter(num_sample=self.num_jitter, spikeTrain=spikeTrain[:, 0, :], L=self.L, memory=self.memory, seed=self.seed)
 		if self.use_parallel:
 			# with parallel_backend('multiprocessing'):
 			result = self.Parallel(n_jobs=self.num_cores)(
-				self.delayed(self.process_trial)(trial_ind, spikeTrain, pj)
+				self.delayed(self.process_trial)(trial_ind, spikeTrain, firing_rates, pj)
 				for trial_ind in tqdm(range(num_trial), disable=disable)
 			)
 		else:
-			result = [self.process_trial(trial_ind, spikeTrain, pj) for trial_ind in tqdm(range(num_trial), disable=disable)]
+			result = [self.process_trial(trial_ind, spikeTrain, firing_rates, pj) for trial_ind in tqdm(range(num_trial), disable=disable)]
 		for ccg_trial, ccg_jittered_trial in result:
 			ccgs += ccg_trial
 			ccg_jittered += ccg_jittered_trial
@@ -386,6 +401,7 @@ class CCG:
 		ccg_jittered = ccg_jittered / num_trial
 		ccg_jitter_corrected = ccgs - ccg_jittered
 		return ccg_jitter_corrected
+
 
 ######################################## model class ########################################
 # Izhikevich neuron model
